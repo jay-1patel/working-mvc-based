@@ -1,6 +1,7 @@
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { TenantProvider, useTenants } from '@/lib/tenants'
 import { isOnboardingLocked, usePermissions } from '@/lib/permissions'
+import { SUPER_ADMIN_ONLY_VIEWS } from '@/lib/navigation'
 import { parseRoute, useRoute } from '@/lib/router'
 import { ToastProvider } from '@/components/ui/toast'
 import { ConfirmProvider } from '@/components/ui/confirm'
@@ -166,6 +167,19 @@ function Router() {
     return (
       <AppShell route={route}>
         <ApiOnboardingPanel />
+      </AppShell>
+    )
+  }
+
+  // Grow + Manage (campaigns, intents, versions, connections) are
+  // super-admin-only in the tenant console — company admins do not see them.
+  if (
+    (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(route.view) &&
+    !isSuperAdmin
+  ) {
+    return (
+      <AppShell route={route}>
+        <NotPermitted what="open this screen" permission="super admin" />
       </AppShell>
     )
   }

@@ -115,10 +115,27 @@ const VERTICALS_WITH_COMPANY_INFO = new Set(['it_software'])
  * someone who cannot open it is a smaller sin than hiding every screen until a
  * request the user may not be allowed to make resolves.
  */
+/** Tenant-nav groups only a super admin may see (hidden from admin / sub-admin). */
+export const SUPER_ADMIN_ONLY_NAV_GROUPS: NavGroup[] = ['Grow', 'Manage']
+
+/** Route view ids that live under those super-admin-only groups. */
+export const SUPER_ADMIN_ONLY_VIEWS = [
+  'campaigns',
+  'intents',
+  'versions',
+  'tokens',
+] as const
+
 export function buildTenantNav(opts: {
   vertical?: string | null
   features?: Features | null
   can: (permission: string) => boolean
+  /**
+   * When explicitly `false` (company admin / sub-admin), Grow and Manage are
+   * omitted. Super admins keep them. Omit / `true` / `undefined` keeps the
+   * full list (used by `knownViews` and unit tests that do not pass a role).
+   */
+  isSuperAdmin?: boolean
 }): NavItem[] {
   const content = getVertical(opts.vertical).content
   const features = opts.features ?? null
@@ -127,6 +144,7 @@ export function buildTenantNav(opts: {
     : []
 
   const uploadPermissions = ['upload_faq', 'upload_kb', 'view_files', 'catalogue_new_arrival']
+  const hideSuperAdminOnly = opts.isSuperAdmin === false
 
   const items: NavItem[] = [
     { id: 'overview', label: 'Today', icon: LayoutGrid, group: 'Today' },
@@ -277,7 +295,10 @@ export function buildTenantNav(opts: {
       permissions: ['manage_operations'],
     },
   ]
-  return items.filter((item) => isVisible(item, opts.can, features))
+  return items.filter((item) => {
+    if (hideSuperAdminOnly && SUPER_ADMIN_ONLY_NAV_GROUPS.includes(item.group)) return false
+    return isVisible(item, opts.can, features)
+  })
 }
 
 /** Whether one item passes its permission and feature gates. */

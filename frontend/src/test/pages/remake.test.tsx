@@ -94,6 +94,28 @@ describe('remake — grouped navigation', () => {
     expect(nav.map((i) => i.label)).not.toContain('Chats')
     expect(nav.map((i) => i.label)).toContain('Today')
   })
+
+  it('hides Grow and Manage from company admins, keeps them for super admins', () => {
+    const base = {
+      vertical: 'ecommerce' as const,
+      features: null,
+      can: () => true,
+    }
+    const adminNav = buildTenantNav({ ...base, isSuperAdmin: false })
+    expect(adminNav.map((i) => i.group)).not.toContain('Grow')
+    expect(adminNav.map((i) => i.group)).not.toContain('Manage')
+    expect(adminNav.map((i) => i.label)).not.toContain('Questions the bot understands')
+    expect(adminNav.map((i) => i.label)).not.toContain('Versions')
+    expect(adminNav.map((i) => i.label)).not.toContain('Connections')
+    expect(adminNav.map((i) => i.label)).not.toContain('Send an offer')
+
+    const superNav = buildTenantNav({ ...base, isSuperAdmin: true })
+    expect(superNav.map((i) => i.group)).toContain('Grow')
+    expect(superNav.map((i) => i.group)).toContain('Manage')
+    expect(superNav.map((i) => i.label)).toContain('Questions the bot understands')
+    expect(superNav.map((i) => i.label)).toContain('Versions')
+    expect(superNav.map((i) => i.label)).toContain('Connections')
+  })
 })
 
 describe('remake — shell in the app', () => {

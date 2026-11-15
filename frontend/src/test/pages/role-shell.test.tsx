@@ -31,9 +31,18 @@ describe('Send2Digital role workspaces', () => {
       if (role === 'super_admin') {
         expect(navigation.getByRole('button', { name: 'Businesses' })).toBeInTheDocument()
         expect(screen.getByText(/View-only — changes come from/)).toBeInTheDocument()
+        expect(navigation.getByText('Grow')).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'Questions the bot understands' })).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'Versions' })).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'Connections' })).toBeInTheDocument()
       } else {
         expect(navigation.queryByRole('button', { name: 'Businesses' })).not.toBeInTheDocument()
         expect(screen.queryByText(/View-only — changes come from/)).not.toBeInTheDocument()
+        // Grow / Manage (and their items) are super-admin-only.
+        expect(navigation.queryByText('Grow')).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'Questions the bot understands' })).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'Versions' })).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'Connections' })).not.toBeInTheDocument()
       }
       if (role === 'sub_admin') {
         expect(screen.queryByRole('button', { name: 'Register a tenant' })).not.toBeInTheDocument()

@@ -89,7 +89,9 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const brandName =
     profile?.brand?.name?.trim() || active?.display_name || active?.id || identity?.tenant_id || ''
   const brandTagline = profile?.brand?.tagline?.trim() || (active ? getVertical(active.vertical).short : '')
-  const nav = locked ? [] : buildTenantNav({ vertical: active?.vertical, features, can })
+  const nav = locked
+    ? []
+    : buildTenantNav({ vertical: active?.vertical, features, can, isSuperAdmin })
   const contentCount = useOfferingsCount(
     route.tenantId && can('view_products') ? route.tenantId : null,
   )

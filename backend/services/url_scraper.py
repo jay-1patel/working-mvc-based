@@ -891,24 +891,100 @@ class UrlAutoOnboarder:
         }
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any]]:
-        """Call local Ollama only for JSON extraction (no Groq/Mistral)."""
+        """JSON extraction via BIFURCATE_PROVIDER (qwen cloud or local Ollama)."""
         import requests
 
         try:
             from routing import config as _cfg
-            ollama_base = getattr(_cfg, "OLLAMA_BASE_URL", None) or os.getenv(
-                "OLLAMA_BASE_URL", "http://localhost:11434"
-            )
-            ollama_url = getattr(_cfg, "OLLAMA_API_URL", None) or (
-                ollama_base.rstrip("/") + "/api/chat"
-            )
-            ollama_mdl = getattr(_cfg, "OLLAMA_MODEL", None) or "qwen3:8b"
         except Exception:
-            ollama_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/chat")
-            ollama_mdl = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+            _cfg = None
 
-        timeout = float(os.getenv("OLLAMA_TIMEOUT", "300"))
+        provider = (
+            (getattr(_cfg, "BIFURCATE_PROVIDER", None) if _cfg else None)
+            or os.getenv("BIFURCATE_PROVIDER")
+            or os.getenv("API_PROVIDER")
+            or "ollama"
+        ).lower().strip()
+        if provider in ("dashscope", "qwen-plus", "alibaba"):
+            provider = "qwen"
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        timeout = float(
+            os.getenv("BIFURCATE_OLLAMA_TIMEOUT")
+            or os.getenv("OLLAMA_TIMEOUT")
+            or "90"
+        )
+
         try:
+            if provider == "qwen":
+                api_key = (
+                    (getattr(_cfg, "QWEN_API_KEY", None) if _cfg else None)
+                    or os.getenv("QWEN_API_KEY")
+                    or os.getenv("DASHSCOPE_API_KEY")
+                    or ""
+                )
+                if api_key:
+                    url = (
+                        (getattr(_cfg, "QWEN_API_URL", None) if _cfg else None)
+                        or os.getenv("QWEN_API_URL")
+                        or "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+                    )
+                    model = (
+                        (getattr(_cfg, "QWEN_MODEL", None) if _cfg else None)
+                        or os.getenv("QWEN_MODEL")
+                        or "qwen-plus"
+                    )
+                    resp = requests.post(
+                        url,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": model,
+                            "messages": messages,
+                            "temperature": 0.1,
+                            "max_tokens": 4096,
+                            "response_format": {"type": "json_object"},
+                            "enable_thinking": False,
+                        },
+                        timeout=timeout,
+                    )
+                    if resp.status_code != 200:
+                        logger.warning(
+                            "Qwen URL onboard HTTP %s | model=%s | body=%s",
+                            resp.status_code,
+                            model,
+                            (resp.text or "")[:200],
+                        )
+                        return None
+                    content = (
+                        ((resp.json().get("choices") or [{}])[0].get("message") or {}).get(
+                            "content"
+                        )
+                        or ""
+                    ).strip()
+                    match = re.search(r"(\{.*\})", content, re.DOTALL)
+                    if match:
+                        return json.loads(match.group(1))
+                    return None
+
+            ollama_base = (
+                (getattr(_cfg, "OLLAMA_BASE_URL", None) if _cfg else None)
+                or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            )
+            ollama_url = (
+                (getattr(_cfg, "OLLAMA_API_URL", None) if _cfg else None)
+                or (ollama_base.rstrip("/") + "/api/chat")
+            )
+            ollama_mdl = (
+                (getattr(_cfg, "OLLAMA_MODEL", None) if _cfg else None)
+                or os.getenv("OLLAMA_MODEL")
+                or "qwen3:8b"
+            )
             resp = requests.post(
                 ollama_url,
                 headers={
@@ -917,10 +993,7 @@ class UrlAutoOnboarder:
                 },
                 json={
                     "model": ollama_mdl,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
+                    "messages": messages,
                     "format": "json",
                     "stream": False,
                     "think": False,
@@ -949,7 +1022,7 @@ class UrlAutoOnboarder:
             if match:
                 return json.loads(match.group(1))
         except Exception as e:
-            logger.warning("Ollama URL onboard error: %s", e)
+            logger.warning("URL onboard LLM error: %s", e)
         return None
 
     def _heuristic_extraction(self, crawl_res: Dict[str, Any], domain: str) -> Dict[str, Any]:

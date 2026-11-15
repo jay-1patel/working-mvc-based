@@ -75,11 +75,29 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 
 # Ollama inference tuning. num_gpu=99 offloads every layer to VRAM.
-OLLAMA_NUM_GPU = _int_env("OLLAMA_NUM_GPU", 99)
+# On Windows CUDA crashes, set OLLAMA_NUM_GPU=0 (CPU).
+OLLAMA_NUM_GPU = _int_env("OLLAMA_NUM_GPU", 0)
 OLLAMA_NUM_CTX = _int_env("OLLAMA_NUM_CTX", 16384)
 OLLAMA_NUM_BATCH = _int_env("OLLAMA_NUM_BATCH", 4096)
 OLLAMA_NUM_THREAD = _int_env("OLLAMA_NUM_THREAD", 16)
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+
+# Bifurcation-only overrides (PDF/kit staging). Prefer a small/fast local
+# model so uploads do not hang 5+ minutes per chunk on weak GPU setups.
+BIFURCATE_OLLAMA_MODEL = (
+    os.getenv("BIFURCATE_OLLAMA_MODEL") or OLLAMA_MODEL or "qwen2.5:1.5b"
+)
+BIFURCATE_OLLAMA_NUM_GPU = _int_env("BIFURCATE_OLLAMA_NUM_GPU", OLLAMA_NUM_GPU)
+BIFURCATE_OLLAMA_TIMEOUT = float(
+    os.getenv("BIFURCATE_OLLAMA_TIMEOUT")
+    or os.getenv("OLLAMA_TIMEOUT")
+    or "90"
+)
+# Bifurcation LLM backend: ollama (default / server) | qwen | groq | mistral
+# Local-only tip: set BIFURCATE_PROVIDER=qwen + QWEN_API_KEY; keep ollama on server.
+BIFURCATE_PROVIDER = (
+    os.getenv("BIFURCATE_PROVIDER") or os.getenv("API_PROVIDER") or "ollama"
+).lower().strip()
 
 GROQ_API_URL = os.getenv("GROQ_API_URL")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -88,6 +106,17 @@ GROQ_MODEL = os.getenv("GROQ_MODEL")
 MISTRAL_API_URL = os.getenv("MISTRAL_API_URL")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY") or os.getenv("MISTRAL_API_BACKUP")
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL")
+
+# Qwen / DashScope OpenAI-compatible API (cloud). Use for local uploads when
+# Windows Ollama/CUDA is too slow. Server should stay on Ollama.
+# CN: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+# INTL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
+QWEN_API_URL = os.getenv(
+    "QWEN_API_URL",
+    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+)
+QWEN_API_KEY = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or ""
+QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
 
 # ── Brand / support ───────────────────────────────────────────────────────
 # Company details are owned by the tenant profile (clients/<id>/config.json ->

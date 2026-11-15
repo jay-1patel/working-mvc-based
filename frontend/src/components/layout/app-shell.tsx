@@ -79,8 +79,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const locked = isOnboardingLocked(identity)
   const isSuperAdmin = identity?.role === 'super_admin'
   const flush = FLUSH_VIEWS.has(route.view)
-  // The header shows the tenant's own brand for admins and sub admins. Super
-  // admins (who span tenants) keep the generic product mark instead.
+  // Send2Digital brands the product for every role; the workspace below it
+  // retains the tenant's own name and logo.
   const chromeTenantId =
     route.tenantId ?? (!isSuperAdmin ? identity?.tenant_id ?? null : null)
   const profile = useTenantProfile(chromeTenantId)
@@ -134,7 +134,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         className={cn(
           'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
           isActive
-            ? 'bg-accsoft font-semibold text-acc'
+            ? 'font-medium text-acc'
             : 'text-txmuted hover:bg-paper hover:text-tx',
         )}
       >
@@ -163,7 +163,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
       className={cn(
         'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
         route.view === activeView
-          ? 'bg-accsoft font-semibold text-acc'
+          ? 'font-medium text-acc'
           : 'text-txmuted hover:bg-paper hover:text-tx',
       )}
     >
@@ -174,7 +174,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   )
 
   return (
-    <div className="flex h-full bg-paper text-tx">
+    <div className="send2-frame">
+    <div className="send2-workspace flex min-h-0 flex-1 bg-paper text-tx">
       {/* Small / medium: the sidebar is an off-canvas drawer behind a hamburger. */}
       {navOpen && (
         <button
@@ -187,12 +188,18 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col border-r border-line bg-sidebg transition-transform duration-200 ease-out',
+          'send2-sidebar fixed inset-y-0 left-0 z-50 flex w-60 shrink-0 flex-col border-r border-linesoft bg-sidebg transition-transform duration-200 ease-out',
           navOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
           'lg:static lg:z-auto lg:translate-x-0 lg:shadow-none',
         )}
       >
-        <div className="flex items-center gap-2.5 px-5 py-5">
+        <div className="flex shrink-0 items-center justify-between px-5 pb-2 pt-7">
+          <div>
+            <img src="/send2digital-logo.png" alt="Send2Digital" className="h-auto w-40" />
+            <p className="mt-2 text-xs font-medium text-heading">AI Chatbot</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2.5 px-5 py-4">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accsoft font-bold text-acc ring-1 ring-inset ring-acc/25">
             {!isSuperAdmin && logoUrl ? (
               <img src={logoUrl} alt={brandName || 'Company logo'} className="h-full w-full object-contain" />
@@ -208,12 +215,12 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                 <p className="truncate text-sm font-semibold text-tx">
                   {brandName || 'Company console'}
                 </p>
-                <p className="truncate text-xs text-txmuted">{brandTagline || 'WhatsApp console'}</p>
+                <p className="truncate text-xs text-txmuted">{brandTagline || 'Business workspace'}</p>
               </>
             ) : (
               <>
-                <p className="truncate text-sm font-semibold text-tx">Tenant Console</p>
-                <p className="text-xs text-txmuted">Multi-tenant WhatsApp</p>
+                <p className="truncate text-sm font-medium text-heading">Platform workspace</p>
+                <p className="text-xs text-txmuted">Super admin</p>
               </>
             )}
           </div>
@@ -326,7 +333,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           </div>
         )}
 
-        <nav className="mt-4 flex-1 space-y-4 overflow-y-auto px-3 scroll-thin">
+        <nav aria-label="Main navigation" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-3 scroll-thin">
           {locked ? (
             <div className="space-y-0.5">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
@@ -405,6 +412,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Platform
               </p>
+              {globalItem('dashboard', 'Overview', LayoutGrid, '/dashboard', 'dashboard')}
               {globalItem('businesses', 'Businesses', Building2, '/tenants', '__tenants__')}
               {globalItem('tenant-requests', 'Business requests', ClipboardCheck, '/tenant-requests', 'tenant-requests')}
               {globalItem('api-requests', 'API requests', ShieldCheck, '/api-requests', 'api-requests')}
@@ -418,6 +426,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Manage
               </p>
+              {globalItem('dashboard', 'Overview', LayoutGrid, '/dashboard', 'dashboard')}
               {identity.role === 'admin' && (
                 <>
                   {globalItem('audit-history', 'Activity log', ScrollText, '/audit-history', 'audit-history')}
@@ -476,14 +485,14 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
 
       <main
         className={cn(
-          'min-w-0 flex-1 bg-paper scroll-thin',
+          'send2-main min-w-0 flex-1 bg-paper scroll-thin',
           flush
             ? 'flex flex-col overflow-hidden'
             : cn('overflow-x-hidden overflow-y-auto', navOpen && 'overflow-hidden lg:overflow-y-auto'),
         )}
       >
         {/* Small / medium: a sticky top bar with the hamburger and the brand. */}
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-sidebg px-4 lg:hidden">
+        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-linesoft bg-sidebg px-4 lg:hidden">
           <button
             type="button"
             onClick={() => setNavOpen(true)}
@@ -494,24 +503,16 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accsoft font-bold text-acc ring-1 ring-inset ring-acc/25">
-              {!isSuperAdmin && logoUrl ? (
-                <img src={logoUrl} alt={brandName || 'Company logo'} className="h-full w-full object-contain" />
-              ) : !isSuperAdmin && brandName ? (
-                <span className="text-sm">{brandName.slice(0, 1).toUpperCase()}</span>
-              ) : (
-                <Blocks className="h-4 w-4" />
-              )}
-            </div>
-            <p className="truncate text-sm font-semibold text-tx">
-              {isSuperAdmin ? 'Tenant Console' : brandName || 'Company console'}
+            <img src="/send2digital-logo.png" alt="Send2Digital" className="h-auto w-28 shrink-0" />
+            <p className="truncate text-xs font-medium text-heading">
+              AI Chatbot
             </p>
           </div>
         </header>
 
         <div
           className={cn(
-            'mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8',
+            'send2-content mx-auto w-full max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-7 lg:py-7',
             flush && 'flex min-h-0 w-full flex-1 flex-col',
           )}
         >
@@ -526,6 +527,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           {children}
         </div>
       </main>
+    </div>
+    <footer className="send2-footer">Send2Digital <span aria-hidden="true">·</span> AI Chatbot</footer>
     </div>
   )
 }

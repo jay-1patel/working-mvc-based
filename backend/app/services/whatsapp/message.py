@@ -592,6 +592,44 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
 
     result = {"answer": "", "media_url": None, "media_type": None, "whatsapp_sent": False, "interactive": None, "query_type": query_type}
 
+    # ── Message intelligence (UC-01..UC-05) ────────────────────────────────
+    # Feature-flagged per tenant. Taxonomy from profile.intelligence.
+    # Safety hits short-circuit to an escalation reply before FAQ/KB.
+    intelligence = None
+    if tenant_id and user_text and not is_btn_reply:
+        try:
+            from backend.services.message_intelligence import analyze_message
+            intelligence = analyze_message(
+                user_text,
+                tenant_id=tenant_id,
+                wa_id=wa_id or "",
+                persist=True,
+            )
+        except Exception:
+            logger.exception("MESSAGE_INTELLIGENCE_FAILED | tenant=%s", tenant_id)
+            intelligence = None
+    if intelligence:
+        result["intelligence"] = intelligence.to_dict()
+        if intelligence.escalate and intelligence.escalate_message:
+            from shared.handover import append_resume_hint
+            result["answer"] = append_resume_hint(intelligence.escalate_message)
+            result["query_type"] = "safety_escalation"
+            result["tenant_id"] = tenant_id
+            # Pause bot so inbox agents can take over (same path as Talk to Human).
+            if wa_id:
+                try:
+                    from database import set_human_handover
+                    set_human_handover(wa_id, True, tenant_id=tenant_id)
+                except Exception:
+                    try:
+                        from backend.db.state import set_human_handover
+                        set_human_handover(wa_id, True, tenant_id=tenant_id)
+                    except Exception:
+                        logger.debug(
+                            "SAFETY_HANDOFF_FLAG_SKIPPED | tenant=%s", tenant_id, exc_info=True
+                        )
+            return result
+
     # Greetings must short-circuit BEFORE intent/service matching. Otherwise a
     # kit intent that happens to list "hi" as an example steals the reply, and
     # the user gets a panel answer instead of (or in addition to) the menu.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp, waitForScreen } from '../helpers'
 
@@ -27,20 +27,21 @@ describe('phase 2 — uploads doors', () => {
     await waitForScreen()
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('button', { name: 'Knowledge' }))
+    const navigation = within(await screen.findByRole('navigation', { name: 'Main navigation' }))
+    await user.click(navigation.getByRole('button', { name: 'Knowledge' }))
     await waitFor(
       () =>
         expect(
-          screen.getByRole('heading', { name: 'Uploads & Auto-Configurator' }),
+          screen.getByRole('heading', { name: 'Knowledge & uploads' }),
         ).toBeInTheDocument(),
       { timeout: 3000 },
     )
 
-    await user.click(await screen.findByRole('button', { name: 'Files' }))
+    await user.click(navigation.getByRole('button', { name: 'Files' }))
     await waitFor(
       () =>
         expect(
-          screen.getByRole('heading', { name: 'Uploads & Auto-Configurator' }),
+          screen.getByRole('heading', { name: 'Knowledge & uploads' }),
         ).toBeInTheDocument(),
       { timeout: 3000 },
     )

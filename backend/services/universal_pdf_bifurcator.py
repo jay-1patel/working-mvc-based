@@ -238,15 +238,67 @@ def _load_llm_config():
 
 
 def _provider_specs(system_prompt: str, user_prompt: str) -> List[Dict[str, Any]]:
-    """Ordered LLM providers: local Ollama first, then hosted fallbacks."""
+    """Ordered LLM providers: cloud Qwen when configured, else local Ollama."""
     cfg = _load_llm_config()
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
     specs: List[Dict[str, Any]] = []
+    provider = (
+        os.environ.get("BIFURCATE_PROVIDER")
+        or getattr(cfg, "BIFURCATE_PROVIDER", None)
+        or os.environ.get("API_PROVIDER")
+        or "ollama"
+    ).lower().strip()
+    if provider in ("dashscope", "qwen-plus", "alibaba"):
+        provider = "qwen"
 
-    # 1. Local Ollama (no API key, no hardcoded classification rules)
+    timeout = float(
+        os.environ.get("BIFURCATE_OLLAMA_TIMEOUT")
+        or os.environ.get("OLLAMA_TIMEOUT")
+        or getattr(cfg, "BIFURCATE_OLLAMA_TIMEOUT", None)
+        or 90
+    )
+
+    if provider == "qwen":
+        qwen_key = (
+            os.environ.get("QWEN_API_KEY")
+            or os.environ.get("DASHSCOPE_API_KEY")
+            or getattr(cfg, "QWEN_API_KEY", None)
+            or ""
+        )
+        if qwen_key:
+            qwen_url = (
+                os.environ.get("QWEN_API_URL")
+                or getattr(cfg, "QWEN_API_URL", None)
+                or "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+            )
+            qwen_model = (
+                os.environ.get("QWEN_MODEL")
+                or getattr(cfg, "QWEN_MODEL", None)
+                or "qwen-plus"
+            )
+            specs.append({
+                "name": "qwen",
+                "url": qwen_url,
+                "headers": {
+                    "Authorization": f"Bearer {qwen_key}",
+                    "Content-Type": "application/json",
+                },
+                "timeout": timeout,
+                "payload": {
+                    "model": qwen_model,
+                    "messages": messages,
+                    "temperature": 0.1,
+                    "max_tokens": 2048,
+                    "response_format": {"type": "json_object"},
+                    "enable_thinking": False,
+                },
+            })
+            return specs
+
+    # Local Ollama (default / server)
     ollama_url = (
         os.environ.get("OLLAMA_API_URL")
         or getattr(cfg, "OLLAMA_API_URL", None)
@@ -259,37 +311,73 @@ def _provider_specs(system_prompt: str, user_prompt: str) -> List[Dict[str, Any]
         ).rstrip("/")
         ollama_url = f"{ollama_base}/api/chat"
     ollama_model = (
-        os.environ.get("OLLAMA_MODEL")
+        os.environ.get("BIFURCATE_OLLAMA_MODEL")
+        or os.environ.get("OLLAMA_MODEL")
+        or getattr(cfg, "BIFURCATE_OLLAMA_MODEL", None)
         or getattr(cfg, "OLLAMA_MODEL", None)
         or "qwen3:8b"
     )
+    try:
+        num_gpu = int(
+            os.environ.get(
+                "BIFURCATE_OLLAMA_NUM_GPU",
+                os.environ.get(
+                    "OLLAMA_NUM_GPU",
+                    str(getattr(cfg, "OLLAMA_NUM_GPU", 99) or 99),
+                ),
+            )
+            or 99
+        )
+    except (TypeError, ValueError):
+        num_gpu = 99
+    headers = {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+    }
+    options_base = {
+        "temperature": 0.1,
+        "num_ctx": 8192,
+        "num_predict": 2048,
+        "num_gpu": num_gpu,
+    }
     specs.append({
         "name": "ollama",
         "url": ollama_url,
-        "headers": {
-            "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "true",
-        },
-        "timeout": float(os.environ.get("OLLAMA_TIMEOUT", 300)),
+        "headers": headers,
+        "timeout": timeout,
         "payload": {
             "model": ollama_model,
             "messages": messages,
             "stream": False,
             "format": "json",
             "think": False,
-            "options": {
-                "temperature": 0.1,
-                "num_ctx": 8192,
-                "num_predict": 4096,
-            },
+            "options": dict(options_base),
         },
     })
+    # Windows CUDA / llama-server crashes → CPU retry path
+    if num_gpu != 0:
+        cpu_opts = dict(options_base)
+        cpu_opts["num_gpu"] = 0
+        specs.append({
+            "name": "ollama_cpu",
+            "url": ollama_url,
+            "headers": headers,
+            "timeout": timeout,
+            "payload": {
+                "model": ollama_model,
+                "messages": messages,
+                "stream": False,
+                "format": "json",
+                "think": False,
+                "options": cpu_opts,
+            },
+        })
 
     return specs
 
 
 def _extract_content(data: Dict[str, Any]) -> str:
-    """Normalize Ollama /api/chat response body (content or thinking)."""
+    """Normalize Ollama or OpenAI-compatible response body."""
     message = data.get("message")
     if isinstance(message, dict):
         return (
@@ -297,6 +385,14 @@ def _extract_content(data: Dict[str, Any]) -> str:
             or (message.get("thinking") or "").strip()
             or (message.get("reasoning") or "").strip()
         )
+    choices = data.get("choices")
+    if isinstance(choices, list) and choices:
+        msg = (choices[0] or {}).get("message") or {}
+        if isinstance(msg, dict):
+            return (
+                (msg.get("content") or "").strip()
+                or (msg.get("reasoning_content") or "").strip()
+            )
     return ""
 
 

@@ -74,6 +74,47 @@ function routeDefault(
   if (path.match(/^\/api\/auth\/admins\/[^/]+\/reset-password$/) && method === 'POST')
     return json({ status: 'password reset' })
 
+  // ── dashboard / analytics (overview home) ───────────────────────────
+  if (path === '/api/admin/dashboard/stats')
+    return json({
+      kb_files: 2,
+      faq_files: 1,
+      products: 4,
+      top_questions: [{ query: 'hours?', count: 3 }],
+      total_customers: 12,
+      total_orders: 5,
+      orders_solved: 3,
+      total_complaints: 2,
+      complaints_solved: 1,
+    })
+  if (path === '/api/admin/analytics/overview')
+    return json({
+      days: 7,
+      total_messages: 40,
+      unique_users: 8,
+      avg_response_ms: 120,
+      route_breakdown: [
+        { route: 'faq', count: 20 },
+        { route: 'kb', count: 12 },
+        { route: 'agent', count: 8 },
+      ],
+    })
+  if (path === '/api/admin/analytics/response-time')
+    return json({
+      days: 7,
+      data: [
+        { date: '2026-11-09', avg_ms: 110, count: 4 },
+        { date: '2026-11-10', avg_ms: 130, count: 6 },
+        { date: '2026-11-11', avg_ms: 100, count: 5 },
+      ],
+    })
+  if (path === '/api/admin/analytics/frequent-questions')
+    return json({
+      days: 7,
+      total_unique: 1,
+      questions: [{ query: 'hours?', count: 3, last_asked: '2026-11-11T10:00:00Z' }],
+    })
+
   // ── tenants ─────────────────────────────────────────────────────────
   if (path === '/api/admin/tenants' && method === 'GET') return json({ tenants: fixtures.tenants })
   if (path === '/api/admin/tenants' && method === 'POST')

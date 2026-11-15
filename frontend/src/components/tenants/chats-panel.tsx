@@ -31,7 +31,7 @@ function waitLabel(iso?: string | null): string | null {
  * Same data and same actions as before (queue, thread, handover, assign,
  * resolve, attachments, 12s polling); the composition follows the
  * confirmed mock: waiting-for-human first, customer bubbles on paper,
- * bot replies in teal, human replies outlined. One behaviour is new and
+ * bot replies in the product accent, human replies outlined. One behaviour is new and
  * deliberate: a reply the provider refuses stays in the thread, marked
  * failed with its reason and a Retry button, instead of vanishing into
  * a toast. (The server thread does not store failed sends, so they are
@@ -174,8 +174,8 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div>
-      <header className="mb-5">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="mb-5 shrink-0">
         <h1 className="text-xl font-semibold text-tx">Chats</h1>
         <p className="mt-1 text-sm text-txmuted">
           Live WhatsApp conversations. Chats waiting for a human are first.
@@ -194,10 +194,10 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(8rem,0.35fr)_minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
         {/* ---- conversation list ---- */}
-        <section className="overflow-hidden rounded-panel border border-line bg-card">
-          <div className="border-b border-linesoft p-3">
+        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-panel border border-line bg-card">
+          <div className="shrink-0 border-b border-linesoft p-3">
             <label className="flex items-center gap-2 rounded-lg border border-line bg-inputbg px-2.5 py-1.5">
               <Search className="h-4 w-4 text-txfaint" />
               <input
@@ -217,7 +217,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
               description="When customers write to the bot, their chats appear here."
             />
           ) : (
-            <ul className="max-h-[70vh] divide-y divide-linesoft overflow-y-auto">
+            <ul className="min-h-0 flex-1 divide-y divide-linesoft overflow-y-auto">
               {queue.map((item) => {
                 const human = item.handover_mode === 'human'
                 const wait = human ? waitLabel(item.last_message_at) : null
@@ -262,7 +262,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
         </section>
 
         {/* ---- conversation view ---- */}
-        <section className="flex min-h-[480px] flex-col overflow-hidden rounded-panel border border-line bg-card">
+        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-panel border border-line bg-card">
           {!selected ? (
             <EmptyState
               icon={<UserRound className="h-7 w-7" />}
@@ -271,7 +271,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
             />
           ) : (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-linesoft px-4 py-3">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-linesoft px-4 py-3">
                 <div>
                   <p className="text-sm font-semibold text-tx">{current?.name || selected}</p>
                   <p className="text-xs text-txmuted">
@@ -316,7 +316,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                 </div>
               </div>
 
-              <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
                 {thread.loading ? (
                   <LoadingBlock label="Loading messages…" />
                 ) : (thread.data?.messages ?? []).length === 0 && failedHere.length === 0 ? (
@@ -377,7 +377,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                 )}
               </div>
 
-              <div className="border-t border-linesoft px-4 py-3">
+              <div className="shrink-0 border-t border-linesoft px-4 py-3">
                 {attachment && (
                   <div className="mb-2">
                     <AttachmentChip attachment={attachment} onRemove={() => setAttachment(null)} />
@@ -436,7 +436,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
       </div>
 
       {inbox.data && (
-        <p className="mt-3 text-xs text-txfaint">
+        <p className="mt-3 shrink-0 text-xs text-txfaint">
           {inbox.data.count} conversations · {inbox.data.handoff_count} waiting for a human
         </p>
       )}

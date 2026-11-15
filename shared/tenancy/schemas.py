@@ -51,6 +51,11 @@ FEATURE_FLAGS = (
     "complaints",
     "campaigns",
     "human_handover",
+    # message intelligence (UC-01..UC-05) — taxonomy lives in profile.intelligence
+    "message_intelligence",   # UC-01 sentiment + UC-02 message-type classification
+    "topic_tagging",          # UC-03 component / topic identification
+    "safety_escalation",      # UC-04 safety / severity detection + escalate
+    "repeat_issue_detection", # UC-05 repeat / surge detection
 )
 
 # Menu / intent rows that declare a flow must keep that flow's feature live.
@@ -74,6 +79,7 @@ VERTICALS = (
     "finance",
     "healthcare",
     "real_estate",
+    "automotive",
     "generic",
 )
 
@@ -339,9 +345,73 @@ class Features(_Base):
     complaints: bool = True
     campaigns: bool = False
     human_handover: bool = True
+    message_intelligence: bool = False
+    topic_tagging: bool = False
+    safety_escalation: bool = False
+    repeat_issue_detection: bool = False
 
     def is_on(self, flag: str) -> bool:
         return bool(getattr(self, flag, False)) if flag in FEATURE_FLAGS else False
+
+
+class IntelligenceLabel(_Base):
+    """One taxonomy entry (message type, topic, or safety label)."""
+
+    id: str
+    label: str = ""
+    keywords: List[str] = Field(default_factory=list)
+    examples: List[str] = Field(default_factory=list)
+    # For safety labels: critical | high | medium | low
+    severity: str = ""
+
+    @field_validator("id")
+    @classmethod
+    def _id_ok(cls, v: str) -> str:
+        cleaned = re.sub(r"[^a-z0-9_\-]", "", (v or "").strip().lower())
+        if not cleaned:
+            raise ValueError("intelligence label id is required")
+        return cleaned
+
+
+class RepeatDetectionConfig(_Base):
+    """UC-05: same customer/asset + topic, and cross-customer surges."""
+
+    entity_keys: List[str] = Field(default_factory=lambda: ["wa_id"])
+    window_days: int = 90
+    min_repeats: int = 2
+    surge_threshold: int = 10
+
+    @field_validator("window_days", "min_repeats", "surge_threshold")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        return max(1, int(v or 1))
+
+
+class SafetyConfig(_Base):
+    labels: List[IntelligenceLabel] = Field(default_factory=list)
+    escalate: bool = True
+    # Soft cue for handlers — human_handover / raise_ticket / book_callback
+    escalate_flow: str = "human_handover"
+    response_message: str = (
+        "This sounds like a safety concern. I'm connecting you with our team right away."
+    )
+
+
+class IntelligenceSpec(_Base):
+    """Per-tenant taxonomies for the shared message-intelligence engine.
+
+    Feature flags gate *whether* each UC runs; this block defines *what labels*
+    mean for the brand (engine/battery for auto, card/UPI for bank, …).
+    """
+
+    message_types: List[IntelligenceLabel] = Field(default_factory=list)
+    topics: List[IntelligenceLabel] = Field(default_factory=list)
+    safety: SafetyConfig = Field(default_factory=SafetyConfig)
+    repeat_detection: RepeatDetectionConfig = Field(default_factory=RepeatDetectionConfig)
+    # Universal sentiment labels; override only if a tenant needs custom wording.
+    sentiment_labels: List[str] = Field(
+        default_factory=lambda: ["positive", "neutral", "negative"]
+    )
 
 
 class Vocabulary(_Base):
@@ -789,6 +859,7 @@ class TenantProfile(_Base):
     guardrails: Guardrails = Field(default_factory=Guardrails)
     business_hours: BusinessHours = Field(default_factory=BusinessHours)
     notifications: Notifications = Field(default_factory=Notifications)
+    intelligence: IntelligenceSpec = Field(default_factory=IntelligenceSpec)
 
     # Set by the loader, never by a client config file.
     version: int = 0

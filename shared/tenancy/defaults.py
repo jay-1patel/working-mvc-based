@@ -24,6 +24,8 @@ VERTICAL_TO_COMPANY_TYPE = {
     "banking": "banking",
     "finance": "finance",
     "healthcare": "healthcare",
+    "real_estate": "generic",
+    "automotive": "automotive",
     "generic": "generic",
 }
 
@@ -1142,6 +1144,211 @@ _REAL_ESTATE = {
 }
 
 
+# ── automotive (OEM / dealer support — Honda-style MVP taxonomies) ────────
+
+_AUTOMOTIVE_INTELLIGENCE = {
+    "message_types": [
+        {
+            "id": "complaint",
+            "label": "Complaint",
+            "keywords": [
+                "complaint", "complain", "issue", "problem", "not working", "fault",
+                "defect", "defective", "broken", "failed", "failure", "unacceptable",
+                "frustrated", "angry", "disappointed", "shikayat",
+            ],
+            "examples": ["My battery keeps dying", "This is the third time brakes feel soft"],
+        },
+        {
+            "id": "question",
+            "label": "Question",
+            "keywords": [
+                "how", "what", "when", "where", "why", "which", "can i", "does it",
+                "tell me", "explain", "?", "information", "details",
+            ],
+            "examples": ["What is the service interval for City?", "How do I book a service?"],
+        },
+        {
+            "id": "praise",
+            "label": "Praise",
+            "keywords": [
+                "thank", "thanks", "great", "excellent", "awesome", "love", "happy",
+                "satisfied", "good job", "appreciate", "wonderful", "amazing",
+            ],
+            "examples": ["Service was excellent", "Thanks for the quick fix"],
+        },
+        {
+            "id": "service_request",
+            "label": "Service request",
+            "keywords": [
+                "service", "book service", "appointment", "workshop", "repair",
+                "maintenance", "schedule", "pickup", "drop", "rsa", "roadside",
+            ],
+            "examples": ["Book a service for my Jazz", "Need roadside assistance"],
+        },
+    ],
+    "topics": [
+        {"id": "engine", "label": "Engine", "keywords": ["engine", "motor", "rpm", "overheat", "oil leak", "check engine", "misfire"]},
+        {"id": "battery", "label": "Battery", "keywords": ["battery", "dead battery", "jump start", "charging", "won't start", "will not start"]},
+        {"id": "brakes", "label": "Brakes", "keywords": ["brake", "brakes", "braking", "abs", "pedal soft", "squeal", "squeaking"]},
+        {"id": "transmission", "label": "Transmission", "keywords": ["transmission", "gear", "gearbox", "cvt", "clutch", "shifting"]},
+        {"id": "steering", "label": "Steering", "keywords": ["steering", "power steering", "alignment", "pulling left", "pulling right"]},
+        {"id": "ac_climate", "label": "AC / Climate", "keywords": ["ac", "a/c", "air conditioning", "cooling", "heater", "climate"]},
+        {"id": "electrical", "label": "Electrical", "keywords": ["electrical", "wiring", "fuse", "light", "sensor", "ecu"]},
+        {"id": "tyres_wheels", "label": "Tyres / Wheels", "keywords": ["tyre", "tire", "wheel", "puncture", "alignment", "balancing"]},
+        {"id": "body_interior", "label": "Body / Interior", "keywords": ["dent", "scratch", "paint", "seat", "dashboard", "door", "mirror"]},
+        {"id": "infotainment", "label": "Infotainment", "keywords": ["infotainment", "touchscreen", "bluetooth", "android auto", "carplay", "radio"]},
+    ],
+    "safety": {
+        "escalate": True,
+        "escalate_flow": "human_handover",
+        "response_message": (
+            "This sounds like a safety concern. Please stop driving if unsafe — "
+            "I'm alerting our team to help you right away."
+        ),
+        "labels": [
+            {
+                "id": "braking_failure",
+                "label": "Braking failure",
+                "severity": "critical",
+                "keywords": [
+                    "brake failed", "brakes failed", "no brakes", "brake failure",
+                    "brakes not working", "cannot stop", "can't stop",
+                ],
+            },
+            {
+                "id": "fire",
+                "label": "Fire / smoke",
+                "severity": "critical",
+                "keywords": ["fire", "smoke", "burning smell", "flames", "on fire", "smouldering"],
+            },
+            {
+                "id": "steering_loss",
+                "label": "Steering problem",
+                "severity": "critical",
+                "keywords": [
+                    "steering locked", "lost steering", "steering failed",
+                    "cannot steer", "can't steer", "steering not working",
+                ],
+            },
+            {
+                "id": "airbag",
+                "label": "Airbag warning",
+                "severity": "high",
+                "keywords": ["airbag", "srs light", "air bag"],
+            },
+            {
+                "id": "accident",
+                "label": "Accident / collision",
+                "severity": "critical",
+                "keywords": ["accident", "collision", "crash", "hit another", "ran into"],
+            },
+        ],
+    },
+    "repeat_detection": {
+        "entity_keys": ["wa_id", "vehicle_id"],
+        "window_days": 90,
+        "min_repeats": 2,
+        "surge_threshold": 10,
+    },
+    "sentiment_labels": ["positive", "neutral", "negative"],
+}
+
+_AUTOMOTIVE = {
+    "vertical": "automotive",
+    "display_name": "Auto Brand",
+    "prompt": {
+        "name": "Automotive Support",
+        "tone": "professional, calm, and safety-first",
+        "industry": "automotive OEM and dealer support",
+        "domain_specific_queries": "vehicle models, service booking, warranty, spare parts, or roadside help",
+        "domain_specific_topics": "engine, battery, brakes, transmission, service intervals, warranty, RSA",
+        "support_trigger_topics": "repeat defects, safety failures, warranty disputes, service delays",
+        "complex_topics": "VIN lookup, campaign recalls, goodwill repairs, dealer escalation",
+        "listing_type": "models or service packages",
+        "keywords": [
+            "car", "vehicle", "service", "workshop", "warranty", "battery", "brake",
+            "engine", "honda", "dealer", "rsa", "roadside",
+        ],
+    },
+    "features": {
+        "cart": False, "buy_now": False, "orders": False, "track_order": False,
+        "returns": False, "brochure_pdf": True, "distributors": False,
+        "offerings": True, "offering_details": True,
+        "lead_capture": True, "quote": False, "callback": True, "book_appointment": True,
+        "handoff": True, "faq": True, "kb": True, "complaints": True, "campaigns": True,
+        "human_handover": True,
+        "message_intelligence": True,
+        "topic_tagging": True,
+        "safety_escalation": True,
+        "repeat_issue_detection": True,
+    },
+    "vocabulary": {
+        "item_noun": "models", "item_noun_singular": "model",
+        "browse_label": "Our Models", "catalog_label": "Brochure",
+        "catalog_noun": "brochure",
+        "order_noun": "service booking", "order_noun_plural": "service bookings",
+        "cart_noun": "shortlist", "checkout_label": "Book Service",
+        "brochure_label": "Brochure", "brochure_noun": "brochure",
+        "offer_noun": "offer", "offer_noun_plural": "offers",
+        "lead_noun": "service enquiry", "enquiry_label": "Book a Service",
+        "quote_label": "Get Estimate", "callback_label": "Request a Callback",
+        "support_label": "Roadside / Support", "track_label": "Track Service",
+    },
+    "menu": {
+        "key": "kb_main",
+        "body": "Welcome! How can we help with your vehicle today?",
+        "footer": "Or type your question / complaint directly",
+        "button_text": "Show Options",
+        "buttons": [
+            {"id": "menu_models", "title": "Our Models", "description": "Explore cars & specs",
+             "section": "Vehicles", "icon": "🚗", "sort_order": 0, "requires_feature": "offerings", "intent": "model_enquiry"},
+            {"id": "menu_brochure", "title": "Brochure", "description": "Download model brochure",
+             "section": "Vehicles", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf", "intent": "brochure_request"},
+            {"id": "menu_service", "title": "Book Service", "description": "Schedule workshop visit",
+             "section": "Service", "icon": "🔧", "sort_order": 2, "requires_feature": "book_appointment", "flow": "book_appointment"},
+            {"id": "menu_complaint", "title": "Raise Complaint", "description": "Report a vehicle issue",
+             "section": "Support", "icon": "📝", "sort_order": 3, "requires_feature": "complaints", "flow": "raise_ticket"},
+            {"id": "menu_callback", "title": "Request Callback", "description": "Have an advisor call you",
+             "section": "Support", "icon": "📞", "sort_order": 4, "requires_feature": "callback", "flow": "book_callback"},
+            {"id": "menu_human", "title": "Talk to Advisor", "description": "Chat with our team",
+             "section": "Support", "icon": "🙋", "sort_order": 5, "requires_feature": "human_handover", "flow": "book_callback"},
+        ],
+    },
+    "intents": _intents(
+        _GREETING,
+        {"name": "model_enquiry", "examples": ["show me your cars", "City features", "what models do you have"],
+         "keywords": ["model", "models", "car", "cars", "vehicle", "sedan", "suv", "city", "jazz", "amaze", "elevate"],
+         "requires_feature": "offerings"},
+        {"name": "brochure_request", "examples": ["send brochure", "pdf specs"],
+         "keywords": ["brochure", "pdf", "catalog", "catalogue", "specs sheet"],
+         "requires_feature": "brochure_pdf"},
+        {"name": "service_booking", "examples": ["book a service", "schedule maintenance"],
+         "keywords": ["service", "book service", "workshop", "maintenance", "periodic service"],
+         "requires_feature": "book_appointment", "flow": "book_appointment"},
+        {"name": "warranty", "examples": ["is this under warranty", "warranty claim"],
+         "keywords": ["warranty", "guarantee", "goodwill", "extended warranty"]},
+        _COMPLAINT,
+        _SUPPORT,
+        _CONTACT_HUMAN,
+    ),
+    "intelligence": _AUTOMOTIVE_INTELLIGENCE,
+    "guardrails": {
+        "never_state": ["guaranteed repair time", "legal liability admission", "unauthorized recall status"],
+        "escalate_keywords": [
+            "brake failed", "fire", "smoke", "accident", "airbag", "cannot steer", "lost steering",
+        ],
+        "escalation_message": (
+            "This sounds urgent for your safety. Please stay safe — I'm connecting you with our team now."
+        ),
+        "forbidden_terms": ["add to cart", "buy now", "checkout"],
+    },
+    "business_hours": {
+        "timezone": "Asia/Kolkata",
+        "open": "09:00", "close": "19:00", "open_days": [0, 1, 2, 3, 4, 5, 6],
+    },
+}
+
+
 VERTICAL_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "ecommerce": _ECOMMERCE,
     "it_software": _IT_SOFTWARE,
@@ -1150,6 +1357,7 @@ VERTICAL_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "finance": _FINANCE,
     "healthcare": _HEALTHCARE,
     "real_estate": _REAL_ESTATE,
+    "automotive": _AUTOMOTIVE,
     "generic": _GENERIC,
 }
 

@@ -17,7 +17,10 @@ import faiss
 from routing.config import (
     DB_PATH, EMBEDDING_MODEL_PATH, BRAND_NAME, SUPPORT_EMAIL, SUPPORT_PHONE,
     BRAND_WEBSITE, OLLAMA_API_URL, OLLAMA_MODEL, OLLAMA_BASE_URL,
-    BRAND_TAGLINE, SIGNATURE,
+    BRAND_TAGLINE, SIGNATURE, API_PROVIDER,
+    QWEN_API_URL, QWEN_API_KEY, QWEN_MODEL,
+    GROQ_API_URL, GROQ_API_KEY, GROQ_MODEL,
+    MISTRAL_API_URL, MISTRAL_API_KEY, MISTRAL_MODEL,
 )
 from database import save_embeddings
 from services.response_formatters import WhatsAppFormatter, MessageType, smart_format
@@ -542,11 +545,36 @@ Remember: You must output ONLY valid JSON. No markdown, no code blocks, no expla
 
 
 def _get_ordered_providers() -> list:
-    """Ollama only — no Groq/Mistral cloud providers."""
-    base = (OLLAMA_BASE_URL or "http://localhost:11434").rstrip("/")
-    return [
-        ("ollama", base, OLLAMA_MODEL or "qwen3:8b", "no-key-needed", "ollama"),
-    ]
+    """Preferred chat LLM, with Ollama as default/fallback for server deploys."""
+    preferred = (os.getenv("API_PROVIDER") or API_PROVIDER or "ollama").lower().strip()
+    if preferred in ("dashscope", "qwen-plus", "alibaba"):
+        preferred = "qwen"
+
+    all_providers = {
+        "ollama": (
+            "ollama",
+            (OLLAMA_BASE_URL or "http://localhost:11434").rstrip("/"),
+            OLLAMA_MODEL or "qwen3:8b",
+            "no-key-needed",
+            "ollama",
+        ),
+    }
+    if QWEN_API_KEY and QWEN_API_URL:
+        all_providers["qwen"] = ("qwen", QWEN_API_URL, QWEN_MODEL or "qwen-plus", QWEN_API_KEY, "openai")
+    if GROQ_API_KEY and GROQ_API_URL:
+        all_providers["groq"] = ("groq", GROQ_API_URL, GROQ_MODEL, GROQ_API_KEY, "openai")
+    if MISTRAL_API_KEY and MISTRAL_API_URL:
+        all_providers["mistral"] = (
+            "mistral", MISTRAL_API_URL, MISTRAL_MODEL, MISTRAL_API_KEY, "openai"
+        )
+
+    ordered = []
+    if preferred in all_providers:
+        ordered.append(all_providers[preferred])
+    for name, cfg in all_providers.items():
+        if name != preferred:
+            ordered.append(cfg)
+    return ordered
 
 
 async def _generate_direct_llm_answer(

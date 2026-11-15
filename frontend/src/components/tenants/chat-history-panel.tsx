@@ -77,19 +77,19 @@ export function ChatHistoryPanel({ tenantId }: { tenantId: string }) {
         }
         actions={
           <form
-            className="flex items-center gap-2"
+            className="flex w-full flex-wrap items-center gap-2 sm:w-auto"
             onSubmit={(e) => {
               e.preventDefault()
               setSearch(draft.trim())
             }}
           >
-            <label className="flex items-center gap-2 rounded-lg border border-line bg-inputbg px-3 py-2">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-inputbg px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-txfaint" />
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Search messages…"
-                className="w-56 bg-transparent text-sm text-tx placeholder:text-txfaint focus:outline-none"
+                className="min-w-0 w-full bg-transparent text-sm text-tx placeholder:text-txfaint focus:outline-none sm:w-56"
               />
             </label>
             <div className="w-40">
@@ -111,7 +111,7 @@ export function ChatHistoryPanel({ tenantId }: { tenantId: string }) {
         and the single `minmax(0, 1fr)` row keeps both cards exactly as tall as
         the pane — the lists scroll inside them, the page does not.
       */}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,13rem)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-4 sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(8rem,0.35fr)_minmax(0,1fr)] gap-4 sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
         <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-panel border border-line bg-card">
           <div className="flex items-center gap-2 border-b border-linesoft px-4 py-3">
             <span className="text-txmuted">

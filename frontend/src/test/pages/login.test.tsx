@@ -13,12 +13,12 @@ describe('login screen', () => {
   it('shows the login form when unauthenticated', async () => {
     renderWithShell()
     await waitForScreen()
-    expect(await screen.findByRole('heading', { name: 'Tenant Console' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'AI Chatbot' })).toBeInTheDocument()
     expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 
-  it('signs in with credentials and lands on the tenant list', async () => {
+  it('signs in with credentials and lands on the overview dashboard', async () => {
     renderWithShell()
     await waitForScreen()
     const user = userEvent.setup()
@@ -26,7 +26,10 @@ describe('login screen', () => {
     await user.type(screen.getByLabelText(/password/i), 'secret-password')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(
-      () => expect(screen.getByRole('heading', { name: 'Tenants' })).toBeInTheDocument(),
+      () => {
+        expect(window.location.hash).toBe('#/dashboard')
+        expect(screen.getByText(/Platform overview|Tenant overview/i)).toBeInTheDocument()
+      },
       { timeout: 3000 },
     )
   })

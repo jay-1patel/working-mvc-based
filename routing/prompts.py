@@ -226,6 +226,19 @@ COMPANY_TYPE_CONFIGS: Dict[str, Dict] = {
         'keywords': ['product', 'price', 'store', 'location', 'promotion', 'discount', 'retail'],
     },
     
+    # Automotive OEM / dealer
+    'automotive': {
+        'name': 'Automotive',
+        'tone': 'professional, calm, and safety-first',
+        'industry': 'automotive OEM and dealer support',
+        'domain_specific_queries': 'vehicle models, service booking, warranty, spare parts, or roadside help',
+        'domain_specific_topics': 'engine, battery, brakes, transmission, service intervals, warranty, RSA',
+        'support_trigger_topics': 'repeat defects, safety failures, warranty disputes, service delays',
+        'complex_topics': 'VIN lookup, campaign recalls, goodwill repairs, dealer escalation',
+        'listing_type': 'models or service packages',
+        'keywords': ['car', 'vehicle', 'service', 'workshop', 'warranty', 'battery', 'brake', 'engine', 'dealer'],
+    },
+
     # Generic / Default
     'generic': {
         'name': 'Generic',

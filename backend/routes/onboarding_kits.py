@@ -34,6 +34,7 @@ VERTICAL_INFO = [
     {"slug": "healthcare", "title": "Healthcare & Specialist Clinics", "icon": "🩺"},
     {"slug": "banking", "title": "Banking & Insurance Services", "icon": "💳"},
     {"slug": "finance", "title": "Finance, Accounting & Tax Advisory", "icon": "📊"},
+    {"slug": "automotive", "title": "Automotive OEM & Dealers", "icon": "🚗"},
     {"slug": "generic", "title": "General Business & Enterprise Services", "icon": "📦"},
 ]
 

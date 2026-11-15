@@ -9,6 +9,11 @@ import type { Config } from 'tailwindcss'
  */
 const v = (name: string) => `rgb(var(--${name}) / <alpha-value>)`
 const semantic = {
+  canvas: v('canvas'),
+  heading: v('heading'),
+  tablehead: v('table-head'),
+  tablestripe: v('table-stripe'),
+  acchover: v('acc-hover'),
   paper: v('paper'),
   card: v('card'),
   sidebg: v('sidebg'),
@@ -42,13 +47,9 @@ const semantic = {
 }
 
 /**
- * Light theme: a light grey canvas with a purple cast, violet accents.
- *
- * Note the inverted `slate` scale: the numbers run dark → light instead of
- * light → dark, because the app was authored as "slate-100 is the strongest
- * text, slate-600 is the faintest hint". Flipping the scale keeps every one of
- * those usages correct without touching the markup. The hues themselves are
- * nudged towards purple so nothing reads as pure black, pure white or blue-grey.
+ * Send2Digital's light admin theme. Older components use an inverted slate
+ * scale (100 is strongest text); aliases keep them on the same token palette
+ * as the newer panels, including dialogs, onboarding, and legacy controls.
  */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -58,57 +59,56 @@ export default {
       colors: {
         ...semantic,
         slate: {
-          100: '#1a1626', // strongest text — deep plum-black, never #000
-          200: '#28213a', // headings
-          300: '#3b3350', // secondary text
-          400: '#564c6d', // body-muted
-          500: '#776d8c', // hints
-          600: '#9c94ad', // faint
-          700: '#c9c3d6', // dividers
+          100: v('tx'),
+          200: v('tx'),
+          300: v('tx-muted'),
+          400: v('tx-muted'),
+          500: v('tx-muted'),
+          600: v('tx-faint'),
+          700: v('line'),
         },
         surface: {
-          DEFAULT: '#f1f0f7', // page — light grey, purple cast
-          raised: '#fbfaff', // cards, inputs — near-white lavender
-          overlay: '#fbfaff', // menus, popovers
-          panel: '#f7f6fc', // sidebar, sunken blocks
-          line: '#e2dfef', // borders
+          DEFAULT: v('paper'),
+          raised: v('card'),
+          overlay: v('card'),
+          panel: v('sidebg'),
+          line: v('line'),
           // Aliases the markup was authored against (onboarding components
           // especially). Text steps come from the ink scale, background
           // steps from the surface scale above — same hues, no new colours.
-          fg: '#1a1626', // primary text on a surface (= ink / slate-100)
-          muted: '#564c6d', // secondary text on a surface (= ink-soft / slate-400)
-          bg: '#f1f0f7', // page canvas (= DEFAULT)
-          base: '#f7f6fc', // sunken blocks, banner bodies (= panel)
-          card: '#fbfaff', // card bodies, dropdowns (= raised)
-          elevated: '#f6f3ff', // hover step above a card (= accent-50)
+          fg: v('tx'),
+          muted: v('tx-muted'),
+          bg: v('paper'),
+          base: v('paper'),
+          card: v('card'),
+          elevated: v('acc-soft'),
         },
         ink: {
-          DEFAULT: '#1a1626',
-          soft: '#564c6d',
-          faint: '#9c94ad',
+          DEFAULT: v('tx'),
+          soft: v('tx-muted'),
+          faint: v('tx-faint'),
         },
         accent: {
-          50: '#f6f3ff',
-          100: '#ede8fe',
-          200: '#ddd3fd',
-          300: '#c5b2fb',
-          400: '#a983f7',
-          500: '#8d5cf0',
-          600: '#7c3aed',
-          700: '#6b21d9',
-          800: '#5a1bb4',
-          900: '#4a1a8f',
+          50: v('acc-soft'),
+          100: v('acc-soft'),
+          200: v('line'),
+          300: v('acc'),
+          400: v('acc'),
+          500: v('acc-hover'),
+          600: v('acc'),
+          700: v('acc-hover'),
+          800: v('heading'),
+          900: v('heading'),
         },
       },
       borderRadius: {
-        panel: '14px',
+        panel: '12px',
       },
       fontFamily: {
-        sans: ['Inter', 'Segoe UI', 'system-ui', 'sans-serif'],
+        sans: ['Poppins', 'Segoe UI', 'system-ui', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
-      // Bigger type across the board: 17px root, so every rem-based Tailwind
-      // step lands roughly 6% larger than the stock scale.
+      // Compact Poppins typography matching the supplied admin reference.
       fontSize: {
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],
         xs: ['0.8125rem', { lineHeight: '1.3rem' }],

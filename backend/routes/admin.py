@@ -895,6 +895,9 @@ def _process_document_background(
                         source_filepath=filepath,
                         original_filename=filename,
                         tenant_id=tenant_id,
+                        # Upload polling tracks this exact filename and module.
+                        # Keep its ready row and stats when derivatives are added.
+                        cleanup_original=False,
                         actor={
                             "username": "auto_extractor",
                             "role": "system",

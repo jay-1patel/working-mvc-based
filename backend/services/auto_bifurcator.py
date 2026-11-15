@@ -502,17 +502,20 @@ class AutoBifurcator:
 
         windows = _chunk_text(full_corpus)
         if not windows:
-            return merge_bifurcation_results(heuristic, tenant_id=self.tenant_id)
+            merged = merge_bifurcation_results(heuristic, tenant_id=self.tenant_id)
+            merged["_llm_ok"] = False
+            return merged
 
         llm_parts: List[Dict[str, Any]] = []
         # One full pass per window. The old brand+catalog+faq_info triple pass
         # made local Ollama take ~3–5+ minutes and looked like a hang.
         logger.info(
-            "OLLAMA_BIFURCATION_PLAN | tenant=%s | windows=%s | passes=%s",
+            "BIFURCATION_PLAN | tenant=%s | windows=%s | passes=%s",
             self.tenant_id,
             len(windows),
             len(windows),
         )
+        consecutive_failures = 0
         for idx, window in enumerate(windows):
             system_prompt = self._bifurcation_system_prompt(focus="full")
             user_prompt = (
@@ -520,7 +523,7 @@ class AutoBifurcator:
                 f"Extract per focus='full'. Merge-safe partial JSON is OK.\n\n{window}"
             )
             logger.info(
-                "OLLAMA_BIFURCATION_START | tenant=%s | chunk=%s/%s | chars=%s",
+                "BIFURCATION_START | tenant=%s | chunk=%s/%s | chars=%s",
                 self.tenant_id,
                 idx + 1,
                 len(windows),
@@ -533,101 +536,359 @@ class AutoBifurcator:
                 part = None
             if part:
                 llm_parts.append(part)
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+                # Local Ollama: stop early on a dead server. Cloud Qwen is fast —
+                # tolerate one bad chunk and keep going so later windows can land.
+                provider = (
+                    os.getenv("BIFURCATE_PROVIDER")
+                    or os.getenv("API_PROVIDER")
+                    or "ollama"
+                ).lower()
+                abort_after = 3 if provider in ("qwen", "groq", "mistral", "dashscope") else 1
+                if consecutive_failures >= abort_after and idx + 1 < len(windows):
+                    logger.warning(
+                        "BIFURCATION_ABORT | tenant=%s | after=%s failed chunk(s) — skipping remaining windows",
+                        self.tenant_id,
+                        consecutive_failures,
+                    )
+                    break
 
         if not llm_parts:
             logger.warning(
                 "Bifurcation LLM returned no parts — using heuristics only | tenant=%s",
                 self.tenant_id,
             )
-            return merge_bifurcation_results(heuristic, tenant_id=self.tenant_id)
+            merged = merge_bifurcation_results(heuristic, tenant_id=self.tenant_id)
+            merged["_llm_ok"] = False
+            return merged
 
         merged = merge_bifurcation_results(heuristic, *llm_parts, tenant_id=self.tenant_id)
         # Prefer heuristic vertical when LLM is generic but heuristics are specific
         if merged.get("vertical") == "generic" and heuristic.get("vertical") in VALID_VERTICALS:
             merged["vertical"] = heuristic["vertical"]
+        merged["_llm_ok"] = True
         return merged
 
-    def _call_llm_json(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any]]:
-        """Call local Ollama only (no Groq/Mistral).
+    @staticmethod
+    def _ollama_crash_body(body: str) -> bool:
+        """True when llama-server died (Windows CUDA / stack overrun)."""
+        text = (body or "").lower()
+        return any(
+            marker in text
+            for marker in (
+                "0xc0000409",
+                "llama-server process has terminated",
+                "cuda error",
+                "shared object initialization failed",
+                "stack-based buffer",
+            )
+        )
 
-        Bifurcation always uses the configured Ollama model. Heavy work must
-        run in a thread pool (see tenant_files auto-bifurcate) so a slow
-        generation does not freeze port 9000.
+    def _call_llm_json(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any]]:
+        """Call bifurcation LLM (Ollama by default; optional cloud Qwen/Groq/Mistral).
+
+        Set ``BIFURCATE_PROVIDER=qwen`` + ``QWEN_API_KEY`` for local DashScope
+        uploads. Server should keep ``BIFURCATE_PROVIDER=ollama``.
+
+        Heavy work must run in a thread pool so a slow generation does not
+        freeze port 9000. On Windows CUDA crashes, Ollama retries with
+        ``num_gpu=0``.
         """
         import requests
 
         try:
             from routing import config as _cfg
-            ollama_base = getattr(_cfg, "OLLAMA_BASE_URL", None) or os.getenv(
-                "OLLAMA_BASE_URL", "http://localhost:11434"
-            )
-            ollama_url = getattr(_cfg, "OLLAMA_API_URL", None) or (
-                ollama_base.rstrip("/") + "/api/chat"
-            )
-            ollama_mdl = getattr(_cfg, "OLLAMA_MODEL", None) or "qwen3:8b"
         except Exception:
-            ollama_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/chat")
-            ollama_mdl = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+            _cfg = None
+
+        provider = (
+            (getattr(_cfg, "BIFURCATE_PROVIDER", None) if _cfg else None)
+            or os.getenv("BIFURCATE_PROVIDER")
+            or os.getenv("API_PROVIDER")
+            or "ollama"
+        ).lower().strip()
+        if provider in ("dashscope", "qwen-plus", "alibaba"):
+            provider = "qwen"
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
-        # Allow long local generations; defaults match chat/RAG OLLAMA_TIMEOUT.
-        ollama_timeout = float(
-            os.getenv(
-                "BIFURCATE_OLLAMA_TIMEOUT",
-                os.getenv("OLLAMA_TIMEOUT", "300"),
+        if provider in ("qwen", "groq", "mistral"):
+            return self._call_openai_compatible_json(provider, messages, _cfg)
+
+        return self._call_ollama_json(messages, _cfg)
+
+    def _call_openai_compatible_json(
+        self,
+        provider: str,
+        messages: list,
+        _cfg: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """DashScope Qwen / Groq / Mistral OpenAI-compatible chat completions."""
+        import requests
+
+        if provider == "qwen":
+            url = (
+                (getattr(_cfg, "QWEN_API_URL", None) if _cfg else None)
+                or os.getenv("QWEN_API_URL")
+                or "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
             )
+            api_key = (
+                (getattr(_cfg, "QWEN_API_KEY", None) if _cfg else None)
+                or os.getenv("QWEN_API_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
+                or ""
+            )
+            model = (
+                (getattr(_cfg, "QWEN_MODEL", None) if _cfg else None)
+                or os.getenv("QWEN_MODEL")
+                or "qwen-plus"
+            )
+        elif provider == "groq":
+            url = (
+                (getattr(_cfg, "GROQ_API_URL", None) if _cfg else None)
+                or os.getenv("GROQ_API_URL")
+                or "https://api.groq.com/openai/v1/chat/completions"
+            )
+            api_key = (
+                (getattr(_cfg, "GROQ_API_KEY", None) if _cfg else None)
+                or os.getenv("GROQ_API_KEY")
+                or ""
+            )
+            model = (
+                (getattr(_cfg, "GROQ_MODEL", None) if _cfg else None)
+                or os.getenv("GROQ_MODEL")
+                or "llama-3.3-70b-versatile"
+            )
+        else:
+            url = (
+                (getattr(_cfg, "MISTRAL_API_URL", None) if _cfg else None)
+                or os.getenv("MISTRAL_API_URL")
+                or "https://api.mistral.ai/v1/chat/completions"
+            )
+            api_key = (
+                (getattr(_cfg, "MISTRAL_API_KEY", None) if _cfg else None)
+                or os.getenv("MISTRAL_API_KEY")
+                or os.getenv("MISTRAL_API_BACKUP")
+                or ""
+            )
+            model = (
+                (getattr(_cfg, "MISTRAL_MODEL", None) if _cfg else None)
+                or os.getenv("MISTRAL_MODEL")
+                or "mistral-large-latest"
+            )
+
+        if not api_key:
+            logger.warning(
+                "BIFURCATE cloud provider=%s has no API key — falling back to Ollama",
+                provider,
+            )
+            return self._call_ollama_json(messages, _cfg)
+
+        timeout = float(
+            (getattr(_cfg, "BIFURCATE_OLLAMA_TIMEOUT", None) if _cfg else None)
+            or os.getenv("BIFURCATE_OLLAMA_TIMEOUT")
+            or os.getenv("OLLAMA_TIMEOUT")
+            or 90
         )
-        # qwen3 "thinking" models often leave content empty unless think is off.
+        logger.info(
+            "CLOUD_BIFURCATION_CALL | provider=%s | model=%s | timeout=%ss",
+            provider,
+            model,
+            timeout,
+        )
+        # enable_thinking=false is critical on Qwen3.* — otherwise reasoning
+        # burns the whole read timeout before any JSON content arrives.
+        # 2048 often truncates mid-object on rich kits → "no usable JSON".
+        max_tokens = int(
+            os.getenv("BIFURCATE_MAX_TOKENS")
+            or (getattr(_cfg, "BIFURCATE_MAX_TOKENS", None) if _cfg else None)
+            or 8192
+        )
         payload = {
-            "model": ollama_mdl,
+            "model": model,
             "messages": messages,
-            "format": "json",
-            "stream": False,
-            "think": False,
-            "options": {
-                "temperature": 0.1,
-                "num_ctx": 8192,
-                "num_predict": 4096,
-            },
+            "temperature": 0.1,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+            "enable_thinking": False,
         }
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=timeout,
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "Cloud bifurcation HTTP %s | provider=%s | model=%s | body=%s",
+                    resp.status_code,
+                    provider,
+                    model,
+                    (resp.text or "")[:300],
+                )
+                return None
+            msg = ((resp.json().get("choices") or [{}])[0].get("message") or {})
+            content = (
+                (msg.get("content") or "").strip()
+                or (msg.get("reasoning_content") or "").strip()
+            )
+            parsed = self._extract_json_block(content)
+            if parsed:
+                logger.info(
+                    "CLOUD_BIFURCATION_SUCCESS | provider=%s | model=%s",
+                    provider,
+                    model,
+                )
+                return parsed
+            logger.warning(
+                "Cloud bifurcation returned no usable JSON | provider=%s | preview=%s",
+                provider,
+                content[:200],
+            )
+            return None
+        except Exception as e:
+            logger.warning(
+                "Cloud bifurcation failed | provider=%s | model=%s | error=%s",
+                provider,
+                model,
+                e,
+            )
+            return None
+
+    def _call_ollama_json(self, messages: list, _cfg: Any) -> Optional[Dict[str, Any]]:
+        """Local Ollama bifurcation with CUDA→CPU retry."""
+        import requests
+
+        try:
+            ollama_base = (
+                (getattr(_cfg, "OLLAMA_BASE_URL", None) if _cfg else None)
+                or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            )
+            ollama_url = (
+                (getattr(_cfg, "OLLAMA_API_URL", None) if _cfg else None)
+                or (ollama_base.rstrip("/") + "/api/chat")
+            )
+            ollama_mdl = (
+                (getattr(_cfg, "BIFURCATE_OLLAMA_MODEL", None) if _cfg else None)
+                or os.getenv("BIFURCATE_OLLAMA_MODEL")
+                or (getattr(_cfg, "OLLAMA_MODEL", None) if _cfg else None)
+                or "qwen2.5:1.5b"
+            )
+            num_gpu = int(
+                getattr(_cfg, "BIFURCATE_OLLAMA_NUM_GPU", None)
+                if _cfg and getattr(_cfg, "BIFURCATE_OLLAMA_NUM_GPU", None) is not None
+                else (os.getenv("BIFURCATE_OLLAMA_NUM_GPU") or (getattr(_cfg, "OLLAMA_NUM_GPU", 0) if _cfg else 0) or 0)
+            )
+            ollama_timeout = float(
+                (getattr(_cfg, "BIFURCATE_OLLAMA_TIMEOUT", None) if _cfg else None)
+                or os.getenv("BIFURCATE_OLLAMA_TIMEOUT")
+                or os.getenv("OLLAMA_TIMEOUT")
+                or 90
+            )
+        except Exception:
+            ollama_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/chat")
+            ollama_mdl = os.getenv("BIFURCATE_OLLAMA_MODEL") or os.getenv(
+                "OLLAMA_MODEL", "qwen2.5:1.5b"
+            )
+            try:
+                num_gpu = int(os.getenv("BIFURCATE_OLLAMA_NUM_GPU") or os.getenv("OLLAMA_NUM_GPU") or "0")
+            except ValueError:
+                num_gpu = 0
+            ollama_timeout = float(
+                os.getenv("BIFURCATE_OLLAMA_TIMEOUT") or os.getenv("OLLAMA_TIMEOUT") or "90"
+            )
+
+        logger.info(
+            "OLLAMA_BIFURCATION_CALL | model=%s | num_gpu=%s | timeout=%ss",
+            ollama_mdl,
+            num_gpu,
+            ollama_timeout,
+        )
         ollama_headers = {
             "Content-Type": "application/json",
             "ngrok-skip-browser-warning": "true",
         }
-        try:
-            resp = requests.post(
+
+        def _post(gpu_layers: int):
+            # qwen3 "thinking" models often leave content empty unless think is off.
+            payload = {
+                "model": ollama_mdl,
+                "messages": messages,
+                "format": "json",
+                "stream": False,
+                "think": False,
+                "options": {
+                    "temperature": 0.1,
+                    "num_ctx": 8192,
+                    "num_predict": 2048,
+                    "num_gpu": gpu_layers,
+                },
+            }
+            return requests.post(
                 ollama_url,
                 json=payload,
                 headers=ollama_headers,
                 timeout=ollama_timeout,
             )
-            if resp.status_code != 200:
+
+        gpu_attempts = [num_gpu]
+        if num_gpu != 0:
+            gpu_attempts.append(0)
+
+        try:
+            last_body = ""
+            for attempt_gpu in gpu_attempts:
+                resp = _post(attempt_gpu)
+                if resp.status_code == 200:
+                    message = resp.json().get("message") or {}
+                    content = (
+                        (message.get("content") or "").strip()
+                        or (message.get("thinking") or "").strip()
+                        or (message.get("reasoning") or "").strip()
+                    )
+                    parsed = self._extract_json_block(content)
+                    if parsed:
+                        logger.info(
+                            "OLLAMA_BIFURCATION_SUCCESS | model=%s | num_gpu=%s",
+                            ollama_mdl,
+                            attempt_gpu,
+                        )
+                        return parsed
+                    logger.warning(
+                        "Ollama returned no usable JSON | model=%s | num_gpu=%s | preview=%s",
+                        ollama_mdl,
+                        attempt_gpu,
+                        (content or "")[:200],
+                    )
+                    return None
+
+                last_body = (resp.text or "")[:400]
                 logger.warning(
-                    "Ollama bifurcation HTTP %s | model=%s | body=%s",
+                    "Ollama bifurcation HTTP %s | model=%s | num_gpu=%s | body=%s",
                     resp.status_code,
                     ollama_mdl,
-                    (resp.text or "")[:200],
+                    attempt_gpu,
+                    last_body[:200],
                 )
-                return None
-            message = resp.json().get("message") or {}
-            content = (
-                (message.get("content") or "").strip()
-                or (message.get("thinking") or "").strip()
-                or (message.get("reasoning") or "").strip()
-            )
-            parsed = self._extract_json_block(content)
-            if parsed:
-                logger.info("OLLAMA_BIFURCATION_SUCCESS | model=%s", ollama_mdl)
-                return parsed
-            logger.warning(
-                "Ollama returned no usable JSON | model=%s | preview=%s",
-                ollama_mdl,
-                (content or "")[:200],
-            )
+                if (
+                    attempt_gpu != 0
+                    and resp.status_code >= 500
+                    and self._ollama_crash_body(last_body)
+                ):
+                    logger.warning(
+                        "Ollama CUDA/server crash detected — retrying bifurcation on CPU (num_gpu=0)"
+                    )
+                    continue
+                break
             return None
         except Exception as e:
             logger.warning(
@@ -668,7 +929,59 @@ class AutoBifurcator:
                 # deliberate: last parse strategy — caller handles None.
                 logger.debug("JSON_EXTRACT_ATTEMPT_FAILED | strategy=brace_slice", exc_info=True)
 
+        # Truncated cloud responses often cut mid-string with no closing brace.
+        if first != -1:
+            repaired = self._repair_truncated_json(text[first:])
+            if repaired:
+                logger.info("JSON_EXTRACT_REPAIRED | chars_in=%s", len(text))
+                return repaired
+
         return None
+
+    @staticmethod
+    def _repair_truncated_json(blob: str) -> Optional[Dict[str, Any]]:
+        """Best-effort close of truncated JSON objects from max_tokens cuts."""
+        if not blob or not blob.lstrip().startswith("{"):
+            return None
+        s = blob.rstrip()
+        # Drop a trailing incomplete key/value fragment after the last comma/colon
+        # when it looks cut mid-string (odd number of unescaped quotes from start).
+        if s.count('"') % 2 == 1:
+            # Close the open string, then continue structural repair.
+            s = s + '"'
+
+        stack: List[str] = []
+        in_str = False
+        escape = False
+        for ch in s:
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch in "{[":
+                stack.append("}" if ch == "{" else "]")
+            elif ch in "}]":
+                if stack and stack[-1] == ch:
+                    stack.pop()
+
+        if in_str:
+            s += '"'
+        # Trim dangling comma / colon before closing
+        s = re.sub(r"[,:\s]+$", "", s)
+        while stack:
+            s += stack.pop()
+        try:
+            parsed = json.loads(s)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            logger.debug("JSON_REPAIR_FAILED", exc_info=True)
+            return None
 
     # ──────────────────────────────────────────────────────────────────────────
     # 2b. Section Partitioning & Kit Staging (deterministic [SECTION:] parse)
@@ -1001,6 +1314,9 @@ class AutoBifurcator:
         full_sample = (text + " " + json.dumps(parsed_fields)).lower()
         if not vertical or vertical == default_vertical:
             slug_hints = (
+                ("automotive", "automotive"),
+                ("automobile", "automotive"),
+                ("car dealer", "automotive"),
                 ("it_software", "it_software"),
                 ("software & it", "it_software"),
                 ("real_estate", "real_estate"),
@@ -1020,6 +1336,7 @@ class AutoBifurcator:
                     break
             else:
                 scores = {
+                    "automotive": sum(1 for w in ("vehicle", "workshop", "test drive", "vin", "brake", "engine", "dealer", "automobile", "rsa") if w in full_sample),
                     "real_estate": sum(1 for w in ("property", "bhk", "villa", "penthouse", "rera", "carpet area") if w in full_sample),
                     "tours_travel": sum(1 for w in ("flight", "tour", "itinerary", "visa", "holiday") if w in full_sample),
                     "it_software": sum(1 for w in ("software", "devops", "tech stack", "fastapi", "react", "kubernetes", "flutter") if w in full_sample),
@@ -1910,13 +2227,22 @@ class AutoBifurcator:
         *,
         warning: Optional[str] = None,
     ) -> Dict[str, Any]:
+        llm_ok = False
         try:
             draft = self.bifurcate_with_llm(extracted_docs)
+            llm_ok = bool(draft.pop("_llm_ok", False))
         except Exception as exc:
             logger.warning("stage_files LLM path failed (%s); heuristics-only fallback", exc)
             draft = merge_bifurcation_results(
                 heuristic_extract_corpus(combined_text, tenant_id=self.tenant_id),
                 tenant_id=self.tenant_id,
+            )
+            llm_ok = False
+        if not llm_ok and not warning:
+            warning = (
+                "Local Ollama failed during bifurcation (often a Windows CUDA crash). "
+                "Only heuristic fields were extracted — fix GPU/drivers or set "
+                "OLLAMA_NUM_GPU=0 / BIFURCATE_OLLAMA_NUM_GPU=0, then re-stage the upload."
             )
         brand = dict(draft.get("brand") or {})
         brand_name_fabricated = not brand.get("name")
@@ -1988,15 +2314,24 @@ class AutoBifurcator:
             staged["warning"] = warning
         return staged
 
-    def _persist_option_b_as_kb(self, files_data: List[Dict[str, Any]]) -> None:
-        """Option B (filled industry kit): store source files as module=kb only.
+    def _persist_staged_source_files(
+        self,
+        files_data: List[Dict[str, Any]],
+        *,
+        module: str = "kb",
+    ) -> None:
+        """Store staged upload bytes in admin_files so Knowledge/Files UI lists them.
 
+        Without this, Option A (``lane=any``) extracted text for review but never
+        wrote an ``admin_files`` row — the Files tab looked empty even after a
+        successful stage. Kits and free-form PDFs both need a visible source file.
         Never catalogue/brochure — WhatsApp brochure asks must ignore these.
         """
         if not self.tenant_id or self.tenant_id == "draft_tenant":
             return
+        module = (module or "kb").strip().lower() or "kb"
         for f in files_data:
-            filename = f.get("filename") or "onboarding_kit"
+            filename = f.get("filename") or "onboarding_doc"
             content = f.get("content") or b""
             if isinstance(content, str):
                 import base64
@@ -2007,7 +2342,6 @@ class AutoBifurcator:
             if not content:
                 continue
             ext = Path(filename).suffix.lstrip(".") or "bin"
-            module = "kb"
             from routing.config import UPLOAD_DIR as _UPLOAD_DIR
             upload_dir = os.path.join(_UPLOAD_DIR, module)
             os.makedirs(upload_dir, exist_ok=True)
@@ -2033,13 +2367,17 @@ class AutoBifurcator:
                     actor=self.actor,
                 )
                 logger.info(
-                    "OPTION_B_KB_STORED | tenant=%s | file=%s | module=kb",
-                    self.tenant_id, filename,
+                    "STAGED_SOURCE_STORED | tenant=%s | file=%s | module=%s",
+                    self.tenant_id, filename, module,
                 )
             except Exception as write_err:
                 logger.warning(
-                    "Option B kb store failed for %s: %s", filename, write_err,
+                    "Staged source store failed for %s: %s", filename, write_err,
                 )
+
+    def _persist_option_b_as_kb(self, files_data: List[Dict[str, Any]]) -> None:
+        """Option B (filled industry kit): store source files as module=kb only."""
+        self._persist_staged_source_files(files_data, module="kb")
 
     def stage_files(
         self,
@@ -2053,10 +2391,10 @@ class AutoBifurcator:
         plus heuristic/LLM gap-fill. Incomplete kits and unstructured uploads use
         the universal path (warn + continue for incomplete kits).
 
-        Option B (``lane='kit'``) always persists source files as ``module=kb``.
+        Always persists source files as ``module=kb`` so the Files/Knowledge UI
+        shows the upload even when the LLM path fails or returns empty.
         """
-        if (lane or "").strip().lower() == "kit":
-            self._persist_option_b_as_kb(files_data)
+        self._persist_staged_source_files(files_data, module="kb")
 
         extracted_docs = []
         for f in files_data:

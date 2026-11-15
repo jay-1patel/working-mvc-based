@@ -9,7 +9,8 @@ import { useEffect, useState } from 'react'
 
 function currentPath(): string {
   const raw = window.location.hash.replace(/^#/, '')
-  return raw || '/tenants'
+  // First screen after open/login: graphical overview dashboard.
+  return raw || '/dashboard'
 }
 
 export function navigate(path: string) {

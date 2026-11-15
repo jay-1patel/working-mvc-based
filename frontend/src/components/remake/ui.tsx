@@ -26,7 +26,7 @@ export function Card({
   className?: string
 }) {
   return (
-    <div className={cn('rounded-panel border border-line bg-card', className)}>
+    <div className={cn('send2-panel rounded-panel border border-line bg-card', className)}>
       {children}
     </div>
   )
@@ -44,7 +44,7 @@ export function Panel({
   action?: ReactNode
 }) {
   return (
-    <section className={cn('rounded-panel border border-line bg-card p-4 sm:p-5', className)}>
+    <section className={cn('send2-panel rounded-panel border border-line bg-card p-4 sm:p-5', className)}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-tx">{title}</h2>
         {action}
@@ -68,7 +68,7 @@ export function StatCard({
   return (
     <div
       className={cn(
-        'rounded-panel border p-4',
+        'send2-panel rounded-panel border p-4',
         tone === 'normal' && 'border-line bg-card',
         tone === 'attention' && 'border-attline bg-attbg',
         tone === 'failure' && 'border-badline bg-badbg',
@@ -77,7 +77,7 @@ export function StatCard({
       <p
         className={cn(
           'text-2xl font-bold leading-none',
-          tone === 'normal' && 'text-tx',
+          tone === 'normal' && 'text-heading',
           tone === 'attention' && 'text-attink',
           tone === 'failure' && 'text-badink',
         )}
@@ -148,7 +148,7 @@ export function PrimaryButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-lg bg-acc px-3.5 py-2 text-sm font-semibold text-onacc transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50',
+        'inline-flex items-center justify-center gap-2 rounded-lg bg-acc px-3.5 py-2 text-sm font-medium text-onacc transition hover:bg-acchover disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
     >

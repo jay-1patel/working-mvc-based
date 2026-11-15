@@ -1755,6 +1755,40 @@ def _init_lead_tables(conn):
     _ensure_columns(conn, "campaigns", [("tenant_id", "TEXT")])
     _ensure_columns(conn, "distributors", [("tenant_id", "TEXT")])
 
+    # UC-01..UC-05 message intelligence (sentiment / type / topics / safety / repeats)
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS message_intelligence (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id     TEXT NOT NULL,
+            wa_id         TEXT DEFAULT '',
+            entity_key    TEXT DEFAULT '',
+            message_text  TEXT DEFAULT '',
+            sentiment     TEXT,
+            message_type  TEXT,
+            topics_json   TEXT DEFAULT '[]',
+            safety_json   TEXT DEFAULT '{}',
+            is_repeat     INTEGER DEFAULT 0,
+            repeat_count  INTEGER DEFAULT 0,
+            surge_topic   TEXT,
+            surge_count   INTEGER DEFAULT 0,
+            escalate      INTEGER DEFAULT 0,
+            raw_json      TEXT DEFAULT '{}',
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_msg_intel_tenant_created "
+        "ON message_intelligence(tenant_id, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_msg_intel_entity "
+        "ON message_intelligence(tenant_id, entity_key, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_msg_intel_type "
+        "ON message_intelligence(tenant_id, message_type, created_at)"
+    )
+
 
 # ── Phase 0.4: embedding isolation ───────────────────────────────────────
 

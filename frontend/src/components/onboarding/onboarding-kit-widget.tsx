@@ -28,6 +28,11 @@ interface OnboardingKitWidgetProps {
   compact?: boolean
   /** Hide the "Option A — Any document" lane; kit upload only. */
   kitOnly?: boolean
+  /**
+   * `ongoing` = post-onboarding Knowledge page: lead with “upload another PDF”
+   * so admins can keep adding docs after the first setup.
+   */
+  mode?: 'onboarding' | 'ongoing'
 }
 
 type UploadLane = 'any' | 'kit'
@@ -38,7 +43,9 @@ export function OnboardingKitWidget({
   onStagedDraft,
   onPublished,
   kitOnly,
+  mode = 'onboarding',
 }: OnboardingKitWidgetProps) {
+  const ongoing = mode === 'ongoing'
   const toast = useToast()
   const { tenants } = useTenants()
   const anyFileRef = useRef<HTMLInputElement>(null)
@@ -181,26 +188,53 @@ export function OnboardingKitWidget({
   return (
     <>
       <div className="space-y-4">
-        {/* Option A — any document */}
+        {/* Any document — primary path after onboarding */}
         {!kitOnly && (
-        <div className="rounded-panel border border-chipwebink/30 bg-chipwebbg/40 p-4 sm:p-5">
+        <div
+          className={
+            ongoing
+              ? 'rounded-panel border border-acc/35 bg-accsoft/50 p-4 sm:p-5'
+              : 'rounded-panel border border-chipwebink/30 bg-chipwebbg/40 p-4 sm:p-5'
+          }
+        >
             <div className="flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
               <div className="flex-1 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-chipwebbg text-chipwebink">
+                  <span
+                    className={
+                      ongoing
+                        ? 'flex h-7 w-7 items-center justify-center rounded-md bg-accsoft text-acc'
+                        : 'flex h-7 w-7 items-center justify-center rounded-md bg-chipwebbg text-chipwebink'
+                    }
+                  >
                     <Files className="h-4 w-4" />
                   </span>
-                  <h3 className="text-sm font-semibold text-tx">Option A — Any document</h3>
-                  <span className="inline-flex rounded-full border border-chipwebink/30 bg-chipwebbg px-2 py-0.5 text-2xs font-medium text-chipwebink">
-                    Universal extract
+                  <h3 className="text-sm font-semibold text-tx">
+                    {ongoing ? 'Upload a new PDF or document' : 'Option A — Any document'}
+                  </h3>
+                  <span
+                    className={
+                      ongoing
+                        ? 'inline-flex rounded-full border border-acc/40 bg-accsoft px-2 py-0.5 text-2xs font-medium text-acc'
+                        : 'inline-flex rounded-full border border-chipwebink/30 bg-chipwebbg px-2 py-0.5 text-2xs font-medium text-chipwebink'
+                    }
+                  >
+                    {ongoing ? 'Add after onboarding' : 'Universal extract'}
                   </span>
                 </div>
                 <p className="max-w-xl text-xs leading-relaxed text-txmuted">
-                  Website scrape, PDF, Word, Markdown, or CSV. Fills brand, menu, offerings, FAQs, intents and KB for
-                  this tenant — no kit template required.
+                  {ongoing
+                    ? 'Add another brochure, price list, FAQ sheet, or company PDF anytime. We extract offerings, FAQs and knowledge, then you review and publish — existing live content is merged, not wiped.'
+                    : 'Website scrape, PDF, Word, Markdown, or CSV. Fills brand, menu, offerings, FAQs, intents and KB for this tenant — no kit template required.'}
                 </p>
               </div>
-              <div className="flex flex-col items-center justify-center rounded-panel border border-dashed border-chipwebink/40 bg-chipwebbg/40 p-4 text-center sm:min-w-[240px]">
+              <div
+                className={
+                  ongoing
+                    ? 'flex flex-col items-center justify-center rounded-panel border border-dashed border-acc/45 bg-card p-4 text-center sm:min-w-[240px]'
+                    : 'flex flex-col items-center justify-center rounded-panel border border-dashed border-chipwebink/40 bg-chipwebbg/40 p-4 text-center sm:min-w-[240px]'
+                }
+              >
                 <input
                   ref={anyFileRef}
                   type="file"
@@ -211,7 +245,13 @@ export function OnboardingKitWidget({
                     if (f) handleFileUpload(f, 'any')
                   }}
                 />
-                <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-chipwebbg text-chipwebink">
+                <div
+                  className={
+                    ongoing
+                      ? 'mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accsoft text-acc'
+                      : 'mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-chipwebbg text-chipwebink'
+                  }
+                >
                   {parsing && parsingLane === 'any' ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
                   ) : (
@@ -219,7 +259,11 @@ export function OnboardingKitWidget({
                   )}
                 </div>
                 <p className="text-xs font-medium text-tx">
-                  {parsing && parsingLane === 'any' ? 'Extracting…' : 'Upload any company file'}
+                  {parsing && parsingLane === 'any'
+                    ? 'Extracting…'
+                    : ongoing
+                      ? 'New PDF / Word / Excel'
+                      : 'Upload any company file'}
                 </p>
                 <PrimaryButton
                   className="mt-2 px-2.5 py-1.5 text-xs"
@@ -229,7 +273,7 @@ export function OnboardingKitWidget({
                   {parsing && parsingLane === 'any' && (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   )}
-                  Upload &amp; stage
+                  {ongoing ? 'Upload & review' : 'Upload & stage'}
                 </PrimaryButton>
               </div>
             </div>
@@ -237,7 +281,13 @@ export function OnboardingKitWidget({
         )}
 
         {/* Pre-defined formatted industry kit */}
-        <div className="rounded-panel border border-acc/30 bg-accsoft/40 p-4 sm:p-5">
+        <div
+          className={
+            ongoing
+              ? 'rounded-panel border border-line bg-card p-4 sm:p-5'
+              : 'rounded-panel border border-acc/30 bg-accsoft/40 p-4 sm:p-5'
+          }
+        >
             <div className="flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
               <div className="flex-1 space-y-2">
                 <div className="flex items-center gap-2">
@@ -247,7 +297,9 @@ export function OnboardingKitWidget({
                   <h3 className="text-sm font-semibold text-tx">
                     {kitOnly
                       ? 'Pre-defined formatted PDF / Word kit'
-                      : 'Option B — Filled industry kit'}
+                      : ongoing
+                        ? 'Or use a filled industry kit'
+                        : 'Option B — Filled industry kit'}
                   </h3>
                   <span className="inline-flex rounded-full border border-acc/40 bg-accsoft px-2 py-0.5 text-2xs font-medium text-acc">
                     Structured sections

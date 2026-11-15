@@ -77,10 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const me = await api.get<AdminIdentity>('/api/auth/me')
     setIdentity(me)
     setNeedsSetup(false)
-    // Tenant-scoped admins land straight in their own tenant; only super
-    // admins start from the tenant list.
+    // Everyone lands on the graphical overview first.
+    // Tenant admins open their tenant Today (charts + needs-you).
+    // Super admins open the platform dashboard.
     if (me.role !== 'super_admin' && me.tenant_id) {
       navigate(`/tenants/${encodeURIComponent(me.tenant_id)}/overview`)
+    } else {
+      navigate('/dashboard')
     }
   }, [])
 
@@ -94,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const me = await api.get<AdminIdentity>('/api/auth/me')
     setIdentity(me)
     setNeedsSetup(false)
+    navigate('/dashboard')
   }, [])
 
   const logout = useCallback(() => {

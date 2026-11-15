@@ -1,0 +1,580 @@
+{
+  "tenant_id": "h",
+  "vertical": "generic",
+  "display_name": "MetroDrive Autos Pvt Ltd",
+  "brand": {
+    "name": "MetroDrive Autos Pvt Ltd",
+    "bot_name": "MetroDrive Assistant",
+    "tagline": "Authorised multi-brand passenger-car dealership on SG Highway offering new cars, certified used cars, finance & insurance assistance, and a full authorised workshop.",
+    "signature": "MetroDrive Autos Ahmedabad — drive with confidence.",
+    "website": "https://www.metrodriveautos.com",
+    "support_email": "service@metrodriveautos.com",
+    "support_phone": "+91 98250 22011"
+  },
+  "features": {
+    "message_intelligence": true,
+    "topic_tagging": true,
+    "safety_escalation": true,
+    "repeat_issue_detection": true,
+    "complaints": true,
+    "faq": true,
+    "kb": true,
+    "brochure_pdf": false,
+    "book_appointment": false,
+    "callback": true,
+    "human_handover": true,
+    "handoff": true,
+    "offerings": true,
+    "offering_details": true,
+    "lead_capture": true,
+    "campaigns": false,
+    "cart": false,
+    "buy_now": false,
+    "orders": false,
+    "payments": false,
+    "track_order": false,
+    "returns": false,
+    "distributors": false,
+    "services": true,
+    "products": true,
+    "products_schemes": true,
+    "quote": false
+  },
+  "vocabulary": {
+    "item_noun": "products",
+    "item_noun_singular": "product",
+    "browse_label": "Browse",
+    "catalog_label": "Brochure",
+    "lead_noun": "enquiry",
+    "enquiry_label": "Enquire"
+  },
+  "prompt": {
+    "tone": "professional and confident",
+    "industry": "business",
+    "listing_type": "products, services, or information",
+    "domain_specific_queries": "products, services, pricing, or support",
+    "keywords": [
+      "Services",
+      "cars"
+    ]
+  },
+  "business_hours": {
+    "timezone": "Asia/Kolkata",
+    "always_open": false,
+    "open": "09:30",
+    "close": "18:30",
+    "open_days": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "guardrails": {
+    "escalation_message": "Let me connect you with our team.",
+    "handoff_keywords": [
+      "human",
+      "agent",
+      "person"
+    ],
+    "tone": "consultative, polished, and professional",
+    "never_state": [
+      "Never offer unauthorized discounts or unlisted pricing.",
+      "Never promise delivery or possession dates outside official brochure.",
+      "Never request passwords, OTPs, or credit card details."
+    ],
+    "escalate_keywords": [
+      "human",
+      "agent",
+      "manager",
+      "dispute",
+      "representative"
+    ]
+  },
+  "menu": {
+    "key": "kb_main",
+    "header": "MetroDrive Autos Pvt Ltd",
+    "body": "Welcome! How can we assist you today?",
+    "footer": "Select an option or type your query directly",
+    "button_text": "Select Option",
+    "buttons": [
+      {
+        "id": "browse_offerings",
+        "title": "Our Cars",
+        "description": "Sedan, SUV, compact & more",
+        "section": "Cars",
+        "sort_order": 1,
+        "enabled": true,
+        "intent": "offerings"
+      },
+      {
+        "id": "book_callback",
+        "title": "Book Test Drive",
+        "description": "Free test drive at showroom or home",
+        "section": "Sales",
+        "sort_order": 2,
+        "enabled": true,
+        "flow": "book_callback"
+      },
+      {
+        "id": "quote",
+        "title": "Get On-Road Price",
+        "description": "Written quote for your variant",
+        "section": "Sales",
+        "sort_order": 3,
+        "enabled": true,
+        "flow": "get_quote"
+      },
+      {
+        "id": "raise_ticket",
+        "title": "Book Service",
+        "description": "Periodic service & repairs",
+        "section": "Service",
+        "sort_order": 4,
+        "enabled": true,
+        "flow": "raise_ticket"
+      },
+      {
+        "id": "faq",
+        "title": "Finance Options",
+        "description": "Loan & insurance desk help",
+        "section": "Sales",
+        "sort_order": 5,
+        "enabled": true,
+        "intent": "faq"
+      },
+      {
+        "id": "benefits",
+        "title": "Why us",
+        "description": "Warranty, safety & trust",
+        "section": "Info",
+        "sort_order": 6,
+        "enabled": true,
+        "intent": "benefits"
+      },
+      {
+        "id": "contact",
+        "title": "Talk to Sales",
+        "description": "Callback from our sales team",
+        "section": "Contact",
+        "sort_order": 7,
+        "enabled": true,
+        "flow": "book_callback"
+      },
+      {
+        "id": "support",
+        "title": "Customer Care",
+        "description": "Service support & tickets",
+        "section": "Support",
+        "sort_order": 8,
+        "enabled": true,
+        "flow": "raise_ticket"
+      },
+      {
+        "id": "eco_tips",
+        "title": "Eco Driving Tips",
+        "description": "Learn how to keep your car efficient",
+        "section": "Care",
+        "sort_order": 9,
+        "enabled": true,
+        "intent": "eco_tips"
+      }
+    ]
+  },
+  "notifications": {
+    "sales_email": "sales@honda.com",
+    "support_email": "support@honda.com"
+  },
+  "intents": [
+    {
+      "name": "finance",
+      "examples": [
+        "how do i get a loan",
+        "finance options"
+      ],
+      "keywords": [
+        "finance",
+        "loan",
+        "insurance",
+        "emi"
+      ],
+      "enabled": true,
+      "description": "Loan and insurance assistance",
+      "answer": "We provide Loan & insurance desk help. Please select 'Finance Options' from the menu or contact our sales team for personalized assistance."
+    },
+    {
+      "name": "faq-cars-sold",
+      "examples": [
+        "What cars do you sell?",
+        "Show me your lineup"
+      ],
+      "keywords": [
+        "cars sold",
+        "models",
+        "inventory",
+        "what cars"
+      ],
+      "enabled": true,
+      "description": "Vehicles available for sale",
+      "answer": "We retail midsize sedans, compact sedans, compact SUVs, and crossovers. Ask for the latest line-up and colours available today."
+    },
+    {
+      "name": "faq-pricing",
+      "examples": [
+        "Price of Midsize Sedan VX?",
+        "On-road price of Compact SUV ZX?"
+      ],
+      "keywords": [
+        "price",
+        "ex-showroom",
+        "on-road",
+        "cost"
+      ],
+      "enabled": true,
+      "description": "Ex-showroom and on-road pricing",
+      "answer": "Midsize Sedan VX petrol starts from Rs. 13,89,000 (ex-showroom, Ahmedabad). Compact SUV ZX on-road typically ranges from Rs. 18.5 lakh to Rs. 19.2 lakh depending on insurance and accessories. Call +91 98250 22010 for a written quote."
+    },
+    {
+      "name": "faq-test-drive",
+      "examples": [
+        "Can I book a test drive?",
+        "Is test drive free?"
+      ],
+      "keywords": [
+        "test drive",
+        "try out",
+        "demo"
+      ],
+      "enabled": true,
+      "description": "Test drive availability and booking",
+      "answer": "Yes, test drives are complimentary for serious buyers. Choose 'Book Test Drive' in the menu or call sales on +91 98250 22010. Bring a valid driving licence. Home test drives within 15 km of SG Highway can be arranged with advance booking. Runs Mon–Sat, 10:00 AM–6:30 PM."
+    },
+    {
+      "name": "faq-finance",
+      "examples": [
+        "Do you offer car finance?",
+        "How to get a loan?"
+      ],
+      "keywords": [
+        "finance",
+        "loan",
+        "EMI",
+        "car loan"
+      ],
+      "enabled": true,
+      "description": "Car finance options",
+      "answer": "Please contact our sales team at +91 98250 22010 for detailed financing options and EMI calculations."
+    },
+    {
+      "name": "test-drive",
+      "examples": [
+        "Can I book a test drive?",
+        "Is the test drive free?"
+      ],
+      "keywords": [
+        "test drive",
+        "book test drive",
+        "drive",
+        "trial"
+      ],
+      "enabled": true,
+      "description": "Information about booking and conducting test drives",
+      "answer": "Yes. Choose 'Book Test Drive' in the menu, or call sales on +91 98250 22010. Bring a valid driving licence. Test drives run Mon–Sat, 10:00 AM–6:30 PM. They are complimentary for serious buyers. Home test drives within 15 km of SG Highway can be arranged with advance booking."
+    },
+    {
+      "name": "car-finance",
+      "examples": [
+        "Do you offer car finance?",
+        "What documents are needed for a car loan?"
+      ],
+      "keywords": [
+        "finance",
+        "loan",
+        "EMI",
+        "down payment",
+        "pre-approval"
+      ],
+      "enabled": true,
+      "description": "Car loan options, down payment, and approval process",
+      "answer": "Yes. We work with HDFC, SBI, ICICI, Axis and Bajaj Finance. Down payment from about 10–20% depending on profile. Pre-approval often in 24–48 hours.\n\nDocuments needed: PAN, Aadhaar, 3 months’ salary slips (or ITR for self-employed), 6 months’ bank statements, and a cancelled cheque. Our desk helps complete the form."
+    },
+    {
+      "name": "insurance",
+      "examples": [
+        "Do you help with motor insurance?",
+        "Do you handle accident repairs?"
+      ],
+      "keywords": [
+        "insurance",
+        "comprehensive",
+        "zero dep",
+        "claim",
+        "accident"
+      ],
+      "enabled": true,
+      "description": "Motor insurance policies and claims assistance",
+      "answer": "Yes. We arrange comprehensive and zero-dep policies from leading insurers at the showroom. Multi-year options are available with new car delivery.\n\nFor accidents: Our body shop handles denting, painting and cashless claims with empaneled insurers. Bring FIR / claim intimation and policy copy."
+    },
+    {
+      "name": "exchange",
+      "examples": [
+        "Do you accept exchange of my old car?"
+      ],
+      "keywords": [
+        "exchange",
+        "old car",
+        "trade-in",
+        "evaluation"
+      ],
+      "enabled": true,
+      "description": "Old car exchange and evaluation process",
+      "answer": "Yes. We evaluate most running cars free of cost. Bring RC, insurance and PUC. Exchange value is confirmed in writing and adjusted against the new car booking."
+    },
+    {
+      "name": "booking-amount",
+      "examples": [
+        "What is the booking amount for a new car?"
+      ],
+      "keywords": [
+        "booking amount",
+        "advance",
+        "cancellation"
+      ],
+      "enabled": true,
+      "description": "Booking amounts and cancellation terms",
+      "answer": "Typically Rs. 25,000 to Rs. 51,000 depending on model. Booking is adjustable against the invoice. Cancellation terms are shared on the booking form."
+    },
+    {
+      "name": "vehicle-specs",
+      "examples": [
+        "What colours are available for the Midsize Sedan?",
+        "What is the mileage of the Midsize Sedan petrol?",
+        "Is ADAS available on the Compact SUV?"
+      ],
+      "keywords": [
+        "mileage",
+        "colors",
+        "ADAS",
+        "warranty",
+        "Compact SUV",
+        "Midsize Sedan"
+      ],
+      "enabled": true,
+      "description": "Vehicle specifications including mileage, colors, and features",
+      "answer": "Midsize Sedan Petrol MT ARAI mileage: ~17.8 km/l (Real-world city: 12–15 km/l).\nColors: Radiant Red, Lunar Silver, Meteoroid Grey, Pearl White, Golden Brown Metallic.\nCompact SUV: Popular colours deliver in 2–6 weeks. Select variants offer ADAS (lane watch, adaptive cruise, collision mitigation).\nWarranty: Standard manufacturer warranty is typically 3 years / 100,000 km (whichever earlier), with roadside assistance as per policy."
+    },
+    {
+      "name": "service-schedule",
+      "examples": [
+        "How do I book a periodic service?",
+        "Which service does my car need?",
+        "How much does a Midsize Sedan periodic service cost?"
+      ],
+      "keywords": [
+        "service",
+        "periodic service",
+        "maintenance",
+        "schedule",
+        "cost"
+      ],
+      "enabled": true,
+      "description": "Periodic service schedule based on purchase date",
+      "answer": "Please provide your purchase/delivery date and current odometer reading. We map this to the schedule:\n- ~1 month / 1,000 km: 1st free inspection/PDI (Fluid levels, tyre pressure, basic health check)\n- ~6 months / 10,000 km: 1st periodic service (Engine oil + filter, inspection, top-ups)\n- ~12 months / 20,000 km: 2nd periodic service (Oil & filter, air filter, brake & underbody)\n- ~18 months / 30,000 km: 3rd periodic service (Oil & filter, cabin/air filter, suspension & battery)\n- ~24 months / 40,000 km: 4th periodic/major check (Oil, spark plugs, coolant, brake fluid)\n- Every 6 months / 10,000 km thereafter: Ongoing periodic service\n- Any time after accident/warning light: Repair/diagnosis visit"
+    },
+    {
+      "name": "pickup-drop",
+      "examples": [
+        "Do you offer pick-up and drop for service?"
+      ],
+      "keywords": [
+        "pick up",
+        "drop",
+        "transport",
+        "shuttle"
+      ],
+      "enabled": true,
+      "description": "Pick-up and drop-off services for maintenance",
+      "answer": "Yes, within city limits on select weekdays with advance booking. Charges may apply beyond 10 km from the workshop — confirmed at booking."
+    },
+    {
+      "name": "showroom-location",
+      "examples": [
+        "Where is the showroom located?",
+        "How do I contact sales?"
+      ],
+      "keywords": [
+        "location",
+        "address",
+        "where",
+        "contact",
+        "sales"
+      ],
+      "enabled": true,
+      "description": "Showroom address and contact details",
+      "answer": "Location: MetroDrive Autos — SG Highway showroom, near Thaltej Cross Roads, Ahmedabad, Gujarat 380059. Free visitor parking available.\n\nContact Sales: Email sales@metrodriveautos.com or call +91 98250 22010."
+    },
+    {
+      "name": "showroom-hours",
+      "examples": [
+        "What are your showroom and service hours?"
+      ],
+      "keywords": [
+        "hours",
+        "open time",
+        "closed",
+        "timing"
+      ],
+      "enabled": true,
+      "description": "Operating hours for showroom and service center",
+      "answer": "Showroom: Mon–Sat 9:30 AM–7:00 PM.\nService: Mon–Sat 9:00 AM–6:00 PM.\nClosed on Sundays (except notified camps)."
+    },
+    {
+      "name": "contact-sales-intent",
+      "examples": [
+        "How do I contact sales?",
+        "I want to buy a car"
+      ],
+      "keywords": [
+        "contact sales",
+        "sales email",
+        "sales phone",
+        "new enquiry"
+      ],
+      "enabled": true,
+      "description": "Sales contact information",
+      "answer": "Email sales@metrodriveautos.com or call +91 98250 22010. For new enquiries you can also choose Talk to Sales in the menu."
+    },
+    {
+      "name": "contact-service-intent",
+      "examples": [
+        "How do I contact customer care?",
+        "I need service"
+      ],
+      "keywords": [
+        "contact customer care",
+        "service contact",
+        "existing owner"
+      ],
+      "enabled": true,
+      "description": "Customer care/service contact",
+      "answer": "Email service@metrodriveautos.com or call +91 98250 22011. Existing owners should use Book Service or Customer Care — not the sales line."
+    },
+    {
+      "name": "finance-options",
+      "examples": [
+        "What finance options are available?",
+        "Car loan details"
+      ],
+      "keywords": [
+        "finance",
+        "loan",
+        "emi",
+        "down payment",
+        "nbfc",
+        "bank"
+      ],
+      "enabled": true,
+      "description": "Car loan and finance details",
+      "answer": "We help with car loans through partner banks and NBFCs including HDFC, SBI, ICICI, Axis and Bajaj Finance. Down payment, tenure and EMI depend on your profile — our finance desk shares a written offer before you book. For loan queries, call the finance desk on +91 98250 22012 (Mon–Sat, 10:00 AM–6:30 PM) or email sales@metrodriveautos.com."
+    },
+    {
+      "name": "why-choose-us",
+      "examples": [
+        "Why should I buy from MetroDrive?",
+        "What are your benefits?"
+      ],
+      "keywords": [
+        "why choose",
+        "benefits",
+        "advantages",
+        "features"
+      ],
+      "enabled": true,
+      "description": "Benefits and unique selling points",
+      "answer": "• Transparent written on-road quotes before you book\n• Free test drives · home test drive within 15 km on request\n• Exchange facility with same-day evaluation\n• Finance desk with major banks & NBFCs\n• Genuine parts · certified technicians · insurance claim support\n• Customer lounge and WhatsApp job-card updates"
+    },
+    {
+      "name": "insurance-claims",
+      "examples": [
+        "How do I file a claim?",
+        "Do you handle insurance claims?"
+      ],
+      "keywords": [
+        "claim",
+        "insurance",
+        "fir",
+        "empaneled"
+      ],
+      "enabled": true,
+      "description": "Insurance claim process",
+      "answer": "We assist with claims with empaneled insurers. Please bring FIR / claim intimation and policy copy."
+    },
+    {
+      "name": "eco-care",
+      "examples": [
+        "how to save fuel?",
+        "tips for long trips"
+      ],
+      "keywords": [
+        "eco driving",
+        "fuel efficiency",
+        "car care",
+        "maintenance tips"
+      ],
+      "enabled": true,
+      "description": "Tips for fuel efficiency and car care",
+      "answer": "• Warm up gently; avoid high RPM for first 1–2 km.\n• Smooth throttle & early upshifts save fuel.\n• Keep tyre pressure at door-sticker PSI.\n• Remove unused roof racks/heavy clutter.\n• Use AC wisely (recirculate after cooling).\n• Follow service schedule on time.\n• Prefer recommended oil grade & genuine filters.\n• Idle less than 30–60 seconds when waiting.\n• Plan routes to avoid peak congestion.\n• Check PUC, battery, coolant monthly.\n• Wash with pH-neutral shampoo.\n• For long trips: check cold tyre pressure, washer fluid, carry tool kit."
+    },
+    {
+      "name": "service-enquiry",
+      "examples": [
+        "what services do you offer",
+        "tell me about your offerings"
+      ],
+      "keywords": [
+        "service",
+        "services",
+        "what do you do",
+        "offerings",
+        "catalog"
+      ],
+      "enabled": true,
+      "description": "What services / offerings we provide",
+      "answer": "• Here's what MetroDrive Autos Pvt Ltd offers:\n• *Midsize Sedan VX Petrol* — Popular family pick with 1.5L petrol engine (Rs. 13,89,000*)\n• *Compact SUV VX* — High ground clearance SUV with 1.5L petrol engine (Rs. 14,60,000*)\n• *Periodic Service* — Oil, filters & checks for sedan, compact & SUV (From Rs. 4,800)\n• *Express Bay Service* — Quick oil change and inspection for sedans, compacts, and SUVs. (From Rs. 4,800)\n• *Denting & Painting* — Professional body repair, panel repair, and spray painting with insurance support. (On Request)\n• *Compact SUV* — Popular compact SUV with optional ADAS features.\n• *Midsize Sedan* — Efficient midsize sedan with claimed ARAI mileage of ~17.8 km/l.\n• *Complimentary Test Drive* — Free test drive for serious buyers. (Free)\n• Ask for details on any item, or tap *Get a Quote* / *Request a Callback*."
+    },
+    {
+      "name": "pricing-enquiry",
+      "examples": [
+        "what are your prices",
+        "how much does it cost"
+      ],
+      "keywords": [
+        "price",
+        "pricing",
+        "cost",
+        "rate",
+        "package",
+        "quote"
+      ],
+      "enabled": true,
+      "description": "Pricing and packages",
+      "answer": "• Pricing depends on scope, volume, and packaging.\n• *Midsize Sedan VX Petrol* — Popular family pick with 1.5L petrol engine (Rs. 13,89,000*)\n• *Compact SUV VX* — High ground clearance SUV with 1.5L petrol engine (Rs. 14,60,000*)\n• *Periodic Service* — Oil, filters & checks for sedan, compact & SUV (From Rs. 4,800)\n• *Express Bay Service* — Quick oil change and inspection for sedans, compacts, and SUVs. (From Rs. 4,800)\n• *Denting & Painting* — Professional body repair, panel repair, and spray painting with insurance support. (On Request)\n• *Compact SUV* — Popular compact SUV with optional ADAS features.\n• *Midsize Sedan* — Efficient midsize sedan with claimed ARAI mileage of ~17.8 km/l.\n• *Complimentary Test Drive* — Free test drive for serious buyers. (Free)\n• Share your requirements and we'll send a tailored quote — tap *Get a Quote*."
+    }
+  ],
+  "flows": [
+    {
+      "name": "book_callback",
+      "success_message": "Thank you! Your consultation request has been scheduled with MetroDrive Assistant."
+    },
+    {
+      "name": "get_quote",
+      "success_message": "Thank you! Our specialist will prepare a customized quote and follow up promptly."
+    },
+    {
+      "name": "raise_ticket",
+      "success_message": "Your request has been logged. A support ticket has been created and an executive will assist you."
+    }
+  ]
+}

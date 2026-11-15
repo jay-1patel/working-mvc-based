@@ -32,8 +32,11 @@ from database import (
 )
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
+from pathlib import Path as _Path
 
-load_dotenv()
+# Always load routing/.env (not cwd-relative) so BIFURCATE_* / OLLAMA_* apply.
+_ROOT = _Path(__file__).resolve().parent.parent
+load_dotenv(_ROOT / "routing" / ".env", override=True)
 
 from routing.config import ROUTER_PORT
 from routing import classify_query
@@ -137,7 +140,14 @@ app.add_middleware(
     CORSMiddleware,
     # SECURITY FIX: Restricted CORS to specific trusted origins only
     # Wildcard (*) allows any website to make cross-origin requests
-    allow_origins=os.getenv("CORS_ORIGINS", "https://your-production-domain.com,https://your-admin-domain.com,http://localhost:3000,http://127.0.0.1:3000").split(","),
+    allow_origins=[
+        origin.strip().rstrip("/")
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "https://cpaastest.send2.digital,https://cpaas.send2.digital,http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",")
+        if origin.strip()
+    ],
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Accept-Language", "X-Requested-With"],
     allow_credentials=True,

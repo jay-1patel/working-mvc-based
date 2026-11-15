@@ -285,9 +285,28 @@ def _parse_admin_file_row(row) -> dict:
 def list_admin_files(tenant_id: str = None) -> list:
     with get_db_context() as conn:
         if tenant_id:
+            # Match slug and numeric forms the same way products do — staged
+            # uploads historically stored either, and the Files UI must not
+            # look empty when the row exists under the other id shape.
+            try:
+                from backend.db.products import _resolve_tenant_ids
+            except ImportError:
+                try:
+                    from db.products import _resolve_tenant_ids
+                except ImportError:
+                    _resolve_tenant_ids = None
+            candidates = (
+                list(_resolve_tenant_ids(tenant_id))
+                if _resolve_tenant_ids
+                else [tenant_id]
+            )
+            if not candidates:
+                candidates = [tenant_id]
+            placeholders = ",".join("?" for _ in candidates)
             rows = conn.execute(
-                "SELECT * FROM admin_files WHERE tenant_id = ? ORDER BY created_at DESC, id DESC",
-                (tenant_id,),
+                f"SELECT * FROM admin_files WHERE tenant_id IN ({placeholders}) "
+                "ORDER BY created_at DESC, id DESC",
+                tuple(str(c) for c in candidates),
             ).fetchall()
         else:
             rows = conn.execute(

@@ -120,7 +120,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
   const pickUpload = () => inputRef.current?.click()
 
   const finishUploadBatch = async (filenames: string[]) => {
-    toast.push(`Extracting & publishing ${filenames.length} document${filenames.length === 1 ? '' : 's'}…`)
+    toast.push(`Extracting & configuring ${filenames.length} document${filenames.length === 1 ? '' : 's'}…`)
     const { files: readyFiles, timedOut } = await waitForUploadReady(tenantId, filenames, { module })
     state.reload()
     const failed = readyFiles.filter((f) => f.status === 'failed')
@@ -158,7 +158,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
         aggregated.kb_chunks_indexed ? `${aggregated.kb_chunks_indexed} KB chunks` : null,
       ].filter(Boolean)
       summary = bits.length
-        ? `Published live: ${bits.join(', ')}`
+        ? `Extracted (offerings staged for review): ${bits.join(', ')}`
         : 'Upload complete — content indexed (no new catalog items detected).'
     } else if (!failed.length && !bifErrors.length) {
       summary = 'Upload complete — content indexed.'
@@ -308,8 +308,8 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
   return (
     <div className="min-w-0">
       <PageHeader
-        title="Uploads & Auto-Configurator"
-        description="Upload documents once — products, FAQs, and knowledge are extracted and published live automatically."
+        title="Knowledge & uploads"
+        description="Onboarding is done? You can still upload new PDFs anytime — extract offerings, FAQs and knowledge, review, then publish."
         meta={state.data && <Pill tone="ok">{files.length} files</Pill>}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -363,10 +363,10 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
       {bifurcationResult && (
         <Panel
           className="mb-6 border-ok/40 bg-oksoft"
-          title="Auto-Bifurcation Successful & Published Live"
+          title="Auto-Bifurcation Complete"
           action={
             <Pill tone="ok">
-              Version {bifurcationResult.version || 1} Live
+              Offerings staged for review
             </Pill>
           }
         >
@@ -455,49 +455,29 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
         </Panel>
       )}
 
-      {/* Predefined Onboarding Kits & AI Bifurcation — never for a super
-          admin: they are view-only inside a tenant, so no kit upload or
-          publish-to-live control is offered to them here. */}
+      {/* Post-onboarding: upload another PDF anytime (stage → review → publish).
+          Super admins stay view-only inside a tenant. */}
       {!isSuperAdmin && (
         <div className="mb-6">
           <OnboardingKitWidget
             tenantId={tenantId}
             vertical={tenantVertical}
-            kitOnly
-            onPublished={() => state.reload()}
+            mode="ongoing"
+            onPublished={() => {
+              state.reload()
+              gapsState.reload()
+            }}
           />
         </div>
       )}
 
-      {/* Traditional Upload & Existing Files Section */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {FILE_MODULES.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => setModule(m.value)}
-              className={cn(
-                'rounded-lg px-3 py-1.5 text-xs font-medium transition',
-                module === m.value
-                  ? 'bg-accsoft text-acc'
-                  : 'text-txmuted hover:bg-paper hover:text-tx',
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter files by name…"
-            aria-label="Filter files by name"
-            className="w-full rounded-lg border border-line bg-inputbg px-3 py-2 text-sm text-tx outline-none placeholder:text-txfaint focus:border-acc sm:w-56"
-          />
-          {canUpload && (
-            <GhostButton
+      {/* File library by module (FAQ / KB / catalogue / …) */}
+      <Panel
+        className="mb-4"
+        title="File library"
+        action={
+          canUpload ? (
+            <PrimaryButton
               className="px-2.5 py-1.5 text-xs"
               onClick={pickUpload}
               disabled={uploading}
@@ -507,15 +487,42 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
               ) : (
                 <Upload className="h-3.5 w-3.5" />
               )}
-              Upload
-            </GhostButton>
-          )}
+              Upload to {activeModule.label}
+            </PrimaryButton>
+          ) : undefined
+        }
+      >
+        <p className="mb-3 text-xs text-txmuted">
+          Store raw files under a module, or use <strong>Upload a new PDF</strong> above to extract
+          and publish bot content. Supported: {UPLOAD_TYPES_LABEL} · Max {MAX_UPLOAD_LABEL}.
+        </p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {FILE_MODULES.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => setModule(m.value)}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                  module === m.value
+                    ? 'bg-accsoft text-acc'
+                    : 'text-txmuted hover:bg-paper hover:text-tx',
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter files by name…"
+            aria-label="Filter files by name"
+            className="w-full rounded-lg border border-line bg-inputbg px-3 py-2 text-sm text-tx outline-none placeholder:text-txfaint focus:border-acc sm:w-56"
+          />
         </div>
-      </div>
-
-      <p className="mb-4 text-2xs text-txmuted">
-        Supported formats: {UPLOAD_TYPES_LABEL} · Max {MAX_UPLOAD_LABEL} per file
-      </p>
+      </Panel>
 
       {action.error && (
         <ErrorBanner title="Upload failed" message={action.error} className="mb-4" />
@@ -538,7 +545,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
             title={`No ${activeModule.label.toLowerCase()} files`}
             description={
               canUpload
-                ? 'Upload PDF or Word documents — products, FAQs, and knowledge are extracted and published automatically.'
+                ? 'Use “Upload a new PDF or document” above to extract and publish, or “Upload to this module” to store a file in the library.'
                 : 'Nothing has been uploaded for this module yet.'
             }
           />

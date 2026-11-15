@@ -14,6 +14,7 @@ export const VERTICALS = [
   'finance',
   'healthcare',
   'real_estate',
+  'automotive',
   'generic',
 ] as const
 
@@ -43,6 +44,10 @@ export const FEATURE_FLAGS = [
   'complaints',
   'campaigns',
   'human_handover',
+  'message_intelligence',
+  'topic_tagging',
+  'safety_escalation',
+  'repeat_issue_detection',
 ] as const
 
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number]

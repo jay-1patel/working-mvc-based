@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { KeyRound, Loader2, LogIn, ShieldCheck, UserPlus } from 'lucide-react'
+import { KeyRound, Loader2, LogIn, UserPlus } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { ApiError } from '@/lib/api'
 import { FieldInput, Notice, PrimaryButton } from '@/components/remake/ui'
@@ -35,21 +35,20 @@ export function LoginView() {
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-paper px-6 py-16 text-tx">
-      <div className="w-full max-w-sm">
+    <div className="send2-frame">
+    <div className="send2-workspace flex min-h-0 flex-1 items-center justify-center overflow-y-auto bg-paper px-5 py-8 text-tx sm:py-12">
+      <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-accsoft ring-1 ring-inset ring-line">
-            <ShieldCheck className="h-6 w-6 text-acc" />
-          </div>
-          <h1 className="text-lg font-semibold text-tx">Tenant Console</h1>
+          <img src="/send2digital-logo.png" alt="Send2Digital" className="mx-auto mb-6 h-auto w-48" />
+          <h1 className="text-xl font-semibold text-heading">AI Chatbot</h1>
           <p className="mt-1.5 text-xs leading-relaxed text-txmuted">
             {needsSetup
               ? 'No admin exists yet. Create the first super admin to start registering tenants.'
-              : 'Sign in to manage your WhatsApp bot tenants.'}
+              : 'Sign in to your business workspace.'}
           </p>
         </div>
 
-        <form onSubmit={submit} className="space-y-4 rounded-panel border border-line bg-card p-6">
+        <form onSubmit={submit} className="send2-panel space-y-4 rounded-panel border border-line bg-card p-6 sm:p-8">
           <FieldInput
             label="Username"
             value={username}
@@ -96,6 +95,8 @@ export function LoginView() {
           Sessions are stored locally in this browser only.
         </p>
       </div>
+    </div>
+    <footer className="send2-footer">Send2Digital <span aria-hidden="true">·</span> AI Chatbot</footer>
     </div>
   )
 }

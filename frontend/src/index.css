@@ -8,8 +8,7 @@
   }
 
   html {
-    /* Bigger base type. Every rem-based Tailwind size scales with this. */
-    font-size: 17px;
+    font-size: 14px;
   }
 
   html,
@@ -19,7 +18,7 @@
   }
 
   body {
-    @apply bg-surface text-slate-300 antialiased;
+    @apply bg-canvas font-sans text-tx antialiased;
   }
 
   ::selection {
@@ -42,7 +41,7 @@
    */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(15, 110, 88, 0.35) transparent;
+    scrollbar-color: rgb(var(--switch-off)) transparent;
   }
 
   ::-webkit-scrollbar {
@@ -56,20 +55,20 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: rgba(15, 110, 88, 0.28);
+    background-color: rgb(var(--tx-faint) / 0.35);
     border: 3px solid transparent;
     background-clip: content-box;
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(15, 110, 88, 0.5);
+    background-color: rgb(var(--tx-faint) / 0.65);
   }
 }
 
 @layer components {
   .field-label {
-    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500;
+    @apply mb-1.5 block text-xs font-medium text-txmuted;
   }
 
   .hint {
@@ -78,7 +77,7 @@
 
   .scroll-thin {
     scrollbar-width: thin;
-    scrollbar-color: #c9d5cf transparent;
+    scrollbar-color: rgb(var(--switch-off)) transparent;
   }
 
   /*
@@ -87,17 +86,17 @@
    */
   .scroll-overlay {
     scrollbar-width: thin;
-    scrollbar-color: rgba(15, 110, 88, 0.35) transparent;
+    scrollbar-color: rgb(var(--switch-off)) transparent;
     overscroll-behavior: contain;
   }
 
   .scroll-overlay::-webkit-scrollbar-thumb {
-    background-color: rgba(15, 110, 88, 0.28);
+    background-color: rgb(var(--tx-faint) / 0.35);
   }
 
   .scroll-overlay:hover::-webkit-scrollbar-thumb,
   .scroll-overlay:focus-within::-webkit-scrollbar-thumb {
-    background-color: rgba(15, 110, 88, 0.5);
+    background-color: rgb(var(--tx-faint) / 0.65);
   }
 
   /*
@@ -108,5 +107,99 @@
   .break-anywhere {
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+
+  /* One product shell for super admins, admins, and sub admins. Flex sizing
+     leaves a bounded content area for the inbox's independently scrolling panes. */
+  .send2-frame {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 24px 24px 0;
+    background: rgb(var(--canvas));
+  }
+
+  .send2-workspace {
+    border-radius: 20px;
+    overflow: hidden;
+  }
+
+  .send2-footer {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 32px;
+    color: rgb(var(--tx-muted));
+    font-size: 0.75rem;
+  }
+
+  .send2-panel,
+  .send2-content :where(.rounded-panel.border-line.bg-card) {
+    box-shadow: 0 3px 4px rgb(var(--tx) / 0.1);
+  }
+
+  .send2-sidebar nav > div > p,
+  .send2-sidebar nav > div > div > p {
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: none;
+  }
+
+  .send2-content h1 {
+    color: rgb(var(--heading));
+  }
+
+  .send2-content table {
+    border-collapse: collapse;
+  }
+
+  .send2-content thead {
+    background: rgb(var(--table-head));
+    color: rgb(var(--tx-muted));
+  }
+
+  .send2-content th {
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  .send2-content tbody tr:nth-child(even) {
+    background-color: rgb(var(--table-stripe));
+  }
+
+  @media (max-width: 1023px) {
+    .send2-frame {
+      padding: 12px 12px 0;
+    }
+
+    .send2-workspace {
+      border-radius: 16px;
+    }
+  }
+
+  @media (max-width: 479px) {
+    .send2-frame {
+      padding: 8px 8px 0;
+    }
+
+    /* Prevent iOS focus zoom without increasing the compact desktop controls. */
+    .send2-frame input, .send2-frame textarea, .send2-frame select {
+      font-size: 16px;
+    }
+  }
+}
+
+@keyframes dashFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

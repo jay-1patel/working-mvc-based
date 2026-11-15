@@ -15,6 +15,7 @@ import { ProfileEditor } from '@/components/tenants/profile-editor'
 import { BotMenuPanel } from '@/components/tenants/bot-menu-panel'
 import { TodayPanel } from '@/components/tenants/today-panel'
 import { SuperToday } from '@/components/tenants/super-today'
+import { OverviewDashboard } from '@/components/dashboard/overview-dashboard'
 import { ChatsPanel } from '@/components/tenants/chats-panel'
 import { MenuEditor } from '@/components/tenants/menu-editor'
 import { OfferingsPanel } from '@/components/tenants/offerings-panel'
@@ -59,6 +60,23 @@ function Router() {
     return (
       <AppShell route={{ ...route, view }}>
         {view === 'tenant-requests' ? <MyTenantChangeRequests /> : <RegisterWizard />}
+      </AppShell>
+    )
+  }
+
+  if (route.view === 'dashboard') {
+    // Graphical home. Tenant admins with a bound company jump into that
+    // tenant's Today view (same charts + operational needs).
+    if (!isSuperAdmin && identity?.tenant_id) {
+      return (
+        <AppShell route={{ ...route, tenantId: identity.tenant_id, view: 'overview' }}>
+          <TodayPanel tenantId={identity.tenant_id} />
+        </AppShell>
+      )
+    }
+    return (
+      <AppShell route={route}>
+        {isSuperAdmin ? <SuperToday /> : <OverviewDashboard mode="platform" />}
       </AppShell>
     )
   }
@@ -131,6 +149,8 @@ function Router() {
   }
 
   if (!route.tenantId) {
+    // Empty / unknown global routes: show the graphical overview for
+    // super admins; tenant admins without a selected company get the list.
     return (
       <AppShell route={route}>
         {isSuperAdmin ? <SuperToday /> : <TenantList />}
@@ -246,6 +266,7 @@ const KNOWN_VIEWS = [
   'callbacks',
   'callback',
   'api-access',
+  'dashboard',
   'tenant-requests',
   'api-requests',
   'audit-history',

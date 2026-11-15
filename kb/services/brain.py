@@ -15,6 +15,7 @@ from routing.config import (
     BUSINESS_NAME, logger, OLLAMA_API_URL, OLLAMA_MODEL,
     GROQ_API_URL, GROQ_API_KEY, GROQ_MODEL,
     MISTRAL_API_URL, MISTRAL_API_KEY, MISTRAL_MODEL,
+    QWEN_API_URL, QWEN_API_KEY, QWEN_MODEL,
     API_PROVIDER,
 )
 from .rate_limiter import groq_rate_limiter
@@ -118,6 +119,14 @@ def _get_ollama_api_key() -> str:
     return key or "no-key-needed"
 
 
+def _get_qwen_api_key() -> str:
+    """DashScope / Qwen cloud API key (local-dev alternative to Ollama)."""
+    key = QWEN_API_KEY or os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+    if not key:
+        return None
+    return key
+
+
 def _get_candidate_providers() -> List[Tuple[str, str, str, str]]:
     """Returns list of (api_url, model, api_key, provider_name) in order of preference."""
     all_providers = {}
@@ -134,12 +143,19 @@ def _get_candidate_providers() -> List[Tuple[str, str, str, str]]:
     if MISTRAL_API_URL and mistral_key:
         all_providers["mistral"] = (MISTRAL_API_URL, MISTRAL_MODEL, mistral_key, "mistral")
 
+    qwen_key = _get_qwen_api_key()
+    if QWEN_API_URL and qwen_key:
+        all_providers["qwen"] = (QWEN_API_URL, QWEN_MODEL, qwen_key, "qwen")
+        all_providers["dashscope"] = all_providers["qwen"]
+
     preferred = API_PROVIDER.lower()
+    if preferred in ("dashscope", "qwen-plus", "alibaba"):
+        preferred = "qwen"
     ordered = []
     if preferred in all_providers:
         ordered.append(all_providers[preferred])
     for name, config in all_providers.items():
-        if name != preferred:
+        if name != preferred and name != "dashscope":
             ordered.append(config)
     return ordered
 
@@ -1183,8 +1199,11 @@ Remember: You must output ONLY valid JSON. No markdown, no code blocks, no expla
         "groq": ("groq", GROQ_API_URL, GROQ_MODEL, GROQ_API_KEY, "openai"),
         "mistral": ("mistral", MISTRAL_API_URL, MISTRAL_MODEL, MISTRAL_API_KEY, "openai"),
         "ollama": ("ollama", OLLAMA_API_URL, OLLAMA_MODEL, "no-key-needed", "ollama"),
+        "qwen": ("qwen", QWEN_API_URL, QWEN_MODEL, QWEN_API_KEY, "openai"),
     }
     preferred = (os.getenv("API_PROVIDER") or API_PROVIDER or "groq").lower()
+    if preferred in ("dashscope", "qwen-plus", "alibaba"):
+        preferred = "qwen"
     providers = []
     if preferred in all_providers:
         providers.append(all_providers[preferred])

@@ -320,9 +320,11 @@ def _is_placeholder_brand_value(key: str, value: Any, tenant_id: str) -> bool:
 
 
 # ── Full-corpus helpers (kit-agnostic uploads) ──────────────────────────────
-_CHUNK_CHARS = 14000
-_CHUNK_OVERLAP = 600
-_MAX_LLM_CHUNKS = 10
+# Keep windows well under bifurcation num_ctx (8k) after prompt + JSON output.
+# Oversized single windows (14k+) contributed to Windows llama-server crashes.
+_CHUNK_CHARS = 5500
+_CHUNK_OVERLAP = 400
+_MAX_LLM_CHUNKS = 12
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(
     r"(?:\+?\d{1,3}[\s\-]?)?(?:\(?\d{2,5}\)?[\s\-]?)?\d{5,10}(?:[\s\-]?\d{3,6})?"
@@ -397,6 +399,10 @@ def _normalize_phone(raw: str) -> str:
 def _guess_vertical(text: str) -> str:
     sample = (text or "").lower()
     slug_hints = (
+        ("automotive", "automotive"),
+        ("automobile", "automotive"),
+        ("car dealer", "automotive"),
+        ("roadside assistance", "automotive"),
         ("it_software", "it_software"),
         ("software & it", "it_software"),
         ("cpaas", "it_software"),
@@ -418,6 +424,15 @@ def _guess_vertical(text: str) -> str:
         if needle in sample:
             return slug
     scores = {
+        "automotive": sum(
+            1
+            for w in (
+                "vehicle", "car model", "workshop", "test drive", "vin", "oem",
+                "brake", "engine", "transmission", "dealer network", "rsa",
+                "service booking", "spare part", "automobile",
+            )
+            if w in sample
+        ),
         "it_software": sum(
             1
             for w in (

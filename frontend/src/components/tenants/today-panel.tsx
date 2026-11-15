@@ -12,6 +12,7 @@ import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { navigate } from '@/lib/router'
 import { GhostButton, NeedRow, Panel, PrimaryButton, SourceChip, StatCard } from '@/components/remake/ui'
 import { LoadingBlock } from '@/components/ui/feedback'
+import { OverviewDashboard } from '@/components/dashboard/overview-dashboard'
 import { useTenantDetail } from './hooks'
 
 interface ErrorRow {
@@ -198,15 +199,7 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
 
   return (
     <div>
-      <header className="mb-6">
-        <h1 className="text-xl font-semibold text-tx">
-          {greeting()}, {identity?.username ?? 'there'}
-        </h1>
-        <p className="mt-1 text-sm text-txmuted">
-          {tenant?.display_name || tenantId} · {ROLE_LABELS[identity?.role ?? ''] ?? identity?.role} ·{' '}
-          {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
-        </p>
-      </header>
+      <OverviewDashboard mode="tenant" tenantId={tenantId} />
 
       <Panel title="Needs you" className="mb-4">
         {loadingCore ? (
@@ -239,6 +232,14 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
 
       <Panel title="Today so far">
         <div>
+          <NeedRow>
+            <span className="flex items-center justify-between">
+              <span>
+                {tenant?.display_name || tenantId} · {ROLE_LABELS[identity?.role ?? ''] ?? identity?.role}
+              </span>
+              <span className="text-xs font-normal text-txfaint">{greeting()}</span>
+            </span>
+          </NeedRow>
           <NeedRow>
             <span className="flex items-center justify-between">
               <span>New customers</span>

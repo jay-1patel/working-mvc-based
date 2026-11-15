@@ -27,6 +27,41 @@ logger = logging.getLogger("pdf_section_extractor")
 
 # ── Page Classification ───────────────────────────────────────────────────────
 
+_FAQ_SECTION_RE = re.compile(r"\[SECTION:\s*FAQS?[^\]]*\]", re.I)
+_KB_SECTION_RE = re.compile(
+    r"\[SECTION:\s*(?:KNOWLEDGE\s*BASE|INFO\s*PAGES?|ARTICLES?)[^\]]*\]",
+    re.I,
+)
+_CATALOG_SECTION_RE = re.compile(r"\[SECTION:\s*CATALOG\s*&\s*OFFERINGS\]", re.I)
+_BOT_PERSONA_SECTION_RE = re.compile(
+    r"\[SECTION:\s*(?:BOT\s*PERSONA|GUARDRAILS?|SYSTEM\s*PROMPT)[^\]]*\]",
+    re.I,
+)
+_BRAND_SECTION_RE = re.compile(r"\[SECTION:\s*BRAND\s*&\s*PROFILE\]", re.I)
+
+
+def _page_has_faq_content(text: str, lower_text: str) -> bool:
+    """True when the page has real Q&A body text (not just a section banner)."""
+    if "customer question" in lower_text and "official verified answer" in lower_text:
+        return True
+    qa_patterns = len(
+        re.findall(
+            r"(?:^|\n)\s*(?:Q(?:uestion)?\s*[\d.:–-]|Customer Question\b)",
+            text,
+            re.I,
+        )
+    )
+    return qa_patterns >= 2
+
+
+def _page_has_kb_signal(text: str, lower_text: str) -> bool:
+    return (
+        bool(_KB_SECTION_RE.search(text))
+        or ("article title" in lower_text and "article content" in lower_text)
+        or "[section: info" in lower_text
+    )
+
+
 def _compute_page_scores(page, pno: int) -> Tuple[int, int]:
     """Compute (faq_score, kb_score) for a single page of a PDF document."""
     text = page.get_text()
@@ -34,9 +69,10 @@ def _compute_page_scores(page, pno: int) -> Tuple[int, int]:
 
     faq_score = 0
     kb_score = 0
+    has_kb = _page_has_kb_signal(text, lower_text)
 
     # 1. Direct explicit section headers
-    if re.search(r"\[SECTION:\s*FAQS?[^\]]*\]", text, re.I):
+    if _FAQ_SECTION_RE.search(text):
         faq_score += 25
     if re.search(r"^\s*(?:#+\s*)?(?:FAQ|FAQS|Frequently Asked Questions|Questions\s*&\s*Answers)\b", text, re.I | re.M):
         faq_score += 20
@@ -48,8 +84,8 @@ def _compute_page_scores(page, pno: int) -> Tuple[int, int]:
     if qa_patterns >= 2:
         faq_score += qa_patterns * 3
 
-    # Check for KB explicit section headers
-    if re.search(r"\[SECTION:\s*(?:KNOWLEDGE\s*BASE|INFO\s*PAGES?|ARTICLES?|POLICIES)[^\]]*\]", text, re.I):
+    # Check for KB explicit section headers (do not treat "FAQS & POLICIES" as KB)
+    if _KB_SECTION_RE.search(text):
         kb_score += 25
     if "article title" in lower_text and "article content" in lower_text:
         kb_score += 25
@@ -85,25 +121,33 @@ def _compute_page_scores(page, pno: int) -> Tuple[int, int]:
                     if any(w in t_lower for w in ("article", "journey", "overview", "about", "policy", "policies", "terms", "guide", "technology", "technologies", "benefits", "projects", "info")):
                         kb_score += 5
 
-    # 3. Suppress non-applicable pages
-    # Catalog / Offerings pages are not FAQ or KB articles
-    if re.search(r"\[SECTION:\s*CATALOG\s*&\s*OFFERINGS\]", text, re.I) or "catalog images" in lower_text:
-        faq_score = 0
-        kb_score = 0
-
-    # Brand & profile page is onboarding intro
-    if re.search(r"\[SECTION:\s*BRAND\s*&\s*PROFILE\]", text, re.I) and "customer question" not in lower_text:
-        faq_score = 0
-        if kb_score < 10:
-            kb_score = 0
-
-    # Internal bot configurations, strict guardrails, and parameters are NOT Knowledge Base
-    if re.search(r"\[SECTION:\s*(?:BOT\s*PERSONA|GUARDRAILS?|SYSTEM\s*PROMPT)[^\]]*\]", text, re.I):
-        if "article title" not in lower_text and "[section: info" not in lower_text:
+    # 3. Suppress non-applicable pages — never wipe real FAQ/KB body text that
+    # shares a page with catalog previews or bot-persona tables (common in kits).
+    # A lone "[SECTION: FAQS]" banner at the bottom of a catalog page is not enough.
+    if _CATALOG_SECTION_RE.search(text) or "catalog images" in lower_text:
+        if not _page_has_faq_content(text, lower_text) and not has_kb:
             faq_score = 0
             kb_score = 0
 
-    if ("strict guardrails" in lower_text or "rule & guideline" in lower_text) and "article title" not in lower_text:
+    # Brand & profile page is onboarding intro
+    if _BRAND_SECTION_RE.search(text) and not _page_has_faq_content(text, lower_text):
+        faq_score = 0
+        if kb_score < 10 and not has_kb:
+            kb_score = 0
+
+    # Internal bot configurations alone are not FAQ/KB; mixed pages keep content.
+    if (
+        _BOT_PERSONA_SECTION_RE.search(text)
+        and not _page_has_faq_content(text, lower_text)
+        and not has_kb
+    ):
+        faq_score = 0
+        kb_score = 0
+
+    if (
+        ("strict guardrails" in lower_text or "rule & guideline" in lower_text)
+        and not has_kb
+    ):
         kb_score = 0
 
     return faq_score, kb_score
@@ -174,9 +218,12 @@ def extract_sections_from_pdf(
             page = doc[pno]
             faq_s, kb_s = _compute_page_scores(page, pno)
 
-            if faq_s >= 8 and faq_s > kb_s:
+            # Kits often put FAQ Q&A and Knowledge Articles on the same page.
+            # Allow dual membership when both scores clear the threshold so
+            # neither bucket is dropped by winner-take-all scoring.
+            if faq_s >= 8:
                 faq_pages.append(pno)
-            elif kb_s >= 8 and kb_s >= faq_s:
+            if kb_s >= 8:
                 kb_pages.append(pno)
         except Exception as exc:
             logger.warning("Error evaluating page %d in %s: %s", pno, source_path, exc)

@@ -414,7 +414,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Platform
               </p>
-              {globalItem('dashboard', 'Overview', LayoutGrid, '/dashboard', 'dashboard')}
+              {globalItem('dashboard', 'Dashboard', LayoutGrid, '/dashboard', 'dashboard')}
               {globalItem('businesses', 'Businesses', Building2, '/tenants', '__tenants__')}
               {globalItem('tenant-requests', 'Business requests', ClipboardCheck, '/tenant-requests', 'tenant-requests')}
               {globalItem('api-requests', 'API requests', ShieldCheck, '/api-requests', 'api-requests')}
@@ -428,7 +428,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Manage
               </p>
-              {globalItem('dashboard', 'Overview', LayoutGrid, '/dashboard', 'dashboard')}
+              {globalItem('dashboard', 'Dashboard', LayoutGrid, '/dashboard', 'dashboard')}
               {identity.role === 'admin' && (
                 <>
                   {globalItem('audit-history', 'Activity log', ScrollText, '/audit-history', 'audit-history')}

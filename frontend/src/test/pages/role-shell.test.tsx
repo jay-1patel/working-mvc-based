@@ -35,14 +35,20 @@ describe('Send2Digital role workspaces', () => {
         expect(navigation.getByRole('button', { name: 'Questions the bot understands' })).toBeInTheDocument()
         expect(navigation.getByRole('button', { name: 'Versions' })).toBeInTheDocument()
         expect(navigation.getByRole('button', { name: 'Connections' })).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'Past chats' })).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'Help requests' })).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'Callbacks' })).toBeInTheDocument()
       } else {
         expect(navigation.queryByRole('button', { name: 'Businesses' })).not.toBeInTheDocument()
         expect(screen.queryByText(/View-only — changes come from/)).not.toBeInTheDocument()
-        // Grow / Manage (and their items) are super-admin-only.
+        // Grow / Manage / Past chats / Help requests / Callbacks are super-admin-only.
         expect(navigation.queryByText('Grow')).not.toBeInTheDocument()
         expect(navigation.queryByRole('button', { name: 'Questions the bot understands' })).not.toBeInTheDocument()
         expect(navigation.queryByRole('button', { name: 'Versions' })).not.toBeInTheDocument()
         expect(navigation.queryByRole('button', { name: 'Connections' })).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'Past chats' })).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'Help requests' })).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'Callbacks' })).not.toBeInTheDocument()
       }
       if (role === 'sub_admin') {
         expect(screen.queryByRole('button', { name: 'Register a tenant' })).not.toBeInTheDocument()

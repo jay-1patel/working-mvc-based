@@ -171,8 +171,8 @@ function Router() {
     )
   }
 
-  // Grow + Manage (campaigns, intents, versions, connections) are
-  // super-admin-only in the tenant console — company admins do not see them.
+  // Super-admin-only tenant screens (Grow/Manage + Past chats / Help
+  // requests / Callbacks) — company admins and sub-admins do not see them.
   if (
     (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(route.view) &&
     !isSuperAdmin

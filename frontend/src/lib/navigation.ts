@@ -118,12 +118,18 @@ const VERTICALS_WITH_COMPANY_INFO = new Set(['it_software'])
 /** Tenant-nav groups only a super admin may see (hidden from admin / sub-admin). */
 export const SUPER_ADMIN_ONLY_NAV_GROUPS: NavGroup[] = ['Grow', 'Manage']
 
-/** Route view ids that live under those super-admin-only groups. */
+/**
+ * Route view ids only a super admin may see. Includes Grow/Manage screens
+ * plus Past chats, Help requests, and Callbacks under Talk to customers.
+ */
 export const SUPER_ADMIN_ONLY_VIEWS = [
   'campaigns',
   'intents',
   'versions',
   'tokens',
+  'chat-history',
+  'complaints',
+  'callbacks',
 ] as const
 
 export function buildTenantNav(opts: {
@@ -131,9 +137,10 @@ export function buildTenantNav(opts: {
   features?: Features | null
   can: (permission: string) => boolean
   /**
-   * When explicitly `false` (company admin / sub-admin), Grow and Manage are
-   * omitted. Super admins keep them. Omit / `true` / `undefined` keeps the
-   * full list (used by `knownViews` and unit tests that do not pass a role).
+   * When explicitly `false` (company admin / sub-admin), super-admin-only
+   * groups and views are omitted. Super admins keep them. Omit / `true` /
+   * `undefined` keeps the full list (used by `knownViews` and unit tests
+   * that do not pass a role).
    */
   isSuperAdmin?: boolean
 }): NavItem[] {
@@ -296,7 +303,13 @@ export function buildTenantNav(opts: {
     },
   ]
   return items.filter((item) => {
-    if (hideSuperAdminOnly && SUPER_ADMIN_ONLY_NAV_GROUPS.includes(item.group)) return false
+    if (
+      hideSuperAdminOnly &&
+      (SUPER_ADMIN_ONLY_NAV_GROUPS.includes(item.group) ||
+        (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(item.id))
+    ) {
+      return false
+    }
     return isVisible(item, opts.can, features)
   })
 }

@@ -172,8 +172,8 @@ function Router() {
   }
 
   // Super-admin-only tenant screens (Grow/Manage, Past chats / Help
-  // requests / Callbacks, Models|Products & prices) — company admins and
-  // sub-admins do not see them.
+  // requests / Callbacks, Models|Products & prices, Layers / Test & smoke /
+  // WhatsApp Tester) — company admins and sub-admins do not see them.
   if (
     (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(route.view) &&
     !isSuperAdmin

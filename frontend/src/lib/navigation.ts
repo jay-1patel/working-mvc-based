@@ -120,7 +120,8 @@ export const SUPER_ADMIN_ONLY_NAV_GROUPS: NavGroup[] = ['Grow', 'Manage']
 
 /**
  * Route view ids only a super admin may see. Includes Grow/Manage screens,
- * Past chats / Help requests / Callbacks, and Models|Products & prices.
+ * Past chats / Help requests / Callbacks, Models|Products & prices, and
+ * Layers / Test & smoke / WhatsApp Tester under Settings → Advanced.
  */
 export const SUPER_ADMIN_ONLY_VIEWS = [
   'campaigns',
@@ -132,6 +133,9 @@ export const SUPER_ADMIN_ONLY_VIEWS = [
   'callbacks',
   'records',
   'offerings',
+  'layers',
+  'test',
+  'whatsapp-tester',
 ] as const
 
 export function buildTenantNav(opts: {

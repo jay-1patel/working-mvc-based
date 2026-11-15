@@ -119,8 +119,8 @@ const VERTICALS_WITH_COMPANY_INFO = new Set(['it_software'])
 export const SUPER_ADMIN_ONLY_NAV_GROUPS: NavGroup[] = ['Grow', 'Manage']
 
 /**
- * Route view ids only a super admin may see. Includes Grow/Manage screens
- * plus Past chats, Help requests, and Callbacks under Talk to customers.
+ * Route view ids only a super admin may see. Includes Grow/Manage screens,
+ * Past chats / Help requests / Callbacks, and Models|Products & prices.
  */
 export const SUPER_ADMIN_ONLY_VIEWS = [
   'campaigns',
@@ -130,6 +130,8 @@ export const SUPER_ADMIN_ONLY_VIEWS = [
   'chat-history',
   'complaints',
   'callbacks',
+  'records',
+  'offerings',
 ] as const
 
 export function buildTenantNav(opts: {

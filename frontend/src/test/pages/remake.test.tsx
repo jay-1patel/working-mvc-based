@@ -95,7 +95,7 @@ describe('remake — grouped navigation', () => {
     expect(nav.map((i) => i.label)).toContain('Today')
   })
 
-  it('hides Grow, Manage, Past chats, Help requests, Callbacks from company admins', () => {
+  it('hides Grow, Manage, Past chats, Help requests, Callbacks, and & prices from company admins', () => {
     const base = {
       vertical: 'ecommerce' as const,
       features: null,
@@ -111,7 +111,11 @@ describe('remake — grouped navigation', () => {
     expect(adminNav.map((i) => i.label)).not.toContain('Past chats')
     expect(adminNav.map((i) => i.label)).not.toContain('Help requests')
     expect(adminNav.map((i) => i.label)).not.toContain('Callbacks')
+    expect(adminNav.map((i) => i.label).some((l) => l.endsWith('& prices'))).toBe(false)
     expect(adminNav.map((i) => i.label)).toContain('Chats')
+
+    const autoNav = buildTenantNav({ ...base, vertical: 'automotive', isSuperAdmin: false })
+    expect(autoNav.map((i) => i.label)).not.toContain('Models & prices')
 
     const superNav = buildTenantNav({ ...base, isSuperAdmin: true })
     expect(superNav.map((i) => i.group)).toContain('Grow')
@@ -122,6 +126,10 @@ describe('remake — grouped navigation', () => {
     expect(superNav.map((i) => i.label)).toContain('Past chats')
     expect(superNav.map((i) => i.label)).toContain('Help requests')
     expect(superNav.map((i) => i.label)).toContain('Callbacks')
+    expect(superNav.map((i) => i.label).some((l) => l.endsWith('& prices'))).toBe(true)
+
+    const superAuto = buildTenantNav({ ...base, vertical: 'automotive', isSuperAdmin: true })
+    expect(superAuto.map((i) => i.label)).toContain('Models & prices')
   })
 })
 

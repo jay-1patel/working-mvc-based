@@ -20,6 +20,8 @@ that was being reported.
 from __future__ import annotations
 
 import logging
+import re
+import secrets
 import os
 import threading
 import time
@@ -33,27 +35,26 @@ logger = logging.getLogger("error_reporter")
 _lock = threading.Lock()
 _last_alert_at: dict = {}
 
-_CREATE_TABLE_SQL = """CREATE TABLE IF NOT EXISTS api_error_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    api TEXT NOT NULL DEFAULT '',
-    severity TEXT NOT NULL DEFAULT 'error',
-    message TEXT NOT NULL DEFAULT '',
-    detail TEXT NOT NULL DEFAULT '',
-    http_status INTEGER,
-    tenant_id TEXT,
-    wa_id TEXT,
-    request_id TEXT
-)"""
+
+def redact_error(value) -> str:
+    """Keep diagnostic text, never credentials or query-string values."""
+    text = str(value or "")
+    text = re.sub(r"(?i)(mongodb(?:\+srv)?://)[^\s/]+@", r"\1[REDACTED]@", text)
+    text = re.sub(r"(?i)\bBearer\s+[^\s,;\"']+", "Bearer [REDACTED]", text)
+    text = re.sub(r"(?i)([\"']?(?:password|passwd|secret|token|api[_-]?key|authorization|otp|access_token|refresh_token)[\"']?\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;&]+)", r"\1[REDACTED]", text)
+    text = re.sub(r"(https?://[^\s?\"']+)\?[^\s\"']+", r"\1?[REDACTED]", text)
+    return text
 
 
-def _get_db_context():
+
+
+def _get_database():
     try:
-        from database import get_db_context
-    except Exception:
-        from backend.database import get_db_context  # type: ignore
-    return get_db_context
+        from db.mongo import get_database
+    except ImportError:
+        from backend.db.mongo import get_database
+    return get_database()
+
 
 
 def _alerts_enabled() -> bool:
@@ -81,39 +82,24 @@ def _should_notify(key: str) -> bool:
 
 
 def _persist(*, provider, api, severity, message, detail, http_status,
-             tenant_id, wa_id, request_id) -> None:
+             tenant_id, wa_id, request_id) -> bool:
     try:
-        get_db_context = _get_db_context()
-        with get_db_context() as conn:
-            conn.execute(_CREATE_TABLE_SQL)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS ix_api_error_logs_created "
-                "ON api_error_logs(created_at DESC)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS ix_api_error_logs_provider "
-                "ON api_error_logs(provider, created_at DESC)"
-            )
-            conn.execute(
-                """INSERT INTO api_error_logs
-                   (created_at, provider, api, severity, message, detail,
-                    http_status, tenant_id, wa_id, request_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    datetime.now(timezone.utc).isoformat(),
-                    (provider or "unknown")[:80],
-                    (api or "")[:200],
-                    (severity or "error")[:20],
-                    (message or "")[:500],
-                    (detail or "")[:4000],
-                    http_status,
-                    tenant_id or None,
-                    wa_id or None,
-                    request_id or None,
-                ),
-            )
-    except Exception as exc:  # never break the caller
-        logger.debug("api_error_logs persist failed: %s", exc)
+        from pymongo import ReturnDocument
+        database = _get_database()
+        counter = database['_counters'].find_one_and_update({'_id':'api_error_logs'},
+            {'$inc':{'seq':1}}, upsert=True, return_document=ReturnDocument.AFTER)
+        database['api_error_logs'].insert_one({
+            'id':counter['seq'], 'created_at':datetime.now(timezone.utc),
+            'provider':(provider or 'unknown')[:80], 'api':(api or '')[:200],
+            'severity':(severity or 'error')[:20], 'message':(message or '')[:500],
+            'detail':(detail or '')[:4000], 'http_status':http_status,
+            'tenant_id':tenant_id or None, 'wa_id':wa_id or None, 'request_id':request_id or None,
+        })
+        return True
+    except Exception as exc:
+        logger.warning('MongoDB error persistence failed: %s', type(exc).__name__)
+        return False
+
 
 
 def _push_webhook(text: str) -> None:
@@ -150,12 +136,21 @@ def report_error(
     severity: str = "error",
     http_status: Optional[int] = None,
     wa_id: Optional[str] = None,
-) -> None:
+    notify: bool = True,
+) -> bool:
     """Log + persist an API/runtime failure. Never raises.
 
     ``error`` may be a string message or an exception instance.
     """
     try:
+        # Services and background tasks inherit request context when available.
+        try:
+            from core.context import request_id_var, error_tenant_var, error_context_var
+        except ImportError:
+            from backend.core.context import request_id_var, error_tenant_var, error_context_var
+        request_id = request_id or request_id_var.get() or ("evt_" + secrets.token_hex(8))
+        trace_context = error_context_var.get()
+        tenant_id = tenant_id or (trace_context.get('tenant_id') if trace_context is not None else error_tenant_var.get())
         if isinstance(error, BaseException):
             message = str(error) or error.__class__.__name__
             if not detail:
@@ -164,6 +159,10 @@ def report_error(
                 )[-3500:]
         else:
             message = str(error or "")
+
+        message = redact_error(message)
+        detail = redact_error(detail)
+        api = redact_error(api)
 
         line = (
             f"API_ERROR | provider={provider or 'unknown'} | api={api or '-'} "
@@ -177,7 +176,7 @@ def report_error(
         else:
             logger.error(line)
 
-        _persist(
+        persisted = _persist(
             provider=provider,
             api=api,
             severity=severity,
@@ -189,13 +188,15 @@ def report_error(
             request_id=request_id,
         )
 
-        if not _alerts_enabled():
-            return
+        if not notify or not _alerts_enabled():
+            return persisted
         key = f"{provider}|{api}|{severity}|{message[:80]}"
         if _should_notify(key):
             _push_webhook(f"[{severity.upper()}] {provider} {api}: {message[:300]}")
+        return persisted
     except Exception as exc:  # absolute last line of defence
         logger.debug("report_error failed: %s", exc)
+        return False
 
 
 def report_exception(provider, api, exc, **kwargs) -> None:
@@ -203,37 +204,76 @@ def report_exception(provider, api, exc, **kwargs) -> None:
     report_error(provider, api, exc, **kwargs)
 
 
-def _ensure_table(conn) -> None:
-    conn.execute(_CREATE_TABLE_SQL)
 
 
-def list_recent_errors(limit: int = 50, provider: Optional[str] = None,
-                       tenant_id: Optional[str] = None) -> list:
-    """Newest-first error rows for the admin API. Returns [] on a fresh DB."""
-    get_db_context = _get_db_context()
-    limit = max(1, min(int(limit or 50), 500))
-    clauses, params = [], []
-    if provider:
-        clauses.append("provider = ?")
-        params.append(provider)
-    if tenant_id:
-        clauses.append("tenant_id = ?")
-        params.append(tenant_id)
-    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    with get_db_context() as conn:
-        _ensure_table(conn)
-        rows = conn.execute(
-            f"SELECT * FROM api_error_logs{where} ORDER BY id DESC LIMIT ?",
-            (*params, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
+
+def _error_filters(provider=None, tenant_id=None, search=None, severity=None,
+                   http_status=None, since=None, until=None):
+    filters = {}
+    for key,value in (('provider',provider),('tenant_id',tenant_id),('severity',severity),('http_status',http_status)):
+        if value is not None and value != '':
+            filters[key] = value
+    if search:
+        filters['$or'] = [{key:{'$regex':re.escape(str(search)),'$options':'i'}} for key in ('message','api','request_id')]
+    for operator,value in (('$gte',since),('$lte',until)):
+        if value:
+            date = datetime.fromisoformat(value.replace('Z','+00:00'))
+            filters.setdefault('created_at',{})[operator] = date.replace(tzinfo=date.tzinfo or timezone.utc)
+    return filters
 
 
-def get_error(error_id: int) -> Optional[dict]:
-    get_db_context = _get_db_context()
-    with get_db_context() as conn:
-        _ensure_table(conn)
-        row = conn.execute(
-            "SELECT * FROM api_error_logs WHERE id = ?", (int(error_id),)
-        ).fetchone()
-        return dict(row) if row else None
+
+def list_recent_errors(limit=50, provider=None, tenant_id=None, *, offset=0,
+                       search=None, severity=None, http_status=None, since=None, until=None):
+    filters = _error_filters(provider,tenant_id,search,severity,http_status,since,until)
+    rows = _get_database()['api_error_logs'].find(filters,{'_id':0}).sort('id',-1).skip(max(0,int(offset))).limit(max(1,min(int(limit or 50),500)))
+    return [_public_error(row) for row in rows]
+
+
+
+def count_errors(**filters):
+    return _get_database()['api_error_logs'].count_documents(_error_filters(**filters))
+
+def _public_error(row):
+    if row is not None and isinstance(row.get('created_at'),datetime):
+        row['created_at'] = row['created_at'].isoformat()
+    return row
+
+
+
+class PersistentErrorHandler(logging.Handler):
+    """Capture logged service failures, including caught background exceptions.
+
+    Reporter records and central HTTP tracing are excluded to prevent loops and
+    duplicate rows. Explicit provider events remain separate, linked by request ID.
+    """
+    def __init__(self):
+        super().__init__(logging.WARNING)
+        self._emitting = threading.local()
+
+    def emit(self, record):
+        if record.name == 'error_reporter' or getattr(self._emitting, 'busy', False):
+            return
+        try:
+            message = record.getMessage()
+        except Exception:
+            return
+        if message.startswith(('REQ ', 'API_FAIL |', 'ERROR_REPORT_FAILED |')):
+            return
+        self._emitting.busy = True
+        try:
+            try:
+                from core.context import request_api_var
+            except ImportError:
+                from backend.core.context import request_api_var
+            detail = ''.join(traceback.format_exception(*record.exc_info)) if record.exc_info else ''
+            report_error(record.name, request_api_var.get() or record.name, message,
+                         detail=detail, severity='error' if record.levelno >= logging.ERROR else 'warning', notify=False)
+        except Exception:
+            pass  # Logging must never break the service emitting the record.
+        finally:
+            self._emitting.busy = False
+
+
+def get_error(error_id):
+    return _public_error(_get_database()['api_error_logs'].find_one({'id':int(error_id)},{'_id':0}))

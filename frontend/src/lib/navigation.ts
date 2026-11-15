@@ -11,9 +11,9 @@
  *
  * Route mapping (view id → new label):
  *   overview          → Today                    records   → <Products|Services|…> & prices
- *   inbox             → Chats                    uploads   → Knowledge
- *   chat-history      → Past chats               uploads   → Files (same screen, second door)
- *   complaints        → Help requests            website-knowledge → Website knowledge
+ *   inbox             → Chats                    website-crawler → Website crawler
+ *   chat-history      → Past chats               (was: Knowledge / Website knowledge / Files)
+ *   complaints        → Help requests
  *   callbacks         → Callbacks                customers → Customers
  *   menu              → Bot menu                 orders    → Orders
  *   distributors      → Partners                 campaigns → Send an offer
@@ -28,12 +28,9 @@
 
 import {
   AlertTriangle,
-  BookOpen,
   Briefcase,
   ClipboardList,
   Cpu,
-  FileText,
-  FlaskConical,
   FolderOpen,
   Gift,
   Globe,
@@ -41,16 +38,12 @@ import {
   History,
   Inbox,
   KeyRound,
-  Layers,
   LayoutGrid,
   ListTree,
   Megaphone,
-  MessagesSquare,
   Package,
   Phone,
-  Plug,
   ScrollText,
-  ShieldCheck,
   ShoppingCart,
   Truck,
   Users,
@@ -204,29 +197,11 @@ export function buildTenantNav(opts: {
       showsCount: true,
     },
     {
-      id: 'uploads',
-      label: 'Knowledge',
-      icon: BookOpen,
-      group: 'Your business data',
-      permissions: uploadPermissions,
-    },
-    {
-      // Website Knowledge: the crawl half of onboarding (KB / FAQs /
-      // product knowledge from the tenant's website). Same content
-      // switches as Uploads — the two screens are one knowledge hub.
-      id: 'website-knowledge',
-      label: 'Website knowledge',
+      // One door for crawl + document knowledge + raw files (was three
+      // sidebar entries: Knowledge, Website knowledge, Files).
+      id: 'website-crawler',
+      label: 'Website crawler',
       icon: Globe,
-      group: 'Your business data',
-      permissions: uploadPermissions,
-    },
-    {
-      // Files is the same Uploads screen through a second door: that
-      // screen manages both the knowledge content and the raw files, and
-      // the remake's plain naming keeps both jobs findable.
-      id: 'uploads',
-      label: 'Files',
-      icon: FileText,
       group: 'Your business data',
       permissions: uploadPermissions,
     },
@@ -273,36 +248,8 @@ export function buildTenantNav(opts: {
     // Settings → Advanced: the technical screens, kept reachable but out
     // of the daily path.
     { id: 'profile', label: 'Profile', icon: ScrollText, group: 'Settings → Advanced', permissions: ['manage_operations'] },
-    { id: 'menu-edit', label: 'Menu editor', icon: ListTree, group: 'Settings → Advanced', permissions: ['manage_operations'] },
-    { id: 'layers', label: 'Layers', icon: Layers, group: 'Settings → Advanced', permissions: ['manage_operations'] },
-    {
-      id: 'api-access',
-      label: 'API access',
-      icon: Plug,
-      group: 'Settings → Advanced',
-      permissions: ['manage_operations'],
-    },
-    {
-      id: 'chat',
-      label: 'Admin chat',
-      icon: MessagesSquare,
-      group: 'Settings → Advanced',
-      permissions: ['chat'],
-    },
-    {
-      id: 'test',
-      label: 'Test & smoke',
-      icon: ShieldCheck,
-      group: 'Settings → Advanced',
-      permissions: ['manage_operations'],
-    },
-    {
-      id: 'whatsapp-tester',
-      label: 'WhatsApp Tester',
-      icon: FlaskConical,
-      group: 'Settings → Advanced',
-      permissions: ['manage_operations'],
-    },
+    // The remaining advanced tools still have routes and implementations, but
+    // are intentionally hidden from the admin panel for now.
   ]
   return items.filter((item) => {
     if (

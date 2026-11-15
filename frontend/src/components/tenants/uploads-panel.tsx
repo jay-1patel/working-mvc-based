@@ -72,7 +72,23 @@ import { useTenants } from '@/lib/tenants'
  * empty fields. Off-vertical / junk offerings are rejected. "Re-process
  * library" remains for bulk re-runs.
  */
-export function UploadsPanel({ tenantId }: { tenantId: string }) {
+export function UploadsPanel({
+  tenantId,
+  embedded = false,
+  section = 'all',
+}: {
+  tenantId: string
+  /** Hide the page header when nested inside Website crawler. */
+  embedded?: boolean
+  /**
+   * `kit` = document upload session only.
+   * `library` = FAQ / KB / brochure / new-release file library.
+   * `all` = both (standalone Knowledge screen).
+   */
+  section?: 'all' | 'kit' | 'library'
+}) {
+  const showKit = section === 'all' || section === 'kit'
+  const showLibrary = section === 'all' || section === 'library'
   const { can } = useAuth()
   const { canWriteTenant, isSuperAdmin } = usePermissions()
   const { tenants } = useTenants()
@@ -297,7 +313,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
   if (!can('view_files')) {
     return (
       <div className="min-w-0">
-        <PageHeader title="Uploads" />
+        {!embedded && <PageHeader title="Uploads" />}
         <Notice tone="warn" title="Not permitted">
           This screen needs the <strong>view_files</strong> permission.
         </Notice>
@@ -305,31 +321,40 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
     )
   }
 
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      <GhostButton onClick={state.reload}>
+        <RefreshCw className={cn('h-4 w-4', state.loading && 'animate-spin')} />
+        Refresh
+      </GhostButton>
+      {files.length > 0 && (
+        <GhostButton onClick={() => void onBifurcateExisting()} disabled={bifurcating}>
+          {bifurcating ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4 text-acc" />
+          )}
+          Re-process library
+        </GhostButton>
+      )}
+    </div>
+  )
+
   return (
     <div className="min-w-0">
-      <PageHeader
-        title="Knowledge & uploads"
-        description="Onboarding is done? You can still upload new PDFs anytime — extract offerings, FAQs and knowledge, review, then publish."
-        meta={state.data && <Pill tone="ok">{files.length} files</Pill>}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <GhostButton onClick={state.reload}>
-              <RefreshCw className={cn('h-4 w-4', state.loading && 'animate-spin')} />
-              Refresh
-            </GhostButton>
-            {files.length > 0 && (
-              <GhostButton onClick={() => void onBifurcateExisting()} disabled={bifurcating}>
-                {bifurcating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4 text-acc" />
-                )}
-                Re-process library
-              </GhostButton>
-            )}
-          </div>
-        }
-      />
+      {!embedded ? (
+        <PageHeader
+          title="Knowledge & uploads"
+          description="Onboarding is complete? Upload new documents or re-upload revised files whenever details change — review the extracted updates, then publish."
+          meta={showLibrary && state.data ? <Pill tone="ok">{files.length} files</Pill> : undefined}
+          actions={showLibrary ? headerActions : undefined}
+        />
+      ) : showLibrary ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          {state.data && <Pill tone="ok">{files.length} files</Pill>}
+          {headerActions}
+        </div>
+      ) : null}
 
       {(failedFiles.length > 0 || unresolvedGaps.length > 0) && (
         <Panel title="Needs you" className="mb-6">
@@ -455,23 +480,32 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
         </Panel>
       )}
 
-      {/* Post-onboarding: upload another PDF anytime (stage → review → publish).
-          Super admins stay view-only inside a tenant. */}
-      {!isSuperAdmin && (
+      {/* Document upload session: stage → review → publish. */}
+      {showKit && (
         <div className="mb-6">
-          <OnboardingKitWidget
-            tenantId={tenantId}
-            vertical={tenantVertical}
-            mode="ongoing"
-            onPublished={() => {
-              state.reload()
-              gapsState.reload()
-            }}
-          />
+          {isSuperAdmin ? (
+            <Notice tone="info" title="Upload session" className="mb-4">
+              Document upload sessions (PDF / Word / CSV extract → review → publish) are run by
+              the company admin. You can still browse and manage the file library under{' '}
+              <strong>Files (FAQ, KB, …)</strong>.
+            </Notice>
+          ) : (
+            <OnboardingKitWidget
+              tenantId={tenantId}
+              vertical={tenantVertical}
+              mode="ongoing"
+              onPublished={() => {
+                state.reload()
+                gapsState.reload()
+              }}
+            />
+          )}
         </div>
       )}
 
       {/* File library by module (FAQ / KB / catalogue / …) */}
+      {showLibrary && (
+      <>
       <Panel
         className="mb-4"
         title="File library"
@@ -493,8 +527,10 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
         }
       >
         <p className="mb-3 text-xs text-txmuted">
-          Store raw files under a module, or use <strong>Upload a new PDF</strong> above to extract
-          and publish bot content. Supported: {UPLOAD_TYPES_LABEL} · Max {MAX_UPLOAD_LABEL}.
+          {section === 'library'
+            ? 'Upload raw files into FAQ, Knowledge base, Brochure, or New releases. Use the Upload documents tab for extract → review → publish sessions.'
+            : 'Store raw files under a module, or use Upload a new or revised PDF above to extract and publish bot content.'}{' '}
+          Supported: {UPLOAD_TYPES_LABEL} · Max {MAX_UPLOAD_LABEL}.
         </p>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -545,7 +581,7 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
             title={`No ${activeModule.label.toLowerCase()} files`}
             description={
               canUpload
-                ? 'Use “Upload a new PDF or document” above to extract and publish, or “Upload to this module” to store a file in the library.'
+                ? 'Use “Upload a new or revised PDF / document” above to extract, review and publish, or “Upload to this module” to store a file in the library.'
                 : 'Nothing has been uploaded for this module yet.'
             }
           />
@@ -806,6 +842,8 @@ export function UploadsPanel({ tenantId }: { tenantId: string }) {
           )}
         </div>
       </Panel>
+      </>
+      )}
 
       {/* ── 1-Click FAQ Creation Modal ───────────────────────────────────── */}
       {gapModalItem && (

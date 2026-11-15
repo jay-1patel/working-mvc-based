@@ -40,6 +40,7 @@ from database import (
     upsert_crawl_schedule,
 )
 from routes.auth import (
+    authorize_tenant_access,
     get_current_admin,
     has_permission,
     hash_tenant_token,
@@ -116,6 +117,10 @@ class TenantCreate(BaseModel):
             raise ValueError(
                 "waba_phone_id must be the WhatsApp phone number id or the number itself"
             )
+
+
+class ResolvedProfileRequest(BaseModel):
+    tenant_id: str
 
 
 class PhoneBind(BaseModel):
@@ -538,13 +543,19 @@ def delete_tenant(
 
 # ── profile: read ─────────────────────────────────────────────────────────
 
-@router.get("/{tenant_id}/resolved")
-def resolved_profile(tenant_id: str, principal: dict = Depends(require_tenant_access())):
+@router.post("/resolved")
+def resolved_profile(
+    body: ResolvedProfileRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
     """The merged, validated profile the bot reads right now.
 
     This is the 'profile-derived smoke test' surface: menus, intents, features
     and flows here all come from data, not constants.
     """
+    tenant_id = body.tenant_id
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     profile = tenancy_loader.get_tenant_profile(tenant_id)
     return {
         "tenant_id": profile.tenant_id,

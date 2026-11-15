@@ -210,7 +210,7 @@ export function OnboardingKitWidget({
                     <Files className="h-4 w-4" />
                   </span>
                   <h3 className="text-sm font-semibold text-tx">
-                    {ongoing ? 'Upload a new PDF or document' : 'Option A — Any document'}
+                    {ongoing ? 'Upload a new or revised PDF / document' : 'Option A — Any document'}
                   </h3>
                   <span
                     className={
@@ -219,14 +219,21 @@ export function OnboardingKitWidget({
                         : 'inline-flex rounded-full border border-chipwebink/30 bg-chipwebbg px-2 py-0.5 text-2xs font-medium text-chipwebink'
                     }
                   >
-                    {ongoing ? 'Add after onboarding' : 'Universal extract'}
+                    {ongoing ? 'Add or update after onboarding' : 'Universal extract'}
                   </span>
                 </div>
                 <p className="max-w-xl text-xs leading-relaxed text-txmuted">
                   {ongoing
-                    ? 'Add another brochure, price list, FAQ sheet, or company PDF anytime. We extract offerings, FAQs and knowledge, then you review and publish — existing live content is merged, not wiped.'
+                    ? 'Upload another brochure, price list, FAQ sheet, or company document anytime. If a document changes, re-upload the revised file with the same filename. We extract its latest offerings, FAQs and knowledge, then let you review everything before publishing.'
                     : 'Website scrape, PDF, Word, Markdown, or CSV. Fills brand, menu, offerings, FAQs, intents and KB for this tenant — no kit template required.'}
                 </p>
+                {ongoing && (
+                  <div className="max-w-xl rounded-lg border border-line bg-card/80 px-3 py-2 text-2xs leading-relaxed text-txmuted">
+                    <strong className="font-semibold text-tx">How re-uploads work:</strong>{' '}
+                    matching offerings are updated, new items are added, and FAQ/knowledge extracted
+                    from the same filename is refreshed. FAQ/knowledge from other files stays in place.
+                  </div>
+                )}
               </div>
               <div
                 className={
@@ -262,7 +269,7 @@ export function OnboardingKitWidget({
                   {parsing && parsingLane === 'any'
                     ? 'Extracting…'
                     : ongoing
-                      ? 'New PDF / Word / Excel'
+                      ? 'New or revised PDF / Word / Excel'
                       : 'Upload any company file'}
                 </p>
                 <PrimaryButton
@@ -273,7 +280,7 @@ export function OnboardingKitWidget({
                   {parsing && parsingLane === 'any' && (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   )}
-                  {ongoing ? 'Upload & review' : 'Upload & stage'}
+                  {ongoing ? 'Upload / re-upload & review' : 'Upload & stage'}
                 </PrimaryButton>
               </div>
             </div>

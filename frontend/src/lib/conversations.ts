@@ -42,9 +42,10 @@ export const conversationsApi = {
       .then((r) => r.conversations),
 
   thread: (tenantId: string, waId: string, limit = 300, signal?: AbortSignal) =>
-    api.get<{ wa_id: string; messages: ChatTurn[] }>(
-      `${base(tenantId)}/conversations/${encodeURIComponent(waId)}${query({ limit })}`,
-      signal,
+    api.post<{ wa_id: string; messages: ChatTurn[] }>(
+      '/api/admin/tenants/conversations/detail',
+      { tenant_id: tenantId, wa_id: waId, limit },
+      { signal },
     ),
 
   history: (
@@ -53,59 +54,75 @@ export const conversationsApi = {
     signal?: AbortSignal,
   ) =>
     api
-      .get<{ history: ChatTurn[] }>(`${base(tenantId)}/chat-history${query(opts)}`, signal)
+      .post<{ history: ChatTurn[] }>('/api/admin/tenants/chat-history', {
+        tenant_id: tenantId,
+        days: opts.days,
+        search: opts.search,
+        wa_id: opts.waId,
+        limit: opts.limit,
+      }, { signal })
       .then((r) => r.history),
 
   inbox: (tenantId: string, includeResolved = false, signal?: AbortSignal) =>
-    api.get<{ queue: InboxItem[]; count: number; handoff_count: number }>(
-      `${base(tenantId)}/inbox${query({ include_resolved: includeResolved })}`,
-      signal,
+    api.post<{ queue: InboxItem[]; count: number; handoff_count: number }>(
+      '/api/admin/tenants/inbox',
+      { tenant_id: tenantId, include_resolved: includeResolved },
+      { signal },
     ),
 
   setHandover: (tenantId: string, waId: string, mode: 'bot' | 'human') =>
-    api.put<{ status: string }>(`${base(tenantId)}/inbox/handover/${encodeURIComponent(waId)}`, { mode }),
+    api.post<{ status: string }>('/api/admin/tenants/inbox/handover', { tenant_id: tenantId, wa_id: waId, mode }),
 
   assign: (tenantId: string, waId: string, agentId: string) =>
-    api.post<{ status: string }>(`${base(tenantId)}/inbox/assign`, { wa_id: waId, agent_id: agentId }),
+    api.post<{ status: string }>('/api/admin/tenants/inbox/assign', { tenant_id: tenantId, wa_id: waId, agent_id: agentId }),
 
   resolve: (tenantId: string, waId: string, reply = true) =>
     api.post<{ status: string; notified: boolean }>(
-      `${base(tenantId)}/inbox/resolve/${encodeURIComponent(waId)}${query({ reply })}`,
+      '/api/admin/tenants/inbox/resolve',
+      { tenant_id: tenantId, wa_id: waId, reply },
     ),
 
   reply: (tenantId: string, waId: string, message: string, attachment?: Attachment | null) =>
     api.post<{ status: string; sent: boolean }>(
-      `${base(tenantId)}/inbox/${encodeURIComponent(waId)}/reply`,
-      { message, attachment: attachment ?? undefined },
+      '/api/admin/tenants/inbox/reply',
+      { tenant_id: tenantId, wa_id: waId, message, attachment: attachment ?? undefined },
     ),
 
   agents: (tenantId: string, signal?: AbortSignal) =>
-    api.get<{ agents: Agent[] }>(`${base(tenantId)}/agents`, signal).then((r) => r.agents),
+    api.post<{ agents: Agent[] }>('/api/admin/tenants/agents', { tenant_id: tenantId }, { signal }).then((r) => r.agents),
 
   complaints: (
     tenantId: string,
     opts: { status?: string; limit?: number } = {},
     signal?: AbortSignal,
   ) =>
-    api.get<{ complaints: Complaint[]; count: number; open_count: number }>(
-      `${base(tenantId)}/complaints${query(opts)}`,
-      signal,
+    api.post<{ complaints: Complaint[]; count: number; open_count: number }>(
+      '/api/admin/tenants/complaints',
+      { tenant_id: tenantId, status: opts.status, limit: opts.limit },
+      { signal },
     ),
 
   updateComplaint: (
     tenantId: string,
     ticketId: string,
     body: { status?: string; priority?: string; assigned_to?: string },
-  ) => api.put<{ status: string }>(`${base(tenantId)}/complaints/${encodeURIComponent(ticketId)}`, body),
+  ) => api.post<{ status: string }>('/api/admin/tenants/complaints/update', {
+    tenant_id: tenantId,
+    ticket_id: ticketId,
+    ...body,
+  }),
 
   replyComplaint: (tenantId: string, ticketId: string, message: string, status?: string) =>
     api.post<{ status: string; sent: boolean; new_status: string | null }>(
-      `${base(tenantId)}/complaints/${encodeURIComponent(ticketId)}/reply`,
-      { message, status },
+      '/api/admin/tenants/complaints/reply',
+      { tenant_id: tenantId, ticket_id: ticketId, message, status },
     ),
 
   deleteComplaint: (tenantId: string, ticketId: string) =>
-    api.del<{ status: string }>(`${base(tenantId)}/complaints/${encodeURIComponent(ticketId)}`),
+    api.post<{ status: string }>('/api/admin/tenants/complaints/delete', {
+      tenant_id: tenantId,
+      ticket_id: ticketId,
+    }),
 }
 
 export const COMPLAINT_STATUSES = ['open', 'in_progress', 'awaiting_info', 'resolved', 'closed']

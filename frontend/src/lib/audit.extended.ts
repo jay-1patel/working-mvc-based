@@ -87,7 +87,7 @@ export const auditApiExtended = {
         method: 'GET',
         headers: {
           Accept: '*/*',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(token ? { Authorization: `Basic ${token}` } : {}),
         },
         signal,
       })

@@ -31,13 +31,95 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from database import get_db, get_db_context, set_human_handover
-from routes.auth import get_current_admin, has_permission, require_tenant_access, security
+from routes.auth import authorize_tenant_access, get_current_admin, has_permission, require_tenant_access, security
 
 logger = logging.getLogger("conversations")
 router = APIRouter(prefix="/api/admin/tenants/{tenant_id}", tags=["conversations"])
+flat_router = APIRouter(prefix="/api/admin/tenants", tags=["conversations"])
 
 ALLOWED_STATUSES = {"open", "in_progress", "awaiting_info", "resolved", "closed"}
 ALLOWED_PRIORITIES = {"low", "normal", "high", "urgent"}
+
+
+class ConversationDetailRequest(BaseModel):
+    tenant_id: str
+    wa_id: str
+    limit: int = 300
+
+
+class ChatHistoryRequest(BaseModel):
+    tenant_id: str
+    days: int = 30
+    search: Optional[str] = None
+    wa_id: Optional[str] = None
+    limit: int = 500
+
+
+class InboxListRequest(BaseModel):
+    tenant_id: str
+    include_resolved: bool = False
+
+
+class InboxHandoverRequest(BaseModel):
+    tenant_id: str
+    wa_id: str
+    mode: str
+
+
+class InboxAssignRequest(BaseModel):
+    tenant_id: str
+    wa_id: str
+    agent_id: str
+
+
+class InboxResolveRequest(BaseModel):
+    tenant_id: str
+    wa_id: str
+    reply: bool = True
+
+
+class InboxReplyRequest(BaseModel):
+    tenant_id: str
+    wa_id: str
+    message: str = ""
+    attachment: Optional[dict] = None
+
+
+class InboxAttachmentRequest(BaseModel):
+    tenant_id: str
+    filename: str
+    content: str
+    media_type: Optional[str] = None
+
+
+class AgentsListRequest(BaseModel):
+    tenant_id: str
+
+
+class ComplaintsListRequest(BaseModel):
+    tenant_id: str
+    status: Optional[str] = None
+    limit: int = 200
+
+
+class ComplaintUpdateRequest(BaseModel):
+    tenant_id: str
+    ticket_id: str
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    assigned_to: Optional[str] = None
+
+
+class ComplaintReplyRequest(BaseModel):
+    tenant_id: str
+    ticket_id: str
+    message: str
+    status: Optional[str] = None
+
+
+class ComplaintDeleteRequest(BaseModel):
+    tenant_id: str
+    ticket_id: str
 
 
 # ── auth ──────────────────────────────────────────────────────────────────
@@ -58,6 +140,16 @@ def _require(perm: str):
             )
         return principal
     return dependency
+
+
+def _flat_principal(request: Request, tenant_id: str, credentials, perm: str) -> dict:
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    if principal.get("type") == "tenant":
+        return principal
+    admin = get_current_admin(request, credentials)
+    if not has_permission(admin, perm):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+    return principal
 
 
 def _tenant_scope(alias: str) -> str:
@@ -135,13 +227,16 @@ def list_conversations(
         conn.close()
 
 
-@router.get("/conversations/{wa_id}")
+@flat_router.post("/conversations/detail")
 def get_conversation(
-    tenant_id: str,
-    wa_id: str,
-    limit: int = Query(300, le=1000),
-    principal: dict = Depends(_require("chat_history")),
+    body: ConversationDetailRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, wa_id, limit = body.tenant_id, body.wa_id, body.limit
+    principal = _flat_principal(request, tenant_id, credentials, "chat_history")
+    if limit > 1000:
+        raise HTTPException(status_code=422, detail="limit must be less than or equal to 1000")
     conn = get_db()
     try:
         owns = conn.execute(
@@ -168,15 +263,14 @@ def get_conversation(
         conn.close()
 
 
-@router.get("/chat-history")
+@flat_router.post("/chat-history")
 def chat_history(
-    tenant_id: str,
-    days: int = Query(30, ge=1, le=1095),
-    search: Optional[str] = Query(None),
-    wa_id: Optional[str] = Query(None),
-    limit: int = Query(500, le=2000),
-    principal: dict = Depends(_require("chat_history")),
+    body: ChatHistoryRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, days, search, wa_id, limit = body.tenant_id, body.days, body.search, body.wa_id, body.limit
+    principal = _flat_principal(request, tenant_id, credentials, "chat_history")
     conn = get_db()
     try:
         sql = f"""
@@ -204,12 +298,14 @@ def chat_history(
 
 # ── live inbox (human handover) ───────────────────────────────────────────
 
-@router.get("/inbox")
+@flat_router.post("/inbox")
 def inbox_queue(
-    tenant_id: str,
-    include_resolved: bool = False,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, include_resolved = body.tenant_id, body.include_resolved
+    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
     conn = get_db()
     try:
         where = "" if include_resolved else "AND us.handover_resolved_at IS NULL"
@@ -265,13 +361,14 @@ class AssignBody(BaseModel):
     agent_id: str
 
 
-@router.put("/inbox/handover/{wa_id}")
+@flat_router.post("/inbox/handover")
 def set_handover(
-    tenant_id: str,
-    wa_id: str,
-    body: HandoverBody,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxHandoverRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, wa_id = body.tenant_id, body.wa_id
+    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
     if body.mode not in ("bot", "human"):
         raise HTTPException(status_code=400, detail="mode must be 'bot' or 'human'")
     set_human_handover(wa_id, active=(body.mode == "human"))
@@ -279,12 +376,14 @@ def set_handover(
     return {"status": "ok", "wa_id": wa_id, "mode": body.mode}
 
 
-@router.post("/inbox/assign")
+@flat_router.post("/inbox/assign")
 def assign_conversation(
-    tenant_id: str,
-    body: AssignBody,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxAssignRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = body.tenant_id
+    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
     with get_db_context() as conn:
         conn.execute(
             """INSERT INTO conversation_assignments (tenant_id, wa_id, agent_id, assigned_at)
@@ -302,13 +401,14 @@ RESOLVED_MESSAGE = (
 )
 
 
-@router.post("/inbox/resolve/{wa_id}")
+@flat_router.post("/inbox/resolve")
 def resolve_handoff(
-    tenant_id: str,
-    wa_id: str,
-    reply: bool = True,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxResolveRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, wa_id, reply = body.tenant_id, body.wa_id, body.reply
+    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
     set_human_handover(wa_id, active=False)
     sent = False
     if reply:
@@ -339,14 +439,15 @@ class InboxReply(BaseModel):
     attachment: Optional[dict] = None
 
 
-@router.post("/inbox/{wa_id}/reply")
+@flat_router.post("/inbox/reply")
 def reply_to_customer(
-    tenant_id: str,
-    wa_id: str,
-    body: InboxReply,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxReplyRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Send an agent's message to the customer and keep the bot out of the way."""
+    tenant_id, wa_id = body.tenant_id, body.wa_id
+    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
     message = (body.message or "").strip()
     attach = body.attachment or None
     attach_url = (attach or {}).get("url") or ""
@@ -439,21 +540,30 @@ def reply_to_customer(
     return {"status": "ok", "wa_id": wa_id, "sent": sent}
 
 
-@router.post("/inbox/attach")
+@flat_router.post("/inbox/attach")
 async def attach_inbox_file(
-    tenant_id: str,
-    data: dict,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxAttachmentRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Host a file on Imghippo/catbox so an agent can send it as WhatsApp media."""
     from routes.admin import decode_attachment_body, store_chat_attachment
 
+    principal = _flat_principal(request, body.tenant_id, credentials, "view_inbox")
+    data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    data.pop("tenant_id", None)
     filename, content, media_type = decode_attachment_body(data)
     return await store_chat_attachment(filename, content, media_type)
 
 
-@router.get("/agents")
-def list_agents(tenant_id: str, principal: dict = Depends(_require("view_inbox"))):
+@flat_router.post("/agents")
+def list_agents(
+    body: AgentsListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    tenant_id = body.tenant_id
+    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
     conn = get_db()
     try:
         rows = conn.execute(
@@ -472,13 +582,14 @@ def list_agents(tenant_id: str, principal: dict = Depends(_require("view_inbox")
 
 # ── complaints ────────────────────────────────────────────────────────────
 
-@router.get("/complaints")
+@flat_router.post("/complaints")
 def list_complaints(
-    tenant_id: str,
-    status: Optional[str] = Query(None),
-    limit: int = Query(200, le=500),
-    principal: dict = Depends(_require("view_complaints")),
+    body: ComplaintsListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, status, limit = body.tenant_id, body.status, body.limit
+    principal = _flat_principal(request, tenant_id, credentials, "view_complaints")
     conn = get_db()
     try:
         sql = "SELECT * FROM complaints WHERE tenant_id = ?"
@@ -516,13 +627,14 @@ class ComplaintPatch(BaseModel):
     assigned_to: Optional[str] = None
 
 
-@router.put("/complaints/{ticket_id}")
+@flat_router.post("/complaints/update")
 def update_complaint(
-    tenant_id: str,
-    ticket_id: str,
-    body: ComplaintPatch,
-    principal: dict = Depends(_require("manage_complaints")),
+    body: ComplaintUpdateRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, ticket_id = body.tenant_id, body.ticket_id
+    principal = _flat_principal(request, tenant_id, credentials, "manage_complaints")
     if not any([body.status, body.priority, body.assigned_to is not None]):
         raise HTTPException(status_code=400, detail="Nothing to update")
     if body.status and body.status not in ALLOWED_STATUSES:
@@ -566,13 +678,14 @@ class ComplaintReply(BaseModel):
     status: Optional[str] = None
 
 
-@router.post("/complaints/{ticket_id}/reply")
+@flat_router.post("/complaints/reply")
 def reply_complaint(
-    tenant_id: str,
-    ticket_id: str,
-    body: ComplaintReply,
-    principal: dict = Depends(_require("manage_complaints")),
+    body: ComplaintReplyRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, ticket_id = body.tenant_id, body.ticket_id
+    principal = _flat_principal(request, tenant_id, credentials, "manage_complaints")
     message = (body.message or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
@@ -632,12 +745,14 @@ def reply_complaint(
     return {"status": "ok", "ticket_id": ticket_id, "wa_id": wa_id, "sent": sent, "new_status": body.status}
 
 
-@router.delete("/complaints/{ticket_id}")
+@flat_router.post("/complaints/delete")
 def delete_complaint(
-    tenant_id: str,
-    ticket_id: str,
-    principal: dict = Depends(_require("manage_complaints")),
+    body: ComplaintDeleteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id, ticket_id = body.tenant_id, body.ticket_id
+    principal = _flat_principal(request, tenant_id, credentials, "manage_complaints")
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT id FROM complaints WHERE ticket_id = ? AND tenant_id = ?",

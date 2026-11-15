@@ -7,7 +7,7 @@
  * rather than relying on a bare `<a href>` (which would be unauthenticated).
  */
 
-import { api, getToken, ApiError, apiCallStart, logApiCall, logApiError } from './api'
+import { api, getToken, ApiError, apiCallStart, apiUrl, logApiCall, logApiError } from './api'
 
 const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -379,12 +379,12 @@ export function readAsBase64(file: File): Promise<string> {
 
 export const uploadsApi = {
   list: (tenantId: string, opts: { module?: string; search?: string } = {}, signal?: AbortSignal) => {
-    const params = new URLSearchParams()
-    if (opts.module) params.set('module', opts.module)
-    if (opts.search) params.set('search', opts.search)
-    const query = params.toString()
     return api
-      .get<{ files: AdminFile[] }>(`${base(tenantId)}/files${query ? `?${query}` : ''}`, signal)
+      .post<{ files: AdminFile[] }>('/api/admin/tenants/files', {
+        tenant_id: tenantId,
+        module: opts.module,
+        search: opts.search,
+      }, { signal })
       .then((r) => r.files)
   },
 
@@ -392,14 +392,15 @@ export const uploadsApi = {
     assertValidUploadFile(file)
     const content = await readAsBase64(file)
     return api.post<{ status: string; filename: string; chunks: number; size: number; file_url: string }>(
-      `${base(tenantId)}/files/upload?module=${encodeURIComponent(module)}`,
-      { filename: file.name, content, media_type: file.type || undefined },
+      '/api/admin/tenants/files/upload',
+      { tenant_id: tenantId, filename: file.name, content, module, media_type: file.type || undefined },
     )
   },
 
   remove: (tenantId: string, filename: string) =>
-    api.del<{ status: string; deleted_faq: number; deleted_kb: number }>(
-      `${base(tenantId)}/files/${encodeURIComponent(filename)}`,
+    api.post<{ status: string; deleted_faq: number; deleted_kb: number }>(
+      '/api/admin/tenants/files/delete',
+      { tenant_id: tenantId, filename },
     ),
 
   autoBifurcate: async (tenantId: string, files: File[], autoPublish = false) => {
@@ -417,7 +418,8 @@ export const uploadsApi = {
   },
 
   bifurcateExisting: (tenantId: string, filenames?: string[]) =>
-    api.post<BifurcationResult>(`${base(tenantId)}/files/bifurcate-existing`, {
+    api.post<BifurcationResult>('/api/admin/tenants/files/bifurcate-existing', {
+      tenant_id: tenantId,
       filenames,
       // Stage offerings for review — wrong PDFs must not go live automatically.
       auto_publish: false,
@@ -426,49 +428,55 @@ export const uploadsApi = {
   /** Fetch the raw file with the bearer token; caller revokes the object URL. */
   blob: async (tenantId: string, filename: string, download = false): Promise<Blob> => {
     const token = getToken()
-    const path = `${base(tenantId)}/files/${encodeURIComponent(filename)}/${download ? 'download' : 'preview'}`
+    const path = `/api/admin/tenants/files/${download ? 'download' : 'preview'}`
     const startedAt = apiCallStart()
     let res: Response
     try {
-      res = await fetch(path, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      res = await fetch(apiUrl(path), {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Basic ${token}` } : {}),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ tenant_id: tenantId, filename }),
       })
     } catch (err) {
-      logApiError('GET', path, 0, (err as Error)?.message || 'Network error', startedAt)
+      logApiError('POST', path, 0, (err as Error)?.message || 'Network error', startedAt)
       throw err
     }
     if (!res.ok) {
-      logApiError('GET', path, res.status, `Could not fetch the file (${res.status})`, startedAt)
+      logApiError('POST', path, res.status, `Could not fetch the file (${res.status})`, startedAt)
       throw new Error(`Could not fetch the file (${res.status})`)
     }
-    logApiCall('GET', path, res.status, startedAt)
+    logApiCall('POST', path, res.status, startedAt)
     return res.blob()
   },
 }
 
 export const knowledgeGapsApi = {
   list: (tenantId: string, resolved = false, limit = 50, signal?: AbortSignal) =>
-    api.get<KnowledgeGapsResponse>(
-      `${base(tenantId)}/knowledge-gaps?resolved=${resolved ? 'true' : 'false'}&limit=${limit}`,
-      signal,
+    api.post<KnowledgeGapsResponse>(
+      '/api/admin/tenants/knowledge-gaps',
+      { tenant_id: tenantId, resolved, limit },
+      { signal },
     ),
 
   resolve: (tenantId: string, gapId: number, notes?: string) =>
     api.post<{ status: string; gap_id: number; resolved: boolean }>(
-      `${base(tenantId)}/knowledge-gaps/${gapId}/resolve`,
-      { notes },
+      '/api/admin/tenants/knowledge-gaps/resolve',
+      { tenant_id: tenantId, gap_id: gapId, notes },
     ),
 
   createFaq: (tenantId: string, gapId: number, question: string, answer: string) =>
     api.post<{ status: string; question: string; answer: string; tenant_id: string }>(
-      `${base(tenantId)}/knowledge-gaps/${gapId}/create-faq`,
-      { question, answer },
+      '/api/admin/tenants/knowledge-gaps/create-faq',
+      { tenant_id: tenantId, gap_id: gapId, question, answer },
     ),
 }
 
 export const onboardingKitsApi = {
   list: (signal?: AbortSignal) =>
-    api.get<{ templates: OnboardingTemplate[] }>('/api/admin/onboarding-kits/list', signal),
+    api.post<{ templates: OnboardingTemplate[] }>('/api/admin/onboarding-kits/list', {}, { signal }),
 
   stageGlobal: async (file: File, lane: 'any' | 'kit' = 'any') => {
     assertValidUploadFile(file)
@@ -505,7 +513,7 @@ export async function uploadRecordImage(tenantId: string, file: File): Promise<s
   form.append('file', file)
   const headers: Record<string, string> = { Accept: 'application/json' }
   const token = getToken()
-  if (token) headers.Authorization = `Bearer ${token}`
+  if (token) headers.Authorization = `Basic ${token}`
 
   const path = `${base(tenantId)}/files/image`
   const startedAt = apiCallStart()

@@ -7,7 +7,7 @@
  * one-file change.
  */
 
-import { api, apiCallStart, logApiCall, logApiError } from './api'
+import { api, apiCallStart, apiUrl, logApiCall, logApiError } from './api'
 
 const tenantBase = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -45,13 +45,20 @@ export interface Customer {
  */
 export async function downloadCustomerExport(tenantId: string, format: 'csv' | 'xlsx') {
   const { getToken } = await import('./api')
-  const path = `/api/admin/tenants/${encodeURIComponent(tenantId)}/customers/export?format=${format}`
+  const path = '/api/admin/tenants/customers/export'
   const startedAt = apiCallStart()
   let res: Response
   try {
-    res = await fetch(path, { headers: { Authorization: `Bearer ${getToken() ?? ''}` } })
+    res = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${getToken() ?? ''}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tenant_id: tenantId, format }),
+    })
   } catch (err) {
-    logApiError('GET', path, 0, (err as Error)?.message || 'Network error', startedAt)
+    logApiError('POST', path, 0, (err as Error)?.message || 'Network error', startedAt)
     throw err
   }
   if (!res.ok) {
@@ -62,10 +69,10 @@ export async function downloadCustomerExport(tenantId: string, format: 'csv' | '
     } catch {
       /* keep the status text */
     }
-    logApiError('GET', path, res.status, detail, startedAt)
+    logApiError('POST', path, res.status, detail, startedAt)
     throw new Error(detail)
   }
-  logApiCall('GET', path, res.status, startedAt)
+  logApiCall('POST', path, res.status, startedAt)
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -245,7 +252,11 @@ export const operationsApi = {
 
   /** One tenant's own customers only. */
   tenantCustomers: (tenantId: string, opts: { q?: string; limit?: number } = {}, signal?: AbortSignal) =>
-    api.get<{ customers: Customer[]; count: number }>(`${tenantBase(tenantId)}/customers${query(opts)}`, signal),
+    api.post<{ customers: Customer[]; count: number }>('/api/admin/tenants/customers', {
+      tenant_id: tenantId,
+      q: opts.q ?? '',
+      limit: opts.limit ?? 200,
+    }, { signal }),
 
   /** Legacy platform-wide listing (super-admin view of every tenant). */
   orders: (

@@ -13,11 +13,10 @@ import traceback as _traceback
 from contextvars import ContextVar
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import json
-import jwt
-from routing.config import ADMIN_SECRET_KEY
 from database import get_db_context, record_admin_audit_event
 from fastapi.middleware.cors import CORSMiddleware
 from middleware import SecurityHeadersMiddleware
@@ -67,9 +66,12 @@ from routes.tenants import router as tenants_router
 from routes.crawl import router as crawl_router
 from routes.offerings import router as offerings_router
 from routes.conversations import router as conversations_router
+from routes.conversations import flat_router as conversations_flat_router
 from routes.tenant_files import router as tenant_files_router
+from routes.tenant_files import flat_router as tenant_files_flat_router
 from routes.tenant_chat import router as tenant_chat_router
 from routes.tenant_operations import router as tenant_operations_router
+from routes.tenant_operations import flat_router as tenant_operations_flat_router
 from routes.leads import router as leads_router
 from routes.api_onboarding import router as api_onboarding_router
 from routes.onboarding_kits import router as onboarding_kits_router
@@ -85,12 +87,14 @@ from services.handoff_timeout import handoff_timeout_monitor
 from core.jobs import lifespan
 from core.middleware import (
     audit_mutations_middleware,
+    admin_session_auth_middleware,
     audit_request_context,
     get_request_id,
     http_exception_handler,
     request_id_middleware,
     super_admin_view_only_middleware,
     unhandled_exception_handler,
+    validation_exception_handler,
 )
 from routes.root import build_admin_router
 from routes.root import router as root_router
@@ -126,11 +130,13 @@ install_writer_context(_audit_database)
 
 
 app.middleware("http")(super_admin_view_only_middleware)
+app.middleware("http")(admin_session_auth_middleware)
 app.middleware("http")(audit_request_context)
 app.middleware("http")(audit_mutations_middleware)
 app.middleware("http")(request_id_middleware)
 app.exception_handler(StarletteHTTPException)(http_exception_handler)
 app.exception_handler(Exception)(unhandled_exception_handler)
+app.exception_handler(RequestValidationError)(validation_exception_handler)
 # slowapi requires the limiter on app.state plus an app-level exception handler
 if RATE_LIMIT_ENABLED:
     app.state.limiter = limiter
@@ -193,9 +199,12 @@ app.include_router(tenants_router, tags=["tenants"])
 app.include_router(crawl_router, tags=["crawl"])
 app.include_router(offerings_router, tags=["offerings"])
 app.include_router(conversations_router, tags=["conversations"])
+app.include_router(conversations_flat_router, tags=["conversations"])
 app.include_router(tenant_files_router, tags=["tenant-files"])
+app.include_router(tenant_files_flat_router, tags=["tenant-files"])
 app.include_router(tenant_chat_router, tags=["tenant-chat"])
 app.include_router(tenant_operations_router, tags=["tenant-operations"])
+app.include_router(tenant_operations_flat_router, tags=["tenant-operations"])
 app.include_router(leads_router, tags=["leads"])
 app.include_router(api_onboarding_router, tags=["api-onboarding"])
 app.include_router(onboarding_kits_router, tags=["onboarding-kits"])

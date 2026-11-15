@@ -237,6 +237,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
+                session_id TEXT,
                 salt TEXT,
                 role TEXT DEFAULT 'sub_admin',
                 permissions TEXT DEFAULT '{}',
@@ -511,7 +512,12 @@ def init_db():
             ("email", "TEXT"),
             ("updated_at", "TIMESTAMP"),
             ("tenant_id", "TEXT"),
+            ("session_id", "TEXT"),
         ])
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_admins_session_id "
+            "ON admins(session_id) WHERE session_id IS NOT NULL"
+        )
         _ensure_columns(conn, "admin_chat_messages", [
             ("deleted_for", "TEXT"),
             ("sender", "TEXT"),

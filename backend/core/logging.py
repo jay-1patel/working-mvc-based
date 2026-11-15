@@ -82,4 +82,6 @@ def setup_logging(level: int = logging.INFO) -> None:
         for handler in root.handlers:
             handler.addFilter(ctx_filter)
     root.setLevel(level)
+    from services.error_reporter import PersistentErrorHandler
+    root.addHandler(PersistentErrorHandler())
     setattr(root, _MARKER, True)

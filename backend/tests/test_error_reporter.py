@@ -20,31 +20,17 @@ for path in (BACKEND_DIR, PROJECT_ROOT):
 
 class ErrorReporterTests(unittest.TestCase):
     def setUp(self):
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self._tmpdir.name, "errors.db")
-
-        import sqlite3
-
-        @contextmanager
-        def fake_ctx():
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            try:
-                yield conn
-                conn.commit()
-            finally:
-                conn.close()
-
-        self._patch = patch("database.get_db_context", fake_ctx)
+        import mongomock
+        import services.error_reporter as er
+        self.er = er
+        self.database = mongomock.MongoClient(tz_aware=True).test_errors
+        self._patch = patch.object(er, '_get_database', return_value=self.database)
         self._patch.start()
 
-        import services.error_reporter as er
-
-        self.er = er
 
     def tearDown(self):
         self._patch.stop()
-        self._tmpdir.cleanup()
+
 
     def test_report_error_logs_api_error_tag(self):
         with self.assertLogs("error_reporter", level="ERROR") as cm:
@@ -90,7 +76,7 @@ class ErrorReporterTests(unittest.TestCase):
         def boom_ctx():
             raise RuntimeError("db gone")
 
-        with patch("database.get_db_context", boom_ctx):
+        with patch.object(self.er, "_get_database", boom_ctx):
             with self.assertLogs("error_reporter", level="ERROR") as cm:
                 # Must not raise even though persistence fails.
                 self.er.report_error("api", "GET /x", "kaput", request_id="req_1")
@@ -101,6 +87,127 @@ class ErrorReporterTests(unittest.TestCase):
             os.environ.pop("ERROR_ALERTS_ENABLED", None)
             os.environ.pop("ALERT_WEBHOOK_URL", None)
             self.assertFalse(self.er._alerts_enabled())
+
+
+    def test_credentials_are_redacted_before_persistence(self):
+        self.er.report_error('send2', 'POST https://example.test/send?api_key=private',
+                             'password=hunter2 Authorization: Bearer abc.secret.value',
+                             detail='{"token": "private-token", "otp": "123456"}')
+        row = self.er.list_recent_errors()[0]
+        for secret in ('hunter2', 'abc.secret.value', 'private-token', '123456', 'api_key=private'):
+            self.assertNotIn(secret, str(row))
+        self.assertTrue(row['request_id'].startswith('evt_'))
+
+    def test_filtered_search_and_pagination_reach_older_errors(self):
+        for index in range(4):
+            self.er.report_error('api', 'GET /catalog', f'failure {index}',
+                                 tenant_id='acme', request_id=f'req_{index}', http_status=500)
+        self.er.report_error('browser', 'React render', 'other tenant', tenant_id='other')
+        rows = self.er.list_recent_errors(limit=2, offset=2, tenant_id='acme', http_status=500)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[-1]['message'], 'failure 0')
+        self.assertEqual(self.er.count_errors(tenant_id='acme', http_status=500), 4)
+        self.assertEqual(len(self.er.list_recent_errors(search='req_1')), 1)
+        self.assertEqual(self.er.list_recent_errors(search='%'), [])
+        self.assertEqual(self.er.list_recent_errors(since='2999-01-01'), [])
+
+    def test_logged_background_failure_inherits_trace_context(self):
+        import logging
+        from core.context import request_api_var, request_id_var, error_tenant_var
+        tokens = (request_api_var.set('POST /api/tenants/acme/upload'),
+                  request_id_var.set('req_shared'), error_tenant_var.set('acme'))
+        handler = self.er.PersistentErrorHandler()
+        log = logging.getLogger('test.background')
+        log.addHandler(handler)
+        try:
+            try:
+                raise ValueError('index rebuild failed')
+            except ValueError:
+                log.exception('Could not rebuild index')
+            rows = self.er.list_recent_errors()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['request_id'], 'req_shared')
+            self.assertEqual(rows[0]['tenant_id'], 'acme')
+            self.assertIn('ValueError', rows[0]['detail'])
+        finally:
+            log.removeHandler(handler)
+            request_api_var.reset(tokens[0]); request_id_var.reset(tokens[1]); error_tenant_var.reset(tokens[2])
+
+    def test_provider_warning_is_visible_without_a_traceback(self):
+        import logging
+        log = logging.getLogger('test.provider')
+        handler = self.er.PersistentErrorHandler()
+        log.addHandler(handler)
+        try:
+            log.warning('Incoming report returned non-200: %s', 502)
+            row = self.er.list_recent_errors()[0]
+            self.assertEqual(row['severity'], 'warning')
+            self.assertIn('502', row['message'])
+        finally:
+            log.removeHandler(handler)
+
+    def test_every_failed_response_is_recorded_once_with_request_id(self):
+        from fastapi import FastAPI, HTTPException
+        from fastapi.exceptions import RequestValidationError
+        from fastapi.responses import JSONResponse
+        from fastapi.testclient import TestClient
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+        from pydantic import BaseModel
+        from core.middleware import request_id_middleware, http_exception_handler, validation_exception_handler
+        app = FastAPI()
+        app.middleware('http')(request_id_middleware)
+        app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+        app.add_exception_handler(RequestValidationError, validation_exception_handler)
+        @app.get('/api/tenants/acme/denied')
+        def denied(): raise HTTPException(403, 'Permission denied')
+        @app.get('/api/tenants/acme/crash')
+        def crash(): raise RuntimeError('broken service')
+        @app.get('/api/tenants/acme/provider')
+        def provider(): return JSONResponse({'detail': 'unavailable'}, status_code=502)
+        class Payload(BaseModel):
+            quantity: int
+        @app.post('/api/tenants/acme/validate')
+        def validate(body: Payload): return {'ok': True}
+        client = TestClient(app, raise_server_exceptions=False)
+        responses = [client.get('/api/tenants/acme/denied'),
+                     client.get('/api/tenants/acme/crash'),
+                     client.get('/api/tenants/acme/provider'),
+                     client.post('/api/tenants/acme/validate', json={'quantity': 'secret-value'})]
+        rows = self.er.list_recent_errors()
+        self.assertEqual(len(rows), 4)
+        self.assertEqual({r['http_status'] for r in rows}, {403, 422, 500, 502})
+        for response in responses:
+            self.assertTrue(response.headers.get('X-Request-Id'))
+            self.assertEqual(len([r for r in rows if r['request_id'] == response.headers['X-Request-Id']]), 1)
+        self.assertNotIn('secret-value', str(rows))
+
+    def test_browser_delivery_is_not_acknowledged_if_storage_fails(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from routes.auth import get_current_admin
+        from routes.api_errors import router
+        app = FastAPI(); app.include_router(router)
+        app.dependency_overrides[get_current_admin] = lambda: {'role': 'admin', 'tenant_id': 'acme', 'username': 'storage-test'}
+        with patch.object(self.er, '_persist', return_value=False):
+            response = TestClient(app).post('/api/client-errors', json={'message': 'Network failure'})
+        self.assertEqual(response.status_code, 503)
+
+    def test_browser_reports_cannot_choose_another_tenant(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from routes.auth import get_current_admin
+        from routes.api_errors import router
+        app = FastAPI(); app.include_router(router)
+        app.dependency_overrides[get_current_admin] = lambda: {'role': 'sub_admin', 'tenant_id': 'acme', 'username': 'tester'}
+        response = TestClient(app).post('/api/client-errors', json={
+            'message': 'Render failed', 'tenant_id': 'other', 'page': '/admin?token=private',
+            'request_id': 'client_12345678-abcd',
+        })
+        self.assertEqual(response.status_code, 202, response.text)
+        row = self.er.list_recent_errors()[0]
+        self.assertEqual(row['tenant_id'], 'acme')
+        self.assertEqual(row['request_id'], 'client_12345678-abcd')
+        self.assertNotIn('private', row['detail'])
 
 
 class ApiErrorsRouteTests(unittest.TestCase):

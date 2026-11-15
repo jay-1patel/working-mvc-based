@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from routes.auth import get_current_admin, require_tenant_access, security
@@ -39,12 +40,16 @@ VERTICAL_INFO = [
 ]
 
 
+class OnboardingKitsListRequest(BaseModel):
+    pass
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 1. Template Kits Listing & Download Endpoints
 # ──────────────────────────────────────────────────────────────────────────────
 
-@router.get("/onboarding-kits/list")
-def list_onboarding_kits():
+@router.post("/onboarding-kits/list")
+def list_onboarding_kits(body: Optional[OnboardingKitsListRequest] = None):
     """List all available industry onboarding templates with download links."""
     kits = []
     for v in VERTICAL_INFO:
@@ -259,6 +264,13 @@ async def publish_onboarding_bifurcation(
     draft = dict(bifurcation_draft)
     # Always publish into the path tenant — never a leftover draft_tenant tag
     draft["tenant_id"] = tid
+    # Keep extracted FAQ/KB rows tied to the uploaded filename. Re-uploading
+    # the same filename then refreshes that document's rows, while uploading a
+    # different document leaves the tenant's other sources untouched.
+    source_files = draft.get("source_files")
+    source_file = None
+    if isinstance(source_files, list) and source_files:
+        source_file = Path(str(source_files[0])).name.strip() or None
     if isinstance(draft.get("business_hours"), dict):
         draft["business_hours"] = _sanitize_business_hours(draft["business_hours"])
 
@@ -269,6 +281,7 @@ async def publish_onboarding_bifurcation(
                 raw_files=[],
                 auto_publish=True,
                 careful_brand_merge=False,
+                source_file=source_file,
             )
         )
         summary["tenant_id"] = tid

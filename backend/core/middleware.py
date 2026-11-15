@@ -8,19 +8,19 @@ order they were defined there; the bodies are unchanged.
 
 import json
 import logging
+import re
 import secrets
 import time
 import traceback as _traceback
 
-import jwt
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from routing.config import ADMIN_SECRET_KEY
-
 try:  # backend/ on sys.path (the normal import mode)
-    from core.context import request_id_var as _request_id_var
+    from core.context import request_id_var as _request_id_var, request_api_var, error_tenant_var, error_context_var
     from database import (
         clear_audit_request_context,
         get_db_context,
@@ -29,7 +29,7 @@ try:  # backend/ on sys.path (the normal import mode)
         trusted_client_ip,
     )
 except ImportError:  # imported as part of the `backend` package
-    from backend.core.context import request_id_var as _request_id_var
+    from backend.core.context import request_id_var as _request_id_var, request_api_var, error_tenant_var, error_context_var
     from backend.database import (
         clear_audit_request_context,
         get_db_context,
@@ -39,6 +39,47 @@ except ImportError:  # imported as part of the `backend` package
     )
 
 logger = logging.getLogger("router")
+
+_PUBLIC_API_ROUTES = (
+    re.compile(r"^/api/auth/(?:login|status)$"),
+    re.compile(r"^/api/webhooks/payments/[^/]+/[^/]+$"),
+    re.compile(r"^/api/tenants(?:/[^/]+)?/google-connect/callback$"),
+)
+_TENANT_TOKEN_ROUTES = (
+    re.compile(r"^/api/admin/tenants/[^/]+(?:/|$)"),
+    re.compile(r"^/api/tenants/[^/]+(?:/|$)"),
+)
+
+
+async def admin_session_auth_middleware(request: Request, call_next):
+    """Require live HTTP Basic admin credentials on every protected /api request.
+
+    Explicit provider callbacks stay public. Tenant bearer tokens are passed to
+    the existing tenant-scope dependency, which remains their enforcement point.
+    """
+    path = request.url.path
+    if request.method == "OPTIONS" or not path.startswith("/api/"):
+        return await call_next(request)
+    if any(pattern.fullmatch(path) for pattern in _PUBLIC_API_ROUTES):
+        return await call_next(request)
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer ") and any(
+        pattern.match(path) for pattern in _TENANT_TOKEN_ROUTES
+    ):
+        return await call_next(request)
+    try:
+        try:
+            from routes.auth import authenticate_basic_header
+        except ImportError:
+            from backend.routes.auth import authenticate_basic_header
+        authenticate_basic_header(request)
+    except StarletteHTTPException as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None),
+        )
+    return await call_next(request)
 
 
 async def super_admin_view_only_middleware(request: Request, call_next):
@@ -61,27 +102,7 @@ async def super_admin_view_only_middleware(request: Request, call_next):
         from backend.routes.auth import is_tenant_data_write
     if not is_tenant_data_write(request.method, request.url.path):
         return await call_next(request)
-    auth_header = request.headers.get("authorization", "")
-    role = None
-    if auth_header.startswith("Bearer "):
-        try:
-            payload = jwt.decode(
-                auth_header.split(" ")[1], ADMIN_SECRET_KEY,
-                algorithms=["HS256"], options={"verify_exp": False},
-            )
-            username = payload.get("sub")
-            if username:
-                with get_db_context() as conn:
-                    row = conn.execute(
-                        "SELECT role FROM admins WHERE username = ?", (username,)
-                    ).fetchone()
-                if row:
-                    role = row["role"] if hasattr(row, "keys") else row[0]
-        except Exception:
-            # A token that does not resolve to an admin is the route's own
-            # problem (it will 401/403); this guard only acts on a proven
-            # super-admin principal.
-            role = None
+    role = (getattr(request.state, "current_admin", None) or {}).get("role")
     if role == "super_admin":
         return JSONResponse(
             status_code=403,
@@ -109,7 +130,15 @@ async def audit_request_context(request: Request, call_next):
 
 
 async def audit_mutations_middleware(request: Request, call_next):
-    if request.method not in ("POST", "PUT", "PATCH", "DELETE") or not request.url.path.startswith("/api/admin"):
+    try:
+        from routes.auth import is_read_only_post
+    except ImportError:
+        from backend.routes.auth import is_read_only_post
+    if (
+        request.method not in ("POST", "PUT", "PATCH", "DELETE")
+        or not request.url.path.startswith("/api/admin")
+        or is_read_only_post(request.method, request.url.path)
+    ):
         return await call_next(request)
 
     content_type = request.headers.get("content-type", "")
@@ -129,16 +158,7 @@ async def audit_mutations_middleware(request: Request, call_next):
     response = await call_next(request)
 
     if 200 <= response.status_code < 300:
-        auth_header = request.headers.get("Authorization")
-        actor_username = "unknown"
-        if auth_header and auth_header.startswith("Bearer "):
-            try:
-                payload = jwt.decode(auth_header.split(" ")[1], ADMIN_SECRET_KEY, algorithms=["HS256"], options={"verify_exp": False})
-                actor_username = payload.get("sub", "unknown")
-            except Exception:
-                # deliberate: a token that does not decode just means the
-                # audit actor stays "unknown".
-                logger.debug("AUDIT_ACTOR_DECODE_SKIPPED | actor stays unknown", exc_info=True)
+        actor_username = (getattr(request.state, "current_admin", None) or {}).get("username", "unknown")
         
         try:
             with get_db_context() as conn:
@@ -191,15 +211,51 @@ async def request_id_middleware(request: Request, call_next):
     started = time.perf_counter()
     api = f"{request.method} {request.url.path}"
     tenant = _tenant_from_path(request.url.path)
+    try:
+        from routes.auth import BODY_TENANT_POST_PATHS
+    except ImportError:
+        from backend.routes.auth import BODY_TENANT_POST_PATHS
+    if request.method == "POST" and request.url.path in BODY_TENANT_POST_PATHS:
+        tenant = None
+        try:
+            body_bytes = await request.body()
+            payload = json.loads(body_bytes) if body_bytes else {}
+            selected = payload.get("tenant_id") if isinstance(payload, dict) else None
+            tenant = str(selected).strip() if selected is not None else None
+            async def receive():
+                return {"type": "http.request", "body": body_bytes}
+            request._receive = receive
+            request.state.error_tenant_id = tenant or None
+        except Exception:
+            tenant = None
+    api_token = request_api_var.set(api)
+    tenant_token = error_tenant_var.set(tenant)
+    context_token = error_context_var.set({'tenant_id': tenant})
     tenant_part = f" | tenant={tenant}" if tenant else ""
     try:
-        response = await call_next(request)
-    except Exception as exc:
-        ms = int((time.perf_counter() - started) * 1000)
-        logger.error(f"REQ {rid} | {api} → 500 | {ms}ms{tenant_part} | EXC {type(exc).__name__}")
-        raise
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # Handle while context is still alive so service and API events
+            # retain the same request ID. No second report from the outer app.
+            response = await unhandled_exception_handler(request, exc)
+        if response.status_code >= 400 and not getattr(request.state, 'error_recorded', False):
+            from services.error_reporter import report_error
+            report_error(
+                'api', api,
+                getattr(request.state, 'error_message', None) or f'HTTP {response.status_code}',
+                tenant_id=getattr(request.state, 'error_tenant_id', tenant),
+                request_id=rid, http_status=response.status_code,
+                detail=getattr(request.state, 'error_detail', ''),
+                severity='error' if response.status_code >= 500 else 'warning',
+                notify=False,
+            )
+            request.state.error_recorded = True
     finally:
         _request_id_var.reset(token)
+        request_api_var.reset(api_token)
+        error_tenant_var.reset(tenant_token)
+        error_context_var.reset(context_token)
     ms = int((time.perf_counter() - started) * 1000)
     line = f"REQ {rid} | {api} → {response.status_code} | {ms}ms{tenant_part}"
     if response.status_code >= 500:
@@ -216,6 +272,8 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     rid = _request_id_for(request)
     api = f"{request.method} {request.url.path}"
     detail = exc.detail
+    request.state.error_message = detail if isinstance(detail, str) else f'HTTP {exc.status_code}'
+    request.state.error_detail = json.dumps(detail, default=str) if not isinstance(detail, str) else detail
     body = {
         "detail": detail,
         "error": detail if isinstance(detail, str) else f"HTTP {exc.status_code}",
@@ -227,13 +285,26 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     return JSONResponse(status_code=exc.status_code, content=body, headers=headers)
 
 
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    rid = _request_id_for(request)
+    # Validation inputs can contain passwords/files. Persist only field names,
+    # validation types and messages, never the submitted values or request body.
+    errors = [{key: error[key] for key in ('loc', 'msg', 'type') if key in error}
+              for error in exc.errors()]
+    request.state.error_message = 'Request validation failed'
+    request.state.error_detail = json.dumps(errors, default=str)
+    return JSONResponse(status_code=422, content=jsonable_encoder({
+        'detail': errors, 'request_id': rid, 'api': f'{request.method} {request.url.path}',
+    }), headers={'X-Request-Id': rid})
+
+
 async def unhandled_exception_handler(request: Request, exc: Exception):
     """One central handler for unhandled errors: JSON (never plain text), one
     clean ERROR line, and a durable row via the error reporter. The reporter is
     guarded — its failure can never break this response."""
     rid = _request_id_for(request)
     api = f"{request.method} {request.url.path}"
-    tenant = _tenant_from_path(request.url.path)
+    tenant = getattr(request.state, 'error_tenant_id', None) or _tenant_from_path(request.url.path)
     logger.error(
         f"API_FAIL | req={rid} | api={api} | tenant={tenant or '-'} "
         f"| {type(exc).__name__}: {str(exc)[:300]}"
@@ -246,6 +317,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             tenant_id=tenant, request_id=rid, http_status=500,
             detail="".join(_traceback.format_exception(type(exc), exc, exc.__traceback__))[-3500:],
         )
+        request.state.error_recorded = True
     except Exception:
         logger.error(f"ERROR_REPORT_FAILED | req={rid} | api={api}", exc_info=True)
     body = {

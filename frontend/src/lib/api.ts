@@ -1,14 +1,29 @@
 /**
  * Single fetch wrapper for the whole app.
  *
- * The admin JWT is kept in localStorage and attached as a bearer token. Every
+ * The encoded admin session credential is kept in localStorage and attached
+ * with HTTP Basic authentication. Every
  * non-2xx response is normalised into an `ApiError` carrying the server's
  * `detail`, so screens can surface backend validation text (publish failures,
  * permission refusals) instead of a generic "something went wrong".
  */
 
+import { captureClientError } from './client-errors'
+
 const TOKEN_KEY = 'tenant-console.token'
 const TENANT_KEY = 'tenant-console.tenant'
+
+/**
+ * Leave empty when the frontend and API share an origin. Set
+ * VITE_API_ORIGIN (for example https://api.example.com) when this console is
+ * hosted separately; every API call below is then forwarded to that origin.
+ */
+const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.replace(/\/$/, '') ?? ''
+
+export function apiUrl(path: string): string {
+  if (!API_ORIGIN || /^(?:https?:)?\/\//i.test(path)) return path
+  return `${API_ORIGIN}${path.startsWith('/') ? path : `/${path}`}`
+}
 
 export class ApiError extends Error {
   status: number
@@ -151,8 +166,20 @@ export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   signal?: AbortSignal
-  /** Skip the bearer token (used by the login and bootstrap calls). */
+  /** Skip the admin credential (used by the login and bootstrap calls). */
   anonymous?: boolean
+}
+
+async function parseResponse<T>(res: Response, method: string, path: string): Promise<T> {
+  try {
+    const text = await res.text()
+    return (text ? JSON.parse(text) : undefined) as T
+  } catch (error) {
+    if ((error as Error)?.name === 'AbortError') throw error
+    const detail = 'The backend returned an unreadable response.'
+    const requestId = captureClientError(detail, 'Response parsing failed; response contents were not recorded.', `${method} ${path}`)
+    throw new ApiError(res.status, withErrorId(detail, requestId), requestId)
+  }
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -163,12 +190,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (!anonymous) {
     const token = getToken()
-    if (token) headers.Authorization = `Bearer ${token}`
+    if (token) headers.Authorization = `Basic ${token}`
   }
 
   let res: Response
   try {
-    res = await fetch(path, {
+    res = await fetch(apiUrl(path), {
       method,
       headers,
       signal,
@@ -178,7 +205,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if ((err as Error)?.name === 'AbortError') throw err
     const detail = 'Cannot reach the backend. Is it running on port 9000?'
     logApiError(method, path, 0, detail, startedAt)
-    throw new ApiError(0, detail)
+    const requestId = captureClientError(detail, (err as Error)?.message || '', `${method} ${path}`)
+    throw new ApiError(0, withErrorId(detail, requestId), requestId)
   }
 
   if (res.status === 401) {
@@ -194,8 +222,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
   logApiCall(method, path, res.status, startedAt)
   if (res.status === 204) return undefined as T
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  return parseResponse<T>(res, method, path)
 }
 
 /** Multipart upload: the browser sets the boundary Content-Type. */
@@ -203,16 +230,17 @@ export async function postForm<T>(path: string, form: FormData, signal?: AbortSi
   const startedAt = timerNow()
   const headers: Record<string, string> = { Accept: 'application/json' }
   const token = getToken()
-  if (token) headers.Authorization = `Bearer ${token}`
+  if (token) headers.Authorization = `Basic ${token}`
 
   let res: Response
   try {
-    res = await fetch(path, { method: 'POST', headers, body: form, signal })
+    res = await fetch(apiUrl(path), { method: 'POST', headers, body: form, signal })
   } catch (err) {
     if ((err as Error)?.name === 'AbortError') throw err
     const detail = 'Cannot reach the backend. Is it running on port 9000?'
     logApiError('POST', path, 0, detail, startedAt)
-    throw new ApiError(0, detail)
+    const requestId = captureClientError(detail, (err as Error)?.message || '', `POST ${path}`)
+    throw new ApiError(0, withErrorId(detail, requestId), requestId)
   }
   if (res.status === 401) {
     onUnauthorized()
@@ -226,8 +254,7 @@ export async function postForm<T>(path: string, form: FormData, signal?: AbortSi
     throw new ApiError(res.status, withErrorId(detail, requestId), requestId ?? undefined)
   }
   logApiCall('POST', path, res.status, startedAt)
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  return parseResponse<T>(res, 'POST', path)
 }
 
 export const api = {

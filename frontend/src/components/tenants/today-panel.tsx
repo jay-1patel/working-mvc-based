@@ -147,7 +147,7 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
         action={
           <span className="flex items-center gap-2">
             <SourceChip source="web" />
-            <PrimaryButton onClick={() => navigate(`/tenants/${tenantId}/website-knowledge`)}>
+            <PrimaryButton onClick={() => navigate(`/tenants/${tenantId}/website-crawler`)}>
               Review
             </PrimaryButton>
           </span>

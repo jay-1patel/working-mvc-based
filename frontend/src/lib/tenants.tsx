@@ -49,7 +49,7 @@ export const tenantsApi = {
     api.get<LayerDetail>(`/api/admin/tenants/${encodeURIComponent(id)}/detail`, signal),
 
   resolved: (id: string, signal?: AbortSignal) =>
-    api.get<ResolvedProfile>(`/api/admin/tenants/${encodeURIComponent(id)}/resolved`, signal),
+    api.post<ResolvedProfile>('/api/admin/tenants/resolved', { tenant_id: id }, { signal }),
 
   saveDraft: (id: string, snapshot: ProfileSnapshot) =>
     api.put<{ ok: boolean; validation: string[] }>(

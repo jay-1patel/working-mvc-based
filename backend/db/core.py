@@ -166,6 +166,10 @@ def _facade_ref(name, default=None):
 
 
 def get_db():
+    if os.environ.get("DATABASE_BACKEND", "sqlite").strip().lower() == "mongodb":
+        raise RuntimeError(
+            "SQL connection requested in MongoDB mode; this caller must use a native MongoDB repository"
+        )
     # Uses the absolute path we defined at the top of the file
     conn = sqlite3.connect(active_db_path(), timeout=30.0)
     conn.row_factory = sqlite3.Row

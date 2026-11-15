@@ -4,25 +4,50 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import BaseModel
 
 from database import get_db, get_db_context, record_admin_audit_event
-from routes.auth import require_tenant_admin_permission
+from routes.auth import authorize_tenant_access, get_current_admin, has_permission, require_tenant_admin_permission, security
 from routes.orders import ALLOWED_PAYMENT_STATUSES, ALLOWED_STATUSES, OrderUpdate
 
 
 logger = logging.getLogger("tenant_operations")
 router = APIRouter(prefix="/api/admin/tenants/{tenant_id}", tags=["tenant-operations"])
+flat_router = APIRouter(prefix="/api/admin/tenants", tags=["tenant-operations"])
 
 
-@router.get("/customers")
+class CustomersListRequest(BaseModel):
+    tenant_id: str
+    q: str = ""
+    limit: int = 200
+
+
+class CustomersExportRequest(BaseModel):
+    tenant_id: str
+    format: str = "csv"
+
+
+def _flat_customer_admin(request: Request, tenant_id: str, credentials) -> dict:
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    if principal.get("type") == "tenant":
+        return principal
+    admin = get_current_admin(request, credentials)
+    if admin.get("role") != "super_admin" and not has_permission(admin, "view_customers"):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+    return admin
+
+
+@flat_router.post("/customers")
 def list_tenant_customers(
-    tenant_id: str,
-    q: str = Query("", max_length=100),
-    limit: int = Query(200, le=1000),
-    current_admin: dict = Depends(require_tenant_admin_permission("view_customers")),
+    body: CustomersListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Aggregate this tenant's customers without mixing rows for shared WA IDs."""
+    tenant_id, q, limit = body.tenant_id, body.q, body.limit
+    current_admin = _flat_customer_admin(request, tenant_id, credentials)
     conn = get_db()
     try:
         customer_rows = conn.execute(
@@ -139,13 +164,17 @@ def list_tenant_customers(
         conn.close()
 
 
-@router.get("/customers/export")
+@flat_router.post("/customers/export")
 def export_tenant_customers(
-    tenant_id: str,
-    format: str = Query("csv", pattern="^(csv|xlsx)$"),
-    current_admin: dict = Depends(require_tenant_admin_permission("view_customers")),
+    body: CustomersExportRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """The tenant's customer directory as a downloadable CSV or Excel file."""
+    tenant_id, format = body.tenant_id, body.format
+    current_admin = _flat_customer_admin(request, tenant_id, credentials)
+    if format not in ("csv", "xlsx"):
+        raise HTTPException(status_code=422, detail="format must be csv or xlsx")
     import csv as csv_mod
     import io
     import json as json_mod

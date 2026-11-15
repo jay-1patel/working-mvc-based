@@ -227,6 +227,29 @@ class AdminOnboardingTests(unittest.TestCase):
         self.assertEqual(res.status_code, 403, res.text)
         self.assertIn("view-only", res.json()["detail"])
 
+    def test_reupload_publish_uses_filename_as_replaceable_source(self):
+        captured = {}
+
+        def fake_apply(self, **kwargs):
+            captured.update(kwargs)
+            return {"status": "configured", "version": 2}
+
+        revised = dict(STAGED)
+        revised["source_files"] = ["../../company-revised.pdf"]
+        with patch.object(AutoBifurcator, "apply_bifurcation", fake_apply):
+            res = self.client.post(
+                "/api/admin/tenants/leeway/onboarding/publish",
+                json={"draft": revised},
+                headers=self.leeway_admin,
+            )
+
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["status"], "published")
+        # The basename is both the replacement key for a future re-upload and
+        # safe to persist as a source label.
+        self.assertEqual(captured["source_file"], "company-revised.pdf")
+        self.assertTrue(captured["auto_publish"])
+
     # ── the completion path the wizard submits ─────────────────────────
 
     def test_awaiting_approval_admin_completion_path(self):

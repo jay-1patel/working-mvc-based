@@ -2,30 +2,23 @@ import json
 import logging
 import re
 import secrets
-import uuid
+import hmac
+import base64
 import hashlib
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
-import jwt
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
-# SECURITY FIX: Token revocation list to invalidate compromised tokens
-REVOKED_TOKENS = set()
-
-from routing.config import ADMIN_SECRET_KEY, ADMIN_JWT_EXPIRY_HOURS, OTP_EXPIRY_MINUTES
 from database import (
     get_db_context,
     record_admin_audit_event,
     get_admin_record,
     list_admin_records,
     count_admins_by_role,
-    count_tenant_admins,    set_admin_otp,
-    get_admin_otp,
-    clear_admin_otp,
+    count_tenant_admins,
 )
 
 logger = logging.getLogger("chiki_webhook")
@@ -55,8 +48,6 @@ limiter = Limiter(key_func=get_remote_address, enabled=RATE_LIMIT_ENABLED) if RA
 # SECURITY FIX: Password complexity requirements
 MIN_PASSWORD_LENGTH = 12
 MIN_PASSWORD_SCORE = 3  # 0-4 scale (zxcvbn)
-from services.emailer import send_otp_email, is_smtp_configured
-
 # Rate limit exception handler. Registered on the FastAPI app in main.py --
 # APIRouter has no exception_handler method.
 async def rate_limit_exceeded_handler(request: Request, exc):
@@ -68,10 +59,7 @@ async def rate_limit_exceeded_handler(request: Request, exc):
     )
 
 router = APIRouter(prefix="/api/auth")
-security = HTTPBearer(auto_error=False)
-
-# SECURITY FIX: Use strong bcrypt hashing with explicit work factor
-SALT_ROUNDS = 12  # Minimum 12 rounds for security (14-16 recommended for sensitive data)
+security = HTTPBasic(auto_error=False)
 
 ALL_PERMISSIONS = {
     "manage_admins": "Manage admins (add/edit/delete)",
@@ -208,6 +196,63 @@ def require_super_admin_permission(perm: str):
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+READ_ONLY_POST_PATHS = frozenset({
+    "/api/admin/tenants/conversations/detail",
+    "/api/admin/tenants/chat-history",
+    "/api/admin/tenants/inbox",
+    "/api/admin/tenants/agents",
+    "/api/admin/tenants/complaints",
+    "/api/admin/tenants/customers",
+    "/api/admin/tenants/customers/export",
+    "/api/admin/tenants/resolved",
+    "/api/admin/tenants/crawl-runs",
+    "/api/admin/tenants/crawl-runs/staged",
+    "/api/admin/tenants/crawl-runs/export",
+    "/api/admin/tenants/files",
+    "/api/admin/tenants/files/preview",
+    "/api/admin/tenants/files/download",
+    "/api/admin/tenants/knowledge-gaps",
+    "/api/admin/onboarding-kits/list",
+})
+
+BODY_TENANT_POST_PATHS = frozenset({
+    "/api/admin/tenants/conversations/detail",
+    "/api/admin/tenants/chat-history",
+    "/api/admin/tenants/inbox",
+    "/api/admin/tenants/inbox/handover",
+    "/api/admin/tenants/inbox/assign",
+    "/api/admin/tenants/inbox/resolve",
+    "/api/admin/tenants/inbox/reply",
+    "/api/admin/tenants/inbox/attach",
+    "/api/admin/tenants/agents",
+    "/api/admin/tenants/complaints",
+    "/api/admin/tenants/complaints/update",
+    "/api/admin/tenants/complaints/reply",
+    "/api/admin/tenants/complaints/delete",
+    "/api/admin/tenants/customers",
+    "/api/admin/tenants/customers/export",
+    "/api/admin/tenants/resolved",
+    "/api/admin/tenants/crawl",
+    "/api/admin/tenants/crawl-runs",
+    "/api/admin/tenants/crawl-runs/staged",
+    "/api/admin/tenants/crawl-runs/export",
+    "/api/admin/tenants/crawl-runs/approve",
+    "/api/admin/tenants/crawl-runs/reject",
+    "/api/admin/tenants/files",
+    "/api/admin/tenants/files/upload",
+    "/api/admin/tenants/files/bifurcate-existing",
+    "/api/admin/tenants/files/preview",
+    "/api/admin/tenants/files/download",
+    "/api/admin/tenants/files/delete",
+    "/api/admin/tenants/knowledge-gaps",
+    "/api/admin/tenants/knowledge-gaps/resolve",
+    "/api/admin/tenants/knowledge-gaps/create-faq",
+})
+
+
+def is_read_only_post(method: str, path: str) -> bool:
+    return (method or "").upper() == "POST" and (path or "") in READ_ONLY_POST_PATHS
+
 SUPER_ADMIN_ALLOWED_WRITE_PATTERNS = (
     re.compile(r"^/api/auth(?:/.*)?$"),  # people management, own password, OTP
     re.compile(r"^/api/admin/tenants$"),  # POST: create a tenant
@@ -265,6 +310,8 @@ def is_tenant_data_write(method: str, path: str) -> bool:
     method = (method or "").upper()
     if method not in WRITE_METHODS:
         return False
+    if is_read_only_post(method, path):
+        return False
     if is_super_admin_allowed_write(method, path):
         return False
     return any((path or "").startswith(prefix) for prefix in TENANT_DATA_WRITE_PREFIXES)
@@ -286,75 +333,51 @@ def ensure_super_admin_view_only(admin: dict | None, method: str, path: str) -> 
 
 # ---------- helpers ----------
 
-def _hash_password(plain: str) -> str:
-    # SECURITY FIX: Use explicit work factor for strong hashing
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=SALT_ROUNDS)).decode()
-
-
-def _verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
-
-
-def _admin_signing_key() -> str:
-    if not isinstance(ADMIN_SECRET_KEY, str) or not ADMIN_SECRET_KEY.strip():
+def _admin_from_pair(username: str, session_id: str, request: Request | None = None) -> dict:
+    """Authenticate one live username/session-id pair from the database."""
+    with get_db_context() as conn:
+        row = conn.execute(
+            "SELECT id, username, role, permissions, email, tenant_id, session_id "
+            "FROM admins WHERE username = ?",
+            (username,),
+        ).fetchone()
+    stored = str(row["session_id"] or "") if row else ""
+    supplied = str(session_id or "")
+    if not row or not stored or not hmac.compare_digest(stored, supplied):
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Admin authentication is not configured. Set ADMIN_SECRET_KEY "
-                "in routing/.env and restart the backend."
-            ),
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
         )
-    return ADMIN_SECRET_KEY
+    result = dict(row)
+    result.pop("session_id", None)
+    result["permissions"] = _effective_permissions(result.get("role"), result.get("permissions"))
+    if request is not None:
+        request.state.current_admin = result
+        request.state.error_tenant_id = result.get("tenant_id")
+        from core.context import error_context_var
+        trace_context = error_context_var.get()
+        if trace_context is not None:
+            trace_context["tenant_id"] = result.get("tenant_id")
+    return result
 
 
-def _create_token(username: str) -> str:
-    # SECURITY FIX: Add unique token ID (jti) for revocation
-    payload = {
-        "sub": username,
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(hours=ADMIN_JWT_EXPIRY_HOURS),
-        "jti": str(uuid.uuid4()),  # Unique token identifier for revocation
-    }
-    return jwt.encode(payload, _admin_signing_key(), algorithm="HS256")
-
-
-def _decode_token(token: str) -> dict:
-    # SECURITY FIX: Check for revoked tokens and require specific claims
-    try:
-        payload = jwt.decode(
-            token,
-            _admin_signing_key(),
-            algorithms=["HS256"],  # Only allow HS256
-            options={"require": ["exp", "sub", "jti"]},  # Require these claims
+def authenticate_basic_header(request: Request) -> dict:
+    """Authenticate an HTTP Basic header without accepting URL/body fallbacks."""
+    header = request.headers.get("authorization", "")
+    scheme, _, encoded = header.partition(" ")
+    if scheme.lower() != "basic" or not encoded:
+        raise HTTPException(
+            status_code=401, detail="Not authenticated", headers={"WWW-Authenticate": "Basic"}
         )
-        
-        # Check if token has been revoked
-        if payload.get("jti") in REVOKED_TOKENS:
-            logger.warning(f"Revoked token used: jti={payload.get('jti')}")
-            raise HTTPException(status_code=401, detail="Token has been revoked")
-        
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except jwt.MissingRequiredClaimError as e:
-        logger.warning(f"Missing required JWT claim: {e}")
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
-def revoke_token(token: str) -> bool:
-    """Revoke a JWT token by adding its jti to the revocation list."""
     try:
-        payload = jwt.decode(token, _admin_signing_key(), algorithms=["HS256"], options={"verify_exp": False})
-        jti = payload.get("jti")
-        if jti:
-            REVOKED_TOKENS.add(jti)
-            logger.info(f"Token revoked: jti={jti}")
-            return True
-    except Exception as e:
-        logger.warning(f"Failed to revoke token: {e}")
-    return False
+        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
+        username, session_id = decoded.split(":", 1)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(
+            status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Basic"}
+        )
+    return _admin_from_pair(username, session_id, request)
 
 
 def _admin_count() -> int:
@@ -381,26 +404,14 @@ def scoped_tenant_id(admin: dict) -> str | None:
 
 def get_current_admin(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPBasicCredentials = Depends(security),
 ) -> dict:
-    token_str = None
-    if credentials and credentials.credentials:
-        token_str = credentials.credentials
-    else:
-        token_str = request.query_params.get("token")
-    if not token_str:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = _decode_token(token_str)
-    username = payload.get("sub")
-    with get_db_context() as conn:
-        admin = conn.execute(
-            "SELECT id, username, role, permissions, email, tenant_id FROM admins WHERE username = ?", (username,)
-        ).fetchone()
-    if not admin:
-        raise HTTPException(status_code=401, detail="Admin not found")
-    result = dict(admin) if hasattr(admin, "keys") else dict(admin)
-    result["permissions"] = _effective_permissions(result.get("role"), result.get("permissions"))
-    return result
+    cached = getattr(request.state, "current_admin", None)
+    if cached:
+        return cached
+    if not credentials:
+        return authenticate_basic_header(request)
+    return _admin_from_pair(credentials.username, credentials.password, request)
 
 
 def require_super_admin(current_admin: dict = Depends(get_current_admin)) -> dict:
@@ -419,15 +430,15 @@ def hash_tenant_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
-def _raw_bearer(request: Request, credentials) -> str | None:
-    if credentials and credentials.credentials:
-        return credentials.credentials
-    return request.query_params.get("token")
+def _raw_bearer(request: Request, credentials=None) -> str | None:
+    header = request.headers.get("authorization", "")
+    scheme, _, value = header.partition(" ")
+    return value if scheme.lower() == "bearer" and value else None
 
 
 def get_tenant_principal(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPBasicCredentials = Depends(security),
 ) -> dict | None:
     """Resolve the caller as a tenant principal, or None if not one.
 
@@ -449,8 +460,6 @@ def get_tenant_principal(
         "token_id": record["id"],
         "label": record.get("label", ""),
     }
-
-
 def require_tenant_access():
     """Dependency: the caller must be an admin or THIS tenant's token.
 
@@ -466,17 +475,17 @@ def require_tenant_access():
     def dependency(
         request: Request,
         tenant_id: str,
-        credentials: HTTPAuthorizationCredentials = Depends(security),
+        credentials: HTTPBasicCredentials = Depends(security),
     ) -> dict:
         target = str(tenant_id or "").strip()
         if not target:
             raise HTTPException(status_code=400, detail="tenant_id is required")
 
         raw = _raw_bearer(request, credentials)
-        if not raw:
+        if not raw and not credentials:
             raise HTTPException(status_code=401, detail="Not authenticated")
 
-        principal = get_tenant_principal(request, credentials)
+        principal = get_tenant_principal(request, credentials) if raw else None
         if principal is not None:
             try:
                 from backend.services.audit_context import set_audit_actor
@@ -519,7 +528,7 @@ def require_tenant_access():
         # tenant (QA 2026-11-13). A bound sub admin may therefore READ; the
         # per-route view switches (view_files, view_products, chat_history,
         # ...) still apply on top of this gate. Writes keep the exact gate.
-        if request.method in WRITE_METHODS and not has_permission(admin, "manage_operations"):
+        if is_tenant_data_write(request.method, request.url.path) and not has_permission(admin, "manage_operations"):
             raise HTTPException(
                 status_code=403, detail="You do not have permission to manage tenant profiles"
             )
@@ -538,29 +547,46 @@ def require_tenant_access():
             "username": admin.get("username", ""),
             "role": admin.get("role", ""),
             "tenant_id": admin.get("tenant_id"),
+            "permissions": admin.get("permissions", {}),
         }
 
     return dependency
+
+
+def authorize_tenant_access(
+    request: Request,
+    tenant_id: str,
+    credentials: HTTPBasicCredentials = None,
+) -> dict:
+    """Authorize a tenant selected in a JSON body instead of a path param."""
+    target = str(tenant_id or "").strip()
+    request.state.error_tenant_id = target or None
+    try:
+        from core.context import error_context_var
+        context = error_context_var.get()
+        if context is not None:
+            context["tenant_id"] = target or None
+    except Exception:
+        pass
+    return require_tenant_access()(request, tenant_id, credentials)
 
 
 
 
 # ---------- request schemas ----------
 
-class FirstAdminRequest(BaseModel):
-    username: str
-    password: str
-    email: Optional[str] = None
-
-
 class LoginRequest(BaseModel):
     username: str
-    password: str
+    # Password remains the browser login credential.  A successful password
+    # login creates (or reuses) the opaque session id used by HTTP Basic on
+    # subsequent API requests.  ``session_id`` also keeps direct API clients
+    # compatible with the session-id authentication flow.
+    password: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class CreateAdminRequest(BaseModel):
     username: str
-    password: str
     role: str = "sub_admin"
     permissions: Optional[dict] = None
     email: Optional[str] = None
@@ -574,25 +600,6 @@ class UpdateAdminRequest(BaseModel):
     tenant_id: Optional[str] = None
 
 
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-
-class RequestOtpRequest(BaseModel):
-    username: str
-
-
-class ResetPasswordRequest(BaseModel):
-    username: str
-    otp: str
-    new_password: str
-
-
-class ResetAdminPasswordRequest(BaseModel):
-    new_password: str
-
-
 # ---------- routes ----------
 
 @router.get("/status")
@@ -601,62 +608,31 @@ def auth_status():
     return {"has_admins": _admin_count() > 0}
 
 
-@router.post("/first-admin")
-# SECURITY FIX: Rate limiting - 5 requests per minute for first admin creation
-@limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
-async def create_first_admin(request: Request, body: FirstAdminRequest):
-    """Create the very first admin. Only works when zero admins exist."""
-    # SECURITY FIX: Validate password strength
-    _validate_password_strength(body.password)
-    
-    if _admin_count() > 0:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin already exists. Use /api/auth/create with an admin token.",
-        )
-
-    hashed = _hash_password(body.password)
-    role = "super_admin"
-    email = (body.email or "").strip() or None
-    with get_db_context() as conn:
-        cur = conn.execute(
-            "INSERT INTO admins (username, password_hash, role, permissions, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (body.username, hashed, role, json.dumps(SUPER_ADMIN_PERMISSIONS), email, None),
-        )
-        record_admin_audit_event(
-            conn,
-            action="first_admin_created",
-            actor={"id": cur.lastrowid, "username": body.username, "role": role},
-            resource_type="admin",
-            resource_id=cur.lastrowid,
-            target_username=body.username,
-            details={"role": role},
-        )
-
-    token = _create_token(body.username)
-    logger.info(f"First admin created (super admin): {body.username}")
-    return {
-        "status": "ok",
-        "token": token,
-        "username": body.username,
-        "role": role,
-        "permissions": dict(SUPER_ADMIN_PERMISSIONS),
-        "tenant_id": None,
-    }
-
-
 @router.post("/login")
 # SECURITY FIX: Rate limiting - 5 requests per minute for login attempts
 @limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
 async def admin_login(request: Request, body: LoginRequest):
-    """Authenticate an admin and return a JWT."""
+    """Exchange a password or session id for the browser's Basic credential."""
     with get_db_context() as conn:
         admin = conn.execute(
-            "SELECT id, username, password_hash, role, permissions, tenant_id FROM admins WHERE username = ?",
+            "SELECT id, username, password_hash, session_id, role, permissions, tenant_id "
+            "FROM admins WHERE username = ?",
             (body.username,),
         ).fetchone()
 
-    if not admin or not _verify_password(body.password, admin["password_hash"]):
+    stored = str(admin["session_id"] or "") if admin else ""
+    supplied_session = str(body.session_id or "")
+    session_matches = bool(stored and supplied_session and hmac.compare_digest(stored, supplied_session))
+    password_matches = False
+    if admin and body.password:
+        try:
+            password_matches = bcrypt.checkpw(
+                body.password.encode("utf-8"), str(admin["password_hash"] or "").encode("utf-8")
+            )
+        except (ValueError, TypeError):
+            password_matches = False
+
+    if not admin or not (session_matches or password_matches):
         with get_db_context() as conn:
             record_admin_audit_event(
                 conn,
@@ -670,7 +646,20 @@ async def admin_login(request: Request, body: LoginRequest):
             )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # Existing password-based accounts predate session ids.  Create the live
+    # credential only after their password has been verified.
+    if not stored:
+        stored = secrets.token_urlsafe(32)
+        with get_db_context() as conn:
+            conn.execute(
+                "UPDATE admins SET session_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (stored, admin["id"]),
+            )
+
     admin_dict = dict(admin)
+    admin_dict["session_id"] = stored
+    admin_dict.pop("session_id", None)
+    admin_dict.pop("password_hash", None)
     with get_db_context() as conn:
         record_admin_audit_event(
             conn,
@@ -680,11 +669,12 @@ async def admin_login(request: Request, body: LoginRequest):
             target_username=admin_dict["username"][:100],
             tenant_id=admin_dict.get("tenant_id"),
         )
-    token = _create_token(admin_dict["username"])
     logger.info(f"Admin logged in: {admin_dict['username']}")
     return {
         "status": "ok",
-        "token": token,
+        "token": base64.b64encode(
+            f"{admin_dict['username']}:{stored}".encode("utf-8")
+        ).decode("ascii"),
         "username": admin_dict["username"],
         "role": admin_dict["role"],
         "permissions": _effective_permissions(admin_dict["role"], admin_dict["permissions"]),
@@ -706,9 +696,6 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
             detail="No admins exist yet. Use /api/auth/first-admin first.",
         )
 
-    # SECURITY FIX: Validate password strength for new admins
-    _validate_password_strength(body.password)
-    
     # Normalize role
     role = body.role or "sub_admin"
     if role not in ("super_admin", "admin", "sub_admin"):
@@ -753,10 +740,12 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
         raise HTTPException(status_code=409, detail="This company already has an admin")
 
     try:
+        session_id = secrets.token_urlsafe(32)
         with get_db_context() as conn:
             cur = conn.execute(
-                "INSERT INTO admins (username, password_hash, role, permissions, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (body.username, _hash_password(body.password), role, json.dumps(permissions), email, tenant_id),
+                "INSERT INTO admins (username, password_hash, session_id, role, permissions, email, tenant_id) "
+                "VALUES (?, '', ?, ?, ?, ?, ?)",
+                (body.username, session_id, role, json.dumps(permissions), email, tenant_id),
             )
             record_admin_audit_event(
                 conn,
@@ -772,7 +761,9 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
         raise HTTPException(status_code=409, detail="Username already taken")
 
     logger.info(f"Admin created by {current_admin['username']}: {body.username} ({role})")
-    return {"status": "ok", "username": body.username, "role": role, "permissions": permissions, "email": email, "tenant_id": tenant_id, "created_by": current_admin["username"]}
+    return {"status": "ok", "username": body.username, "session_id": session_id,
+            "role": role, "permissions": permissions, "email": email,
+            "tenant_id": tenant_id, "created_by": current_admin["username"]}
 
 
 def _admin_target(username: str, current_admin: dict) -> dict | None:
@@ -996,56 +987,34 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
     return {"status": "ok", "username": username}
 
 
-@router.post("/admins/{username}/reset-password")
-def reset_admin_password(username: str, body: ResetAdminPasswordRequest, current_admin: dict = Depends(get_current_admin)):
-    """Reset another admin's password. Requires the manage_admins permission."""
-    if not has_permission(current_admin, "manage_admins"):
-        raise HTTPException(status_code=403, detail="You do not have permission to manage admins")
-
-    _validate_password_strength(body.new_password)
-
-    target = _admin_target(username, current_admin)
+@router.post("/admins/{username}/regenerate-session")
+def regenerate_admin_session(username: str, current_admin: dict = Depends(get_current_admin)):
+    """Replace a session id. Super admins may target anyone; others only self."""
+    if current_admin.get("role") != "super_admin" and username != current_admin.get("username"):
+        raise HTTPException(status_code=403, detail="You may only regenerate your own session ID")
+    target = get_admin_record(username)
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
-    _ensure_super_not_touching_tenant_account(current_admin, target)
-    scope_sql, scope_params = _admin_write_scope(current_admin)
-
-    if username == current_admin["username"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Use Change Password to reset your own password.",
-        )
-
-    # Hierarchy rules
-    current_role = current_admin.get("role")
-    target_role = target.get("role")
-    if target_role == "super_admin":
-        raise HTTPException(status_code=403, detail="Cannot change password of super admin")
-    if target_role == "admin" and current_role != "super_admin":
-        raise HTTPException(status_code=403, detail="Only a super admin can change password of an admin")
-    if target_role == "sub_admin" and current_role != "admin" and current_role != "super_admin":
-        raise HTTPException(status_code=403, detail="Only admin or super admin can change password of sub-admin")
-
-    hashed = _hash_password(body.new_password)
+    session_id = secrets.token_urlsafe(32)
     with get_db_context() as conn:
         cursor = conn.execute(
-            f"UPDATE admins SET password_hash = ? WHERE username = ?{scope_sql}",
-            [hashed, username, *scope_params],
+            "UPDATE admins SET session_id = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
+            (session_id, username),
         )
         if cursor.rowcount != 1:
             raise HTTPException(status_code=404, detail="Admin not found")
         record_admin_audit_event(
             conn,
-            action="admin_password_reset",
+            action="admin_session_regenerated",
             actor=current_admin,
             resource_type="admin",
             resource_id=target.get("id"),
             target_username=username,
             tenant_id=target.get("tenant_id"),
+            details={"changed_fields": ["session_id"]},
         )
-
-    logger.info(f"Password reset for admin {username} by {current_admin['username']}")
-    return {"status": "ok", "message": "Password reset successfully"}
+    logger.info("Admin session ID regenerated for %s by %s", username, current_admin["username"])
+    return {"status": "ok", "username": username, "session_id": session_id}
 
 
 def _onboarding_approved(admin: dict) -> bool:
@@ -1076,195 +1045,3 @@ def admin_me(current_admin: dict = Depends(get_current_admin)):
         "tenant_id": current_admin.get("tenant_id"),
         "onboarding_approved": _onboarding_approved(current_admin),
     }
-
-
-@router.post("/change-password")
-def change_password(body: ChangePasswordRequest, current_admin: dict = Depends(get_current_admin)):
-    """Change the current admin's password."""
-    with get_db_context() as conn:
-        admin = conn.execute(
-            "SELECT password_hash FROM admins WHERE username = ?",
-            (current_admin["username"],),
-        ).fetchone()
-
-    if not admin or not _verify_password(body.current_password, admin["password_hash"]):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-
-    if body.current_password == body.new_password:
-        raise HTTPException(status_code=400, detail="New password must be different")
-
-    # SECURITY FIX: Validate new password strength
-    _validate_password_strength(body.new_password)
-
-    hashed = _hash_password(body.new_password)
-    with get_db_context() as conn:
-        conn.execute(
-            "UPDATE admins SET password_hash = ? WHERE username = ?",
-            (hashed, current_admin["username"],),
-        )
-        record_admin_audit_event(
-            conn,
-            action="password_changed",
-            actor=current_admin,
-            resource_type="admin",
-            resource_id=current_admin.get("id"),
-            target_username=current_admin["username"],
-        )
-
-    logger.info(f"Password changed for admin: {current_admin['username']}")
-    return {"status": "ok", "message": "Password changed successfully"}
-
-
-def _validate_password_strength(password: str):
-    """Validate password meets security requirements. SECURITY FIX."""
-    if not password:
-        raise HTTPException(status_code=400, detail="Password is required")
-    
-    if len(password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters long"
-        )
-    
-    # Check for common patterns (simple check without external library)
-    if password.lower() in ['password', '12345678', 'qwerty', 'admin']:
-        raise HTTPException(
-            status_code=400,
-            detail="Password is too common"
-        )
-    
-    # Check for complexity
-    if not any(c.isupper() for c in password):
-        raise HTTPException(
-            status_code=400,
-            detail="Password must contain at least one uppercase letter"
-        )
-    if not any(c.islower() for c in password):
-        raise HTTPException(
-            status_code=400,
-            detail="Password must contain at least one lowercase letter"
-        )
-    if not any(c.isdigit() for c in password):
-        raise HTTPException(
-            status_code=400,
-            detail="Password must contain at least one digit"
-        )
-    if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in password):
-        raise HTTPException(
-            status_code=400,
-            detail="Password must contain at least one special character"
-        )
-
-
-def _mask_email(email: str) -> str:
-    if not email or "@" not in email:
-        return ""
-    local, domain = email.split("@", 1)
-    visible = local[:1] if len(local) > 1 else local[:1]
-    masked_local = visible + "*" * max(len(local) - 1, 1)
-    return f"{masked_local}@{domain}"
-
-
-@router.post("/request-otp")
-# SECURITY FIX: Rate limiting - 5 requests per minute for OTP requests
-@limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
-async def request_otp(request: Request, body: RequestOtpRequest):
-    """Generate a password-reset OTP and email it to the admin. No JWT required."""
-    with get_db_context() as conn:
-        admin = conn.execute(
-            "SELECT id, email FROM admins WHERE username = ?",
-            (body.username,),
-        ).fetchone()
-
-    if not admin:
-        raise HTTPException(status_code=404, detail="Admin not found")
-
-    email = admin["email"]
-    if not email:
-        raise HTTPException(
-            status_code=400,
-            detail="No email is linked to this admin. Ask a super admin to set one.",
-        )
-
-    otp = f"{secrets.randbelow(1000000):06d}"
-    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)).isoformat()
-    # Store only the hash. reset_password checks it with bcrypt, and the
-    # plaintext is emailed once.
-    otp_hash = bcrypt.hashpw(otp.encode(), bcrypt.gensalt()).decode()
-    set_admin_otp(body.username, otp_hash, expires_at)
-
-    if not send_otp_email(email, otp, OTP_EXPIRY_MINUTES):
-        raise HTTPException(
-            status_code=503,
-            detail="Failed to send OTP email. Check that SMTP is configured in the backend .env.",
-        )
-
-    with get_db_context() as conn:
-        try:
-            record_admin_audit_event(
-                conn,
-                action="otp_requested",
-                actor={"id": admin["id"], "username": body.username},
-                resource_type="admin",
-                resource_id=admin["id"],
-                target_username=body.username,
-                details={"email": _mask_email(email)}
-            )
-        except Exception as e:
-            logger.warning(f"Failed to record audit event for OTP request: {e}")
-
-    logger.info(f"OTP sent to admin: {body.username}")
-    return {
-        "status": "ok",
-        "message": "OTP sent to your email",
-        "email_masked": _mask_email(email),
-        "expires_minutes": OTP_EXPIRY_MINUTES,
-    }
-
-
-@router.post("/reset-password")
-# SECURITY FIX: Rate limiting - 5 requests per minute for password reset
-@limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
-async def reset_password(request: Request, body: ResetPasswordRequest):
-    """Reset an admin's password using an emailed OTP. No JWT required."""
-    record = get_admin_otp(body.username)
-    if not record:
-        raise HTTPException(status_code=400, detail="No OTP requested for this admin")
-
-    expires_at = datetime.fromisoformat(record["expires_at"])
-    if datetime.now(timezone.utc) > expires_at:
-        clear_admin_otp(body.username)
-        raise HTTPException(status_code=400, detail="OTP has expired. Request a new one.")
-
-    if not bcrypt.checkpw(body.otp.encode(), record["otp_code"].encode()):
-        raise HTTPException(status_code=403, detail="Invalid OTP")
-
-    _validate_password_strength(body.new_password)
-    hashed = _hash_password(body.new_password)
-    with get_db_context() as conn:
-        conn.execute(
-            "UPDATE admins SET password_hash = ? WHERE username = ?",
-            (hashed, body.username,),
-        )
-        target = conn.execute(
-            "SELECT id, role, tenant_id FROM admins WHERE username = ?", (body.username,)
-        ).fetchone()
-        record_admin_audit_event(
-            conn,
-            action="admin_password_reset_via_otp",
-            actor={
-                "id": target["id"] if target else None,
-                "username": body.username,
-                "role": target["role"] if target else None,
-                "tenant_id": target["tenant_id"] if target else None,
-            },
-            resource_type="admin",
-            resource_id=target["id"] if target else None,
-            target_username=body.username,
-            tenant_id=target["tenant_id"] if target else None,
-            details={"changed_fields": ["password_hash"]}
-        )
-    clear_admin_otp(body.username)
-
-    logger.info(f"Password reset for admin: {body.username}")
-    return {"status": "ok", "message": "Password reset successfully"}

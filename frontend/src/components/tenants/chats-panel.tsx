@@ -51,7 +51,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
   const [failed, setFailed] = useState<Record<string, FailedSend[]>>({})
   const failedSeq = useRef(0)
 
-  const inbox = useAsync((s) => conversationsApi.inbox(tenantId, true, s), [tenantId])
+  const inbox = useAsync((s) => conversationsApi.inbox(tenantId, false, s), [tenantId])
   const agents = useAsync((s) => conversationsApi.agents(tenantId, s), [tenantId])
   const thread = useAsync(
     (s) =>
@@ -92,6 +92,13 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
         (i.last_message ?? '').toLowerCase().includes(q),
     )
   }, [inbox.data, search])
+
+  // Match the reference inbox: open the first (human-waiting first) chat as
+  // soon as the queue arrives, while preserving an explicit user selection.
+  useEffect(() => {
+    if (selected && queue.some((item) => item.wa_id === selected)) return
+    setSelected(queue[0]?.wa_id ?? null)
+  }, [queue, selected])
 
   const current: InboxItem | undefined = queue.find((i) => i.wa_id === selected)
   const failedHere = selected ? (failed[selected] ?? []) : []

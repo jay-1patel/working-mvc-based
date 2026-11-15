@@ -25,14 +25,15 @@ def count_admins() -> int:
     return row["c"] if row else 0
 
 
-def create_admin(username: str, password_hash: str, salt: str = "", role: str = "sub_admin",
-                 permissions: dict = None, recovery_key: str = None, tenant_id: str = None) -> int:
+def create_admin(username: str, password_hash: str = "", salt: str = "", role: str = "sub_admin",
+                 permissions: dict = None, recovery_key: str = None, tenant_id: str = None,
+                 session_id: str = None) -> int:
     with get_db_context() as conn:
         cur = conn.execute(
-            """INSERT INTO admins (username, password_hash, salt, role, permissions, recovery_key, tenant_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO admins (username, password_hash, salt, role, permissions, recovery_key, tenant_id, session_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (username, password_hash, salt, role,
-             json.dumps(permissions or {}), recovery_key, tenant_id),
+             json.dumps(permissions or {}), recovery_key, tenant_id, session_id),
         )
         return cur.lastrowid
 
@@ -69,7 +70,7 @@ def list_admins() -> list:
 
 
 def update_admin(username: str, **kwargs) -> bool:
-    allowed = {"password_hash", "salt", "role", "permissions", "recovery_key"}
+    allowed = {"password_hash", "salt", "role", "permissions", "recovery_key", "session_id"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False

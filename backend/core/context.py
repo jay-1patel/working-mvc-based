@@ -10,6 +10,11 @@ from contextvars import ContextVar
 
 #: The current request's id (``req_<8 hex>``), or "" outside a request.
 request_id_var: ContextVar = ContextVar("request_id", default="")
+request_api_var: ContextVar = ContextVar("request_api", default="")
+error_tenant_var: ContextVar = ContextVar("error_tenant", default=None)
+# A shared request dictionary lets sync authentication dependencies annotate
+# context inherited by worker threads without leaking it into other requests.
+error_context_var: ContextVar = ContextVar("error_context", default=None)
 
 
 def get_request_id() -> str:

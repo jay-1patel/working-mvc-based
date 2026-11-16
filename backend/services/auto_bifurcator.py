@@ -29,7 +29,6 @@ from docx import Document
 import openpyxl
 
 from database import (
-    get_db_context,
     list_products,
     product_slug_taken,
     record_admin_audit_event,
@@ -3091,30 +3090,33 @@ class AutoBifurcator:
         # publishing first is exactly what stranded sbi on an invalid v2 while
         # the catalog INSERT crashed.
         if should_touch_profile:
-            with get_db_context() as conn:
-                tenancy_store.save_draft(tenant_id, draft, updated_by=self.actor.get("username", "admin"), conn=conn)
-                if auto_publish:
-                    # Gate before writing a version: an invalid profile must
-                    # stay a draft, never become the loader's current version
-                    # (store.publish_version enforces this too, since 2026-10).
+            tenancy_store.save_draft(
+                tenant_id, draft, updated_by=self.actor.get("username", "admin")
+            )
+            if auto_publish:
+                # Gate before writing a version: an invalid profile must
+                # stay a draft, never become the loader's current version
+                # (store.publish_version enforces this too, since 2026-10).
+                try:
+                    tenancy_loader.validate_merged_profile(tenant_id, draft)
+                except Exception as val_exc:
+                    summary["publish_blocked"] = str(val_exc)[:400]
+                    logger.error(
+                        "AUTO_BIFURCATION_PUBLISH_BLOCKED | tenant=%s | draft kept unpublished: %s",
+                        tenant_id, val_exc,
+                    )
+                else:
                     try:
-                        tenancy_loader.validate_merged_profile(tenant_id, draft)
-                    except Exception as val_exc:
-                        summary["publish_blocked"] = str(val_exc)[:400]
-                        logger.error(
-                            "AUTO_BIFURCATION_PUBLISH_BLOCKED | tenant=%s | draft kept unpublished: %s",
-                            tenant_id, val_exc,
+                        version = tenancy_store.publish_version(
+                            tenant_id,
+                            draft,
+                            published_by=self.actor.get("username", "admin"),
                         )
-                    else:
-                        try:
-                            version = tenancy_store.publish_version(
-                                tenant_id, draft, published_by=self.actor.get("username", "admin"), conn=conn
-                            )
-                            summary["version"] = version
-                            tenancy_cache.purge(tenant_id)
-                            logger.info("AUTO_BIFURCATION_PUBLISHED | tenant=%s | v=%s", tenant_id, version)
-                        except Exception as pub_exc:
-                            logger.warning("Could not auto-publish version directly: %s", pub_exc)
+                        summary["version"] = version
+                        tenancy_cache.purge(tenant_id)
+                        logger.info("AUTO_BIFURCATION_PUBLISHED | tenant=%s | v=%s", tenant_id, version)
+                    except Exception as pub_exc:
+                        logger.warning("Could not auto-publish version directly: %s", pub_exc)
 
             try:
                 tenancy_loader.write_client_config_file(tenant_id, draft)
@@ -3122,26 +3124,26 @@ class AutoBifurcator:
                 logger.warning("Could not sync client config file: %s", file_exc)
 
         try:
-            with get_db_context() as conn:
-                record_admin_audit_event(
-                    conn,
-                    action="tenant_auto_bifurcated",
-                    actor=self.actor,
-                    resource_type="tenant",
-                    resource_id=tenant_id,
-                    tenant_id=tenant_id,
-                    details={
-                        "vertical": vertical,
-                        "brand": (summary.get("brand") or {}).get("name"),
-                        "offerings_count": inserted_count,
-                        "faqs_saved": faqs_saved,
-                        "menu_buttons_count": len(menu_buttons),
-                        "intents_count": len(clean_intents),
-                        "chunks_count": summary["kb_chunks_indexed"],
-                        "careful_brand_merge": careful_brand_merge,
-                        "source_file": kb_source,
-                    },
-                )
+            from db.core import use_mongodb
+            audit_kwargs = dict(
+                action="tenant_auto_bifurcated",
+                actor=self.actor,
+                resource_type="tenant",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={
+                    "vertical": vertical,
+                    "brand": (summary.get("brand") or {}).get("name"),
+                    "offerings_count": inserted_count,
+                    "faqs_saved": faqs_saved,
+                    "menu_buttons_count": len(menu_buttons),
+                    "intents_count": len(clean_intents),
+                    "chunks_count": summary["kb_chunks_indexed"],
+                    "careful_brand_merge": careful_brand_merge,
+                    "source_file": kb_source,
+                },
+            )
+            record_admin_audit_event(None, **audit_kwargs)
         except Exception:
             logger.exception("AUDIT_EVENT_RECORD_FAILED | action=tenant_auto_bifurcated tenant=%s", tenant_id)
 
@@ -3170,17 +3172,15 @@ class AutoBifurcator:
             # Drop prior auto-extracted QAs for this source so re-process does not
             # duplicate FAQ index rows (leave non-qa raw extract chunks intact).
             try:
-                with get_db_context() as conn:
-                    if self.tenant_id is not None:
-                        conn.execute(
-                            "DELETE FROM faq_dataset WHERE source_file = ? AND tenant_id = ? AND content_type = 'qa'",
-                            (source_file, self.tenant_id),
-                        )
-                    else:
-                        conn.execute(
-                            "DELETE FROM faq_dataset WHERE source_file = ? AND content_type = 'qa'",
-                            (source_file,),
-                        )
+                from db.core import use_mongodb
+                flt = {"source_file": source_file, "content_type": "qa"}
+                if self.tenant_id is not None:
+                    flt["tenant_id"] = self.tenant_id
+                if use_mongodb():
+                    from db.mongo import Repository
+                    Repository("faq_dataset").delete_many(flt)
+                else:
+                    raise RuntimeError("FAQ purge requires MongoDB")
             except Exception as purge_err:
                 logger.warning("FAQ QA purge before save failed: %s", purge_err)
             # E2E D-E2E-6 (known D-08): a Q&A already live for this tenant
@@ -3190,19 +3190,19 @@ class AutoBifurcator:
             # ("Q:/A:" vs "Question:/Answer:") collide correctly; also
             # dedupe repeats inside this batch.
             try:
-                with get_db_context() as conn:
+                from db.core import use_mongodb
+                if use_mongodb():
+                    from db.mongo import Repository
+                    flt = {"content_type": "qa"}
                     if self.tenant_id is not None:
-                        rows = conn.execute(
-                            "SELECT content FROM faq_dataset WHERE tenant_id = ? AND content_type = 'qa'",
-                            (self.tenant_id,),
-                        ).fetchall()
-                    else:
-                        rows = conn.execute(
-                            "SELECT content FROM faq_dataset WHERE content_type = 'qa'"
-                        ).fetchall()
+                        flt["tenant_id"] = self.tenant_id
+                    rows = Repository("faq_dataset").find_all(flt)
+                    contents = [r.get("content") for r in rows]
+                else:
+                    raise RuntimeError("FAQ dedupe requires MongoDB")
                 seen_keys = set()
-                for r in rows:
-                    key = qa_key_from_content(r[0])
+                for raw in contents:
+                    key = qa_key_from_content(raw)
                     if key:
                         seen_keys.add(key)
                 unique_chunks = []

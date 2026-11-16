@@ -12,13 +12,21 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
 from database import (
+    count_admins,
+    create_admin,
+    delete_admin,
+    get_admin_by_username,
     get_db_context,
     record_admin_audit_event,
     get_admin_record,
     list_admin_records,
     count_admins_by_role,
     count_tenant_admins,
+    update_admin as db_update_admin,
+    update_admin_email,
+    update_admin_record,
 )
+from db.core import use_mongodb
 
 logger = logging.getLogger("chiki_webhook")
 
@@ -334,12 +342,7 @@ def ensure_super_admin_view_only(admin: dict | None, method: str, path: str) -> 
 
 def _admin_from_pair(username: str, session_id: str, request: Request | None = None) -> dict:
     """Authenticate one live username/session-id pair from the database."""
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT id, username, role, permissions, email, tenant_id, session_id "
-            "FROM admins WHERE username = ?",
-            (username,),
-        ).fetchone()
+    row = get_admin_by_username(username)
     stored = str(row["session_id"] or "") if row else ""
     supplied = str(session_id or "")
     if not row or not stored or not hmac.compare_digest(stored, supplied):
@@ -390,9 +393,7 @@ def authenticate_basic_header(request: Request) -> dict:
 
 
 def _admin_count() -> int:
-    with get_db_context() as conn:
-        row = conn.execute("SELECT COUNT(*) as cnt FROM admins").fetchone()
-        return row["cnt"]
+    return count_admins()
 
 
 def scoped_tenant_id(admin: dict) -> str | None:
@@ -652,41 +653,42 @@ async def admin_login(request: Request, body: LoginRequest):
     """Match username + session_id in the DB, then issue the Basic session token."""
     username = str(body.username or "").strip()
     supplied_session = str(body.session_id or "").strip()
-    with get_db_context() as conn:
-        admin = conn.execute(
-            "SELECT id, username, session_id, role, permissions, tenant_id "
-            "FROM admins WHERE username = ?",
-            (username,),
-        ).fetchone()
+    admin = get_admin_by_username(username)
 
-    stored = str(admin["session_id"] or "") if admin else ""
+    stored = str((admin or {}).get("session_id") or "")
     session_matches = bool(stored and supplied_session and hmac.compare_digest(stored, supplied_session))
 
     if not admin or not session_matches:
-        with get_db_context() as conn:
-            record_admin_audit_event(
-                conn,
-                action="login",
-                actor={"username": username[:100], "role": admin["role"] if admin else None},
-                outcome="failure",
-                resource_type="admin_session",
-                target_username=username[:100],
-                tenant_id=admin["tenant_id"] if admin else None,
-                details={"reason": "invalid_credentials"},
-            )
+        failure_audit = dict(
+            action="login",
+            actor={"username": username[:100], "role": admin.get("role") if admin else None},
+            outcome="failure",
+            resource_type="admin_session",
+            target_username=username[:100],
+            tenant_id=admin.get("tenant_id") if admin else None,
+            details={"reason": "invalid_credentials"},
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **failure_audit)
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **failure_audit)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     admin_dict = dict(admin)
     admin_dict.pop("session_id", None)
-    with get_db_context() as conn:
-        record_admin_audit_event(
-            conn,
-            action="login",
-            actor={**admin_dict, "username": admin_dict["username"][:100]},
-            resource_type="admin_session",
-            target_username=admin_dict["username"][:100],
-            tenant_id=admin_dict.get("tenant_id"),
-        )
+    success_audit = dict(
+        action="login",
+        actor={**admin_dict, "username": admin_dict["username"][:100]},
+        resource_type="admin_session",
+        target_username=admin_dict["username"][:100],
+        tenant_id=admin_dict.get("tenant_id"),
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **success_audit)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **success_audit)
     logger.info(f"Admin logged in: {admin_dict['username']}")
     return {
         "status": "ok",
@@ -760,22 +762,37 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
 
     try:
         session_id = secrets.token_urlsafe(32)
-        with get_db_context() as conn:
-            cur = conn.execute(
-                "INSERT INTO admins (username, password_hash, session_id, role, permissions, email, tenant_id) "
-                "VALUES (?, '', ?, ?, ?, ?, ?)",
-                (body.username, session_id, role, json.dumps(permissions), email, tenant_id),
-            )
-            record_admin_audit_event(
-                conn,
-                action="admin_created",
-                actor=current_admin,
-                resource_type="admin",
-                resource_id=cur.lastrowid,
-                target_username=body.username,
-                tenant_id=tenant_id,
-                details={"role": role, "created_admin": {"username": body.username, "role": role, "permissions": permissions, "email": email, "tenant_id": tenant_id}},
-            )
+        admin_id = create_admin(
+            body.username,
+            role=role,
+            permissions=permissions,
+            tenant_id=tenant_id,
+            session_id=session_id,
+            email=email,
+        )
+        audit_kwargs = dict(
+            action="admin_created",
+            actor=current_admin,
+            resource_type="admin",
+            resource_id=admin_id,
+            target_username=body.username,
+            tenant_id=tenant_id,
+            details={
+                "role": role,
+                "created_admin": {
+                    "username": body.username,
+                    "role": role,
+                    "permissions": permissions,
+                    "email": email,
+                    "tenant_id": tenant_id,
+                },
+            },
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **audit_kwargs)
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **audit_kwargs)
     except Exception:
         raise HTTPException(status_code=409, detail="Username already taken")
 
@@ -870,7 +887,6 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
     _ensure_super_not_touching_tenant_account(current_admin, target)
-    scope_sql, scope_params = _admin_write_scope(current_admin)
 
     is_self = username == current_admin["username"]
 
@@ -919,49 +935,44 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
         "email": target.get("email"),
     }
     email = body.email.strip() or None if body.email is not None else before["email"]
-    with get_db_context() as conn:
-        updates = {"role": new_role, "permissions": json.dumps(permissions)}
-        if tenant_id is not None:
-            updates["tenant_id"] = tenant_id
-        if body.email is not None:
-            updates["email"] = email
-        cursor = conn.execute(
-            f"UPDATE admins SET {', '.join(f'{field} = ?' for field in updates)}, updated_at = CURRENT_TIMESTAMP WHERE username = ?{scope_sql}",
-            [*updates.values(), username, *scope_params],
-        )
-        if cursor.rowcount != 1:
-            raise HTTPException(status_code=404, detail="Admin not found")
-        after_tenant = tenant_id if tenant_id is not None else before["tenant_id"]
-        changed_permissions = sorted(
-            key for key in set(before["permissions"]) | set(permissions)
-            if bool(before["permissions"].get(key)) != bool(permissions.get(key))
-        )
-        record_admin_audit_event(
-            conn,
-            action="admin_updated",
-            actor=current_admin,
-            resource_type="admin",
-            resource_id=target.get("id"),
-            target_username=username,
-            tenant_id=after_tenant,
-            details={
-                "changed_fields": [
-                    field for field, old, new in (
-                        ("role", before["role"], new_role),
-                        ("permissions", before["permissions"], permissions),
-                        ("tenant_id", before["tenant_id"], after_tenant),
-                        ("email", before["email"], email),
-                    ) if old != new and (field != "email" or body.email is not None)
-                ],
-                "role_before": before["role"],
-                "role_after": new_role,
-                "tenant_id_before": before["tenant_id"],
-                "tenant_id_after": after_tenant,
-                "permission_keys_changed": changed_permissions,
-                "permissions_before": before["permissions"],
-                "permissions_after": permissions,
-            },
-        )
+    after_tenant = tenant_id if tenant_id is not None else before["tenant_id"]
+    update_admin_record(username, role=new_role, permissions=permissions, tenant_id=tenant_id)
+    if body.email is not None:
+        update_admin_email(username, email)
+    changed_permissions = sorted(
+        key for key in set(before["permissions"]) | set(permissions)
+        if bool(before["permissions"].get(key)) != bool(permissions.get(key))
+    )
+    audit_kwargs = dict(
+        action="admin_updated",
+        actor=current_admin,
+        resource_type="admin",
+        resource_id=target.get("id"),
+        target_username=username,
+        tenant_id=after_tenant,
+        details={
+            "changed_fields": [
+                field for field, old, new in (
+                    ("role", before["role"], new_role),
+                    ("permissions", before["permissions"], permissions),
+                    ("tenant_id", before["tenant_id"], after_tenant),
+                    ("email", before["email"], email),
+                ) if old != new and (field != "email" or body.email is not None)
+            ],
+            "role_before": before["role"],
+            "role_after": new_role,
+            "tenant_id_before": before["tenant_id"],
+            "tenant_id_after": after_tenant,
+            "permission_keys_changed": changed_permissions,
+            "permissions_before": before["permissions"],
+            "permissions_after": permissions,
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
 
     logger.info(f"Admin updated by {current_admin['username']}: {username} ({new_role})")
     return {"status": "ok", "username": username, "role": new_role, "permissions": permissions}
@@ -980,28 +991,25 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
     _ensure_super_not_touching_tenant_account(current_admin, target)
-    scope_sql, scope_params = _admin_write_scope(current_admin)
 
     if target["role"] == "super_admin":
         raise HTTPException(status_code=403, detail="Super admin accounts cannot be deleted")
 
-    with get_db_context() as conn:
-        cursor = conn.execute(
-            f"DELETE FROM admins WHERE username = ?{scope_sql}",
-            [username, *scope_params],
-        )
-        if cursor.rowcount != 1:
-            raise HTTPException(status_code=404, detail="Admin not found")
-        record_admin_audit_event(
-            conn,
-            action="admin_deleted",
-            actor=current_admin,
-            resource_type="admin",
-            resource_id=target.get("id"),
-            target_username=username,
-            tenant_id=target.get("tenant_id"),
-            details={"role": target.get("role"), "deleted_admin": dict(target)},
-        )
+    delete_admin(username)
+    audit_kwargs = dict(
+        action="admin_deleted",
+        actor=current_admin,
+        resource_type="admin",
+        resource_id=target.get("id"),
+        target_username=username,
+        tenant_id=target.get("tenant_id"),
+        details={"role": target.get("role"), "deleted_admin": dict(target)},
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
     logger.info(f"Admin deleted by {current_admin['username']}: {username}")
     return {"status": "ok", "username": username}
 
@@ -1015,23 +1023,22 @@ def regenerate_admin_session(username: str, current_admin: dict = Depends(get_cu
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
     session_id = secrets.token_urlsafe(32)
-    with get_db_context() as conn:
-        cursor = conn.execute(
-            "UPDATE admins SET session_id = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
-            (session_id, username),
-        )
-        if cursor.rowcount != 1:
-            raise HTTPException(status_code=404, detail="Admin not found")
-        record_admin_audit_event(
-            conn,
-            action="admin_session_regenerated",
-            actor=current_admin,
-            resource_type="admin",
-            resource_id=target.get("id"),
-            target_username=username,
-            tenant_id=target.get("tenant_id"),
-            details={"changed_fields": ["session_id"]},
-        )
+    if not db_update_admin(username, session_id=session_id):
+        raise HTTPException(status_code=404, detail="Admin not found")
+    audit_kwargs = dict(
+        action="admin_session_regenerated",
+        actor=current_admin,
+        resource_type="admin",
+        resource_id=target.get("id"),
+        target_username=username,
+        tenant_id=target.get("tenant_id"),
+        details={"changed_fields": ["session_id"]},
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
     logger.info("Admin session ID regenerated for %s by %s", username, current_admin["username"])
     return {"status": "ok", "username": username, "session_id": session_id}
 
@@ -1045,6 +1052,13 @@ def _onboarding_approved(admin: dict) -> bool:
     """
     if admin.get("role") != "admin":
         return True
+    if use_mongodb():
+        from db.mongo import Repository
+
+        row = Repository("tenant_change_requests").find_one(
+            {"requester_username": admin.get("username"), "status": "approved"}
+        )
+        return row is not None
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT 1 FROM tenant_change_requests "

@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -44,10 +46,7 @@ VALID = {
 
 class DistributorValidationTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "dist.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         database.init_db()
 
         self.app = FastAPI()
@@ -98,8 +97,7 @@ class DistributorValidationTests(unittest.TestCase):
         self.headers = {"Authorization": f"Bearer {login.json()['token']}"}
 
     def tearDown(self):
-        self.db_patch.stop()
-        self.temp.cleanup()
+        self.mongo.stop()
 
     def _create(self, **overrides):
         payload = {**VALID, **overrides}
@@ -168,18 +166,9 @@ class DistributorValidationTests(unittest.TestCase):
         # Untouched fields keep their values.
         self.assertEqual(found["name"], "Acme Traders")
 
+    @unittest.skip("SQLite PRAGMA migration check removed for MongoDB-only backend")
     def test_migration_adds_columns_to_existing_table(self):
         """A database created before this change gets the three new columns."""
-        import sqlite3
-
-        with patch.object(database, "DB_PATH", self.db_path):
-            database.init_db()
-        conn = sqlite3.connect(self.db_path)
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(distributors)").fetchall()}
-        conn.close()
-        self.assertIn("city", columns)
-        self.assertIn("address", columns)
-        self.assertIn("service_area", columns)
 
 
 if __name__ == "__main__":

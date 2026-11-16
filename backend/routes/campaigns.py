@@ -400,6 +400,317 @@ def _criteria_errors(audience_type: str, criteria: dict) -> list:
     return errors
 
 
+# ── MongoDB helpers ────────────────────────────────────────────────────
+
+def _mongo_repo(table: str):
+    from db.mongo import Repository
+    return Repository(table)
+
+
+def _segment_criteria(segment: dict | None) -> dict:
+    if not segment:
+        return {}
+    raw = segment.get("criteria_json") or {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        return json.loads(raw) if raw else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _opt_out_wa_ids_mongo(tenant_id: str) -> set:
+    rows = _mongo_repo("campaign_opt_outs").find_all({"tenant_id": tenant_id})
+    return {r["wa_id"] for r in rows if r.get("wa_id")}
+
+
+def _parse_dt(value) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _product_interests_blob(row: dict) -> str:
+    raw = row.get("product_interests", "")
+    if isinstance(raw, list):
+        return " ".join(str(x) for x in raw)
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return " ".join(str(x) for x in parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return raw
+    return str(raw or "")
+
+
+def _distributor_positive_match(d: dict, c: dict) -> bool:
+    checks = []
+    if c.get("regions") and "All" not in c["regions"]:
+        checks.append(d.get("region") in c["regions"])
+    if c.get("tiers"):
+        checks.append(d.get("tier") in c["tiers"])
+    if c.get("city"):
+        city = str(c["city"]).strip().lower()
+        checks.append(str(d.get("city") or "").strip().lower() == city)
+    for interest in c.get("product_interests") or []:
+        checks.append(interest in _product_interests_blob(d))
+    if not checks:
+        return True
+    return any(checks) if c.get("match") == "any" else all(checks)
+
+
+def _distributor_matches(d: dict, c: dict | None, opted_out: set) -> bool:
+    wa_id = (d.get("wa_id") or "").strip()
+    if not wa_id or wa_id in opted_out:
+        return False
+    c = c or {}
+    if not _distributor_positive_match(d, c):
+        return False
+    if c.get("min_sales_volume") is not None:
+        try:
+            if float(d.get("sales_volume") or 0) < float(c["min_sales_volume"]):
+                return False
+        except (TypeError, ValueError):
+            return False
+    if c.get("credit_status") == "outstanding":
+        if float(d.get("outstanding_payments") or 0) <= 0:
+            return False
+    elif c.get("credit_status") == "clear":
+        if float(d.get("outstanding_payments") or 0) > 0:
+            return False
+    if c.get("registered_within_days") is not None:
+        created = _parse_dt(d.get("created_at"))
+        if created is None:
+            return False
+        cutoff = datetime.utcnow() - timedelta(days=int(c["registered_within_days"]))
+        if created < cutoff:
+            return False
+    for key, column in (("exclude_regions", "region"), ("exclude_tiers", "tier"), ("exclude_city", "city")):
+        values = c.get(key) or []
+        if isinstance(values, str):
+            values = [values]
+        if not values:
+            continue
+        if column == "city":
+            lower_vals = {str(v).strip().lower() for v in values}
+            if str(d.get("city") or "").strip().lower() in lower_vals:
+                return False
+        elif d.get(column) in values:
+            return False
+    return True
+
+
+def _customer_metrics_mongo(tenant_id: str) -> dict[str, dict]:
+    opted_out = _opt_out_wa_ids_mongo(tenant_id)
+    metrics: dict[str, dict] = {}
+    for row in _mongo_repo("chat_history").find_all({"tenant_id": tenant_id}):
+        wa = (row.get("wa_id") or "").strip()
+        if not wa or wa in opted_out:
+            continue
+        first = _parse_dt(row.get("created_at"))
+        entry = metrics.setdefault(
+            wa, {"first_seen": None, "total": 0.0, "cnt": 0, "last_order": None},
+        )
+        if first and (entry["first_seen"] is None or first < entry["first_seen"]):
+            entry["first_seen"] = first
+    for row in _mongo_repo("orders").find_all({"tenant_id": tenant_id}):
+        wa = (row.get("wa_id") or "").strip()
+        if not wa or wa in opted_out:
+            continue
+        entry = metrics.setdefault(
+            wa, {"first_seen": None, "total": 0.0, "cnt": 0, "last_order": None},
+        )
+        try:
+            entry["total"] += float(row.get("total_amount") or 0)
+        except (TypeError, ValueError):
+            pass
+        entry["cnt"] += 1
+        created = _parse_dt(row.get("created_at"))
+        if created and (entry["last_order"] is None or created > entry["last_order"]):
+            entry["last_order"] = created
+    return metrics
+
+
+def _customer_criteria_match(metrics: dict, c: dict) -> bool:
+    total = metrics.get("total", 0.0)
+    cnt = metrics.get("cnt", 0)
+    last_order = metrics.get("last_order")
+    first_seen = metrics.get("first_seen")
+    if c.get("min_total_purchases") is not None:
+        if total < float(c["min_total_purchases"]):
+            return False
+    if c.get("max_total_purchases") is not None:
+        if total > float(c["max_total_purchases"]):
+            return False
+    if c.get("order_count_min") is not None:
+        if cnt < int(c["order_count_min"]):
+            return False
+    if c.get("order_count_max") is not None:
+        if cnt > int(c["order_count_max"]):
+            return False
+    within = c.get("last_order_within_days")
+    if within is not None:
+        if last_order is None:
+            return False
+        cutoff = datetime.utcnow() - timedelta(days=int(within))
+        if last_order < cutoff:
+            return False
+    inactive = c.get("inactive_for_days")
+    if inactive is not None:
+        if last_order is not None:
+            cutoff = datetime.utcnow() - timedelta(days=int(inactive))
+            if last_order >= cutoff:
+                return False
+    reg = c.get("registered_within_days")
+    if reg is not None:
+        if first_seen is None:
+            return False
+        cutoff = datetime.utcnow() - timedelta(days=int(reg))
+        if first_seen < cutoff:
+            return False
+    return True
+
+
+def _estimate_target_count_mongo(
+    criteria: dict | None, tenant_id: str, audience_type: str = "distributors",
+) -> int:
+    c = criteria or {}
+    if audience_type == "customers":
+        metrics = _customer_metrics_mongo(tenant_id)
+        return sum(1 for m in metrics.values() if _customer_criteria_match(m, c))
+    opted_out = _opt_out_wa_ids_mongo(tenant_id)
+    distributors = _mongo_repo("distributors").find_all({"tenant_id": tenant_id})
+    return sum(1 for d in distributors if _distributor_matches(d, c, opted_out))
+
+
+def _get_campaign_mongo(campaign_id: int, tenant_id: str) -> dict:
+    row = _mongo_repo("campaigns").find_one({"id": campaign_id, "tenant_id": tenant_id})
+    if not row:
+        raise HTTPException(404, f"Campaign {campaign_id} not found")
+    return row
+
+
+def _campaign_errors_mongo(body: CampaignCreate, tenant_id: str):
+    errors = []
+    if not (body.name or "").strip():
+        errors.append("campaign name is required")
+    if body.campaign_type not in CAMPAIGN_TYPES:
+        errors.append(f"campaign type must be one of: {', '.join(CAMPAIGN_TYPES)}")
+    if body.audience_type not in AUDIENCE_TYPES:
+        errors.append(f"audience must be one of: {', '.join(AUDIENCE_TYPES)}")
+    segment = None
+    if body.audience_type == "segments":
+        if not body.segment_id:
+            errors.append("a segment must be selected for the segments audience")
+        else:
+            segment = _mongo_repo("segments").find_one(
+                {"id": body.segment_id, "tenant_id": tenant_id},
+            )
+            if not segment:
+                errors.append(f"segment {body.segment_id} does not exist")
+
+    template = None
+    if not (body.whatsapp_template or "").strip():
+        errors.append("an approved WhatsApp template must be selected")
+    else:
+        template = _mongo_repo("whatsapp_templates").find_one(
+            {"name": body.whatsapp_template.strip()},
+        )
+        if not template or template.get("status") not in APPROVED_TEMPLATE_STATUSES:
+            errors.append(
+                f"WhatsApp template '{body.whatsapp_template.strip()}' does not exist or is not approved"
+            )
+        elif (
+            body.campaign_type in CATEGORY_BY_CAMPAIGN_TYPE
+            and template.get("category") not in CATEGORY_BY_CAMPAIGN_TYPE[body.campaign_type]
+        ):
+            errors.append(
+                f"a {body.campaign_type} campaign needs a "
+                f"{' or '.join(CATEGORY_BY_CAMPAIGN_TYPE[body.campaign_type])} template, "
+                f"but '{template['name']}' is {template.get('category')}"
+            )
+
+    if body.schedule_mode not in ("now", "scheduled"):
+        errors.append("schedule mode must be 'now' or 'scheduled'")
+    if body.schedule_mode == "scheduled":
+        if not (body.scheduled_at or "").strip():
+            errors.append("schedule date and time are required when scheduling for later")
+        else:
+            try:
+                datetime.fromisoformat(body.scheduled_at)
+            except ValueError:
+                errors.append("the schedule date/time could not be parsed")
+
+    if body.media_filename:
+        ext = body.media_filename.lower().rsplit(".", 1)[-1] if "." in body.media_filename else ""
+        if ext not in MEDIA_EXTENSIONS:
+            errors.append("media must be a JPG, PNG or MP4 file")
+
+    for button in body.buttons:
+        if not isinstance(button, dict):
+            errors.append("buttons must be objects")
+            break
+        text = str(button.get("text") or "").strip()
+        url = str(button.get("url") or "").strip()
+        if text and not url:
+            errors.append("a CTA button needs a URL")
+        if url and not url.startswith("https://"):
+            errors.append("CTA URLs must be valid HTTPS URLs")
+
+    return errors, template, segment
+
+
+def _audience_wa_ids_mongo(tenant_id: str, audience_type: str, criteria: dict | None) -> list:
+    if audience_type == "customers":
+        rows = _mongo_repo("customers").find_all({"tenant_id": tenant_id})
+        return [
+            r["wa_id"] for r in rows
+            if (r.get("wa_id") or "").strip()
+        ]
+    opted_out = _opt_out_wa_ids_mongo(tenant_id)
+    distributors = _mongo_repo("distributors").find_all({"tenant_id": tenant_id})
+    return [
+        d["wa_id"] for d in distributors
+        if _distributor_matches(d, criteria, opted_out)
+    ]
+
+
+def _mongo_bump_campaign_stats(
+    campaign_id: int,
+    tenant_id: str,
+    sent: int,
+    failed: int,
+    **extra,
+) -> None:
+    repo = _mongo_repo("campaigns")
+    row = repo.find_one({"id": campaign_id, "tenant_id": tenant_id})
+    if not row:
+        return
+    changes = {
+        "sent": int(row.get("sent") or 0) + sent,
+        "failed": int(row.get("failed") or 0) + failed,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    changes.update(extra)
+    repo.update({"id": campaign_id, "tenant_id": tenant_id}, changes)
+
+
+def _loads_json_val(raw, default):
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(raw) if raw else default
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
 # ── WhatsApp templates — the campaign builder's message source ─────────
 
 @router.get("/templates")
@@ -408,13 +719,17 @@ def list_templates(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """The WhatsApp template registry the campaign form picks from."""
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT id, name, category, body_template, header_text, footer, "
-            "language, params_json, status, send2_response, "
-            "registered_at, updated_at "
-            "FROM whatsapp_templates ORDER BY name COLLATE NOCASE",
-        ).fetchall()
+    if use_mongodb():
+        from db.mongo import Repository
+        rows = Repository("whatsapp_templates").find_all(sort=[("name", 1)])
+    else:
+        with get_db_context() as conn:
+            rows = conn.execute(
+                "SELECT id, name, category, body_template, header_text, footer, "
+                "language, params_json, status, send2_response, "
+                "registered_at, updated_at "
+                "FROM whatsapp_templates ORDER BY name COLLATE NOCASE",
+            ).fetchall()
 
     def _loads(raw, default):
         try:
@@ -489,13 +804,21 @@ def set_template_status(
         raise HTTPException(422, f"status must be one of: {', '.join(TEMPLATE_STATUSES)}")
 
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    with get_db_context() as conn:
-        result = conn.execute(
-            "UPDATE whatsapp_templates SET status = ?, updated_at = ? WHERE id = ?",
-            (body.status, now, template_id),
+    if use_mongodb():
+        from db.mongo import Repository
+        updated = Repository("whatsapp_templates").update(
+            {"id": template_id}, {"status": body.status, "updated_at": now},
         )
-        if result.rowcount == 0:
+        if not updated:
             raise HTTPException(404, "template not found")
+    else:
+        with get_db_context() as conn:
+            result = conn.execute(
+                "UPDATE whatsapp_templates SET status = ?, updated_at = ? WHERE id = ?",
+                (body.status, now, template_id),
+            )
+            if result.rowcount == 0:
+                raise HTTPException(404, "template not found")
 
     return {"ok": True}
 
@@ -555,12 +878,18 @@ def delete_template(
     template_id: int,
     current_admin: dict = Depends(require_permission("manage_campaigns")),
 ):
-    with get_db_context() as conn:
-        result = conn.execute(
-            "DELETE FROM whatsapp_templates WHERE id = ?", (template_id,)
-        )
-        if result.rowcount == 0:
+    if use_mongodb():
+        from db.mongo import Repository
+        deleted = Repository("whatsapp_templates").delete_one({"id": template_id})
+        if not deleted:
             raise HTTPException(404, "template not found")
+    else:
+        with get_db_context() as conn:
+            result = conn.execute(
+                "DELETE FROM whatsapp_templates WHERE id = ?", (template_id,)
+            )
+            if result.rowcount == 0:
+                raise HTTPException(404, "template not found")
     logger.info(f"WA_TEMPLATE_DELETED | tenant={tenant_id} | id={template_id}")
     return {"ok": True}
 
@@ -582,13 +911,13 @@ def test_send_campaign(
     if not re.fullmatch(r"\d{6,15}", wa_id):
         raise HTTPException(422, "the test number must be a valid digits-only WhatsApp id")
 
-    with get_db_context() as conn:
-        row = _get_campaign(conn, campaign_id, tenant_id)
+    if use_mongodb():
+        row = _get_campaign_mongo(campaign_id, tenant_id)
+    else:
+        with get_db_context() as conn:
+            row = _get_campaign(conn, campaign_id, tenant_id)
     d = dict(row)
-    try:
-        fallbacks = json.loads(d.get("variable_fallbacks_json") or "{}")
-    except (json.JSONDecodeError, TypeError):
-        fallbacks = {}
+    fallbacks = _loads_json_val(d.get("variable_fallbacks_json"), {})
 
     rendered = _render_campaign_message(d, fallbacks)
 
@@ -608,18 +937,17 @@ def test_send_campaign(
 # ── Segments — named, reusable audiences ───────────────────────────────
 
 def _segment_to_dict(conn, row: dict, tenant_id: str) -> dict:
-    try:
-        criteria = json.loads(row.get("criteria_json") or "{}")
-    except (json.JSONDecodeError, TypeError):
-        criteria = {}
+    criteria = _segment_criteria(row)
+    if use_mongodb():
+        target = _estimate_target_count_mongo(criteria, tenant_id, row["audience_type"])
+    else:
+        target = _estimate_target_count(conn, criteria, tenant_id, row["audience_type"])
     return {
         "id": row["id"],
         "name": row["name"],
         "audience_type": row["audience_type"],
         "criteria": criteria,
-        "target_count": _estimate_target_count(
-            conn, criteria, tenant_id, row["audience_type"]
-        ),
+        "target_count": target,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -631,12 +959,17 @@ def list_segments(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """The tenant's saved segments, each with the audience it reaches."""
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT * FROM segments WHERE tenant_id = ? ORDER BY name COLLATE NOCASE",
-            (tenant_id,),
-        ).fetchall()
-        segments = [_segment_to_dict(conn, dict(r), tenant_id) for r in rows]
+    if use_mongodb():
+        from db.mongo import Repository
+        rows = Repository("segments").find_all({"tenant_id": tenant_id}, sort=[("name", 1)])
+        segments = [_segment_to_dict(None, dict(r), tenant_id) for r in rows]
+    else:
+        with get_db_context() as conn:
+            rows = conn.execute(
+                "SELECT * FROM segments WHERE tenant_id = ? ORDER BY name COLLATE NOCASE",
+                (tenant_id,),
+            ).fetchall()
+            segments = [_segment_to_dict(conn, dict(r), tenant_id) for r in rows]
     return {"segments": segments}
 
 
@@ -740,13 +1073,19 @@ def delete_segment(
     segment_id: int,
     current_admin: dict = Depends(require_permission("manage_campaigns")),
 ):
-    with get_db_context() as conn:
-        result = conn.execute(
-            "DELETE FROM segments WHERE id = ? AND tenant_id = ?",
-            (segment_id, tenant_id),
-        )
-        if result.rowcount == 0:
+    if use_mongodb():
+        from db.mongo import Repository
+        deleted = Repository("segments").delete_one({"id": segment_id, "tenant_id": tenant_id})
+        if not deleted:
             raise HTTPException(404, "segment not found")
+    else:
+        with get_db_context() as conn:
+            result = conn.execute(
+                "DELETE FROM segments WHERE id = ? AND tenant_id = ?",
+                (segment_id, tenant_id),
+            )
+            if result.rowcount == 0:
+                raise HTTPException(404, "segment not found")
 
     return {"ok": True}
 
@@ -758,44 +1097,67 @@ def list_campaigns(
     tenant_id: str,
     current_admin: dict = Depends(require_tenant_access()),
 ):
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT * FROM campaigns WHERE tenant_id = ? ORDER BY created_at DESC",
-            (tenant_id,),
-        ).fetchall()
-
+    if use_mongodb():
+        from db.mongo import Repository
+        rows = Repository("campaigns").find_all(
+            {"tenant_id": tenant_id}, sort=[("created_at", -1)],
+        )
         campaigns = [_row_to_dict(r) for r in rows]
-
-        # Stats: last 24h
-        cutoff = (datetime.utcnow() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-        stats_row = conn.execute(
-            """SELECT
-                COALESCE(SUM(sent), 0) AS total_sent_24h,
-                COUNT(CASE WHEN status = 'sending' OR status = 'scheduled' THEN 1 END) AS active_campaigns
-            FROM campaigns WHERE tenant_id = ? AND created_at >= ?""",
-            (tenant_id, cutoff),
-        ).fetchone()
-
-        total_sent = stats_row["total_sent_24h"] if stats_row else 0
-        active = stats_row["active_campaigns"] if stats_row else 0
-
-        # Overall rates from this tenant's campaigns with data
-        rate_row = conn.execute(
-            """SELECT
-                COALESCE(SUM(sent), 0) AS all_sent,
-                COALESCE(SUM(delivered), 0) AS all_delivered,
-                COALESCE(SUM(read_count), 0) AS all_read,
-                COALESCE(SUM(replied), 0) AS all_replied
-            FROM campaigns WHERE tenant_id = ?""",
-            (tenant_id,),
-        ).fetchone()
-
-        all_sent = rate_row["all_sent"] if rate_row else 0
-        all_delivered = rate_row["all_delivered"] if rate_row else 0
-        all_replied = rate_row["all_replied"] if rate_row else 0
-
+        cutoff_dt = datetime.utcnow() - timedelta(hours=24)
+        total_sent = 0
+        active = 0
+        all_sent = 0
+        all_delivered = 0
+        all_replied = 0
+        for row in rows:
+            created = _parse_dt(row.get("created_at"))
+            sent = int(row.get("sent") or 0)
+            all_sent += sent
+            all_delivered += int(row.get("delivered") or 0)
+            all_replied += int(row.get("replied") or 0)
+            if created and created >= cutoff_dt.replace(tzinfo=None):
+                total_sent += sent
+                if row.get("status") in ("sending", "scheduled"):
+                    active += 1
         delivery_rate = round((all_delivered / all_sent * 100), 1) if all_sent else 0
         reply_rate = round((all_replied / all_sent * 100), 1) if all_sent else 0
+    else:
+        with get_db_context() as conn:
+            rows = conn.execute(
+                "SELECT * FROM campaigns WHERE tenant_id = ? ORDER BY created_at DESC",
+                (tenant_id,),
+            ).fetchall()
+
+            campaigns = [_row_to_dict(r) for r in rows]
+
+            cutoff = (datetime.utcnow() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+            stats_row = conn.execute(
+                """SELECT
+                    COALESCE(SUM(sent), 0) AS total_sent_24h,
+                    COUNT(CASE WHEN status = 'sending' OR status = 'scheduled' THEN 1 END) AS active_campaigns
+                FROM campaigns WHERE tenant_id = ? AND created_at >= ?""",
+                (tenant_id, cutoff),
+            ).fetchone()
+
+            total_sent = stats_row["total_sent_24h"] if stats_row else 0
+            active = stats_row["active_campaigns"] if stats_row else 0
+
+            rate_row = conn.execute(
+                """SELECT
+                    COALESCE(SUM(sent), 0) AS all_sent,
+                    COALESCE(SUM(delivered), 0) AS all_delivered,
+                    COALESCE(SUM(read_count), 0) AS all_read,
+                    COALESCE(SUM(replied), 0) AS all_replied
+                FROM campaigns WHERE tenant_id = ?""",
+                (tenant_id,),
+            ).fetchone()
+
+            all_sent = rate_row["all_sent"] if rate_row else 0
+            all_delivered = rate_row["all_delivered"] if rate_row else 0
+            all_replied = rate_row["all_replied"] if rate_row else 0
+
+            delivery_rate = round((all_delivered / all_sent * 100), 1) if all_sent else 0
+            reply_rate = round((all_replied / all_sent * 100), 1) if all_sent else 0
 
     return {
         "campaigns": campaigns,
@@ -816,63 +1178,43 @@ def create_campaign(
     body: CampaignCreate,
     current_admin: dict = Depends(require_permission("manage_campaigns")),
 ):
-    with get_db_context() as conn:
-        errors, template, segment = _campaign_errors(conn, body, tenant_id)
+    if use_mongodb():
+        errors, template, segment = _campaign_errors_mongo(body, tenant_id)
         if errors:
             raise HTTPException(422, "; ".join(errors))
-
-        # A segment brings its own audience type and criteria; the criteria are
-        # snapshotted onto the campaign so the request shows exactly what was
-        # targeted even if the segment is edited later.
         audience = segment["audience_type"] if segment else body.audience_type
-        criteria = json.loads(segment["criteria_json"] or "{}") if segment else {}
-        target = _estimate_target_count(conn, criteria, tenant_id, audience)
-
-        # Status is engine-owned: a campaign is either a draft or queued to
-        # fire (immediately for 'now', at the chosen time for 'scheduled').
+        criteria = _segment_criteria(segment) if segment else {}
+        target = _estimate_target_count_mongo(criteria, tenant_id, audience)
         status = "draft" if body.status == "draft" else "scheduled"
         message = (body.message_template or "").strip() or (template or {}).get("body_template", "")
-
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-        cursor = conn.execute(
-            """INSERT INTO campaigns
-                (tenant_id, name, status, campaign_type, audience_type, segment_id, segment_json,
-                 target_count, whatsapp_template, template_type, message_template,
-                 template_variables_json, variable_fallbacks_json, buttons_json,
-                 list_items_json, media_filename,
-                 schedule_mode, scheduled_at, timezone, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                tenant_id,
-                body.name,
-                status,
-                body.campaign_type,
-                body.audience_type,
-                body.segment_id,
-                json.dumps(criteria),
-                target,
-                body.whatsapp_template.strip(),
-                body.template_type,
-                message,
-                json.dumps(body.template_variables),
-                json.dumps(body.variable_fallbacks or {}),
-                json.dumps(body.buttons),
-                json.dumps(body.list_items),
-                body.media_filename,
-                body.schedule_mode,
-                body.scheduled_at,
-                body.timezone,
-                now,
-                now,
-            ),
-        )
-
-        campaign_id = cursor.lastrowid
-        
-        # Record audit event for campaign creation
+        from db.mongo import Repository
+        row = Repository("campaigns").insert({
+            "tenant_id": tenant_id,
+            "name": body.name,
+            "status": status,
+            "campaign_type": body.campaign_type,
+            "audience_type": body.audience_type,
+            "segment_id": body.segment_id,
+            "segment_json": json.dumps(criteria),
+            "target_count": target,
+            "whatsapp_template": body.whatsapp_template.strip(),
+            "template_type": body.template_type,
+            "message_template": message,
+            "template_variables_json": json.dumps(body.template_variables),
+            "variable_fallbacks_json": json.dumps(body.variable_fallbacks or {}),
+            "buttons_json": json.dumps(body.buttons),
+            "list_items_json": json.dumps(body.list_items),
+            "media_filename": body.media_filename,
+            "schedule_mode": body.schedule_mode,
+            "scheduled_at": body.scheduled_at,
+            "timezone": body.timezone,
+            "created_at": now,
+            "updated_at": now,
+        })
+        campaign_id = row["id"]
         record_admin_audit_event(
-            conn,
+            None,
             action="campaign_created",
             actor=current_admin,
             resource_type="campaign",
@@ -883,9 +1225,74 @@ def create_campaign(
                 "campaign_type": body.campaign_type,
                 "audience_type": body.audience_type,
                 "status": status,
-                "target_count": target
-            }
+                "target_count": target,
+            },
         )
+    else:
+        with get_db_context() as conn:
+            errors, template, segment = _campaign_errors(conn, body, tenant_id)
+            if errors:
+                raise HTTPException(422, "; ".join(errors))
+
+            audience = segment["audience_type"] if segment else body.audience_type
+            criteria = json.loads(segment["criteria_json"] or "{}") if segment else {}
+            target = _estimate_target_count(conn, criteria, tenant_id, audience)
+
+            status = "draft" if body.status == "draft" else "scheduled"
+            message = (body.message_template or "").strip() or (template or {}).get("body_template", "")
+
+            now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+            cursor = conn.execute(
+                """INSERT INTO campaigns
+                    (tenant_id, name, status, campaign_type, audience_type, segment_id, segment_json,
+                     target_count, whatsapp_template, template_type, message_template,
+                     template_variables_json, variable_fallbacks_json, buttons_json,
+                     list_items_json, media_filename,
+                     schedule_mode, scheduled_at, timezone, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    tenant_id,
+                    body.name,
+                    status,
+                    body.campaign_type,
+                    body.audience_type,
+                    body.segment_id,
+                    json.dumps(criteria),
+                    target,
+                    body.whatsapp_template.strip(),
+                    body.template_type,
+                    message,
+                    json.dumps(body.template_variables),
+                    json.dumps(body.variable_fallbacks or {}),
+                    json.dumps(body.buttons),
+                    json.dumps(body.list_items),
+                    body.media_filename,
+                    body.schedule_mode,
+                    body.scheduled_at,
+                    body.timezone,
+                    now,
+                    now,
+                ),
+            )
+
+            campaign_id = cursor.lastrowid
+
+            record_admin_audit_event(
+                conn,
+                action="campaign_created",
+                actor=current_admin,
+                resource_type="campaign",
+                resource_id=campaign_id,
+                tenant_id=tenant_id,
+                details={
+                    "campaign_name": body.name,
+                    "campaign_type": body.campaign_type,
+                    "audience_type": body.audience_type,
+                    "status": status,
+                    "target_count": target,
+                },
+            )
 
     logger.info(f"CAMPAIGN_CREATED | tenant={tenant_id} | id={campaign_id} | name={body.name}")
     return {"ok": True, "id": campaign_id}
@@ -906,59 +1313,45 @@ def update_campaign(
             f"status is engine-managed; admins may only set: {', '.join(ADMIN_STATUSES)}",
         )
 
-    with get_db_context() as conn:
-        _get_campaign(conn, campaign_id, tenant_id)
-
-        errors, template, segment = _campaign_errors(conn, body, tenant_id)
+    if use_mongodb():
+        _get_campaign_mongo(campaign_id, tenant_id)
+        errors, template, segment = _campaign_errors_mongo(body, tenant_id)
         if errors:
             raise HTTPException(422, "; ".join(errors))
-
         audience = segment["audience_type"] if segment else body.audience_type
-        criteria = json.loads(segment["criteria_json"] or "{}") if segment else {}
-        target = _estimate_target_count(conn, criteria, tenant_id, audience)
+        criteria = _segment_criteria(segment) if segment else {}
+        target = _estimate_target_count_mongo(criteria, tenant_id, audience)
         message = (body.message_template or "").strip() or (template or {}).get("body_template", "")
-
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-        result = conn.execute(
-            """UPDATE campaigns SET
-                name = ?, status = ?, campaign_type = ?, audience_type = ?, segment_id = ?,
-                segment_json = ?, target_count = ?, whatsapp_template = ?, template_type = ?,
-                message_template = ?, template_variables_json = ?, variable_fallbacks_json = ?,
-                buttons_json = ?, list_items_json = ?, media_filename = ?, schedule_mode = ?,
-                scheduled_at = ?, timezone = ?, updated_at = ?
-            WHERE id = ? AND tenant_id = ?""",
-            (
-                body.name,
-                body.status,
-                body.campaign_type,
-                body.audience_type,
-                body.segment_id,
-                json.dumps(criteria),
-                target,
-                body.whatsapp_template.strip(),
-                body.template_type,
-                message,
-                json.dumps(body.template_variables),
-                json.dumps(body.variable_fallbacks or {}),
-                json.dumps(body.buttons),
-                json.dumps(body.list_items),
-                body.media_filename,
-                body.schedule_mode,
-                body.scheduled_at,
-                body.timezone,
-                now,
-                campaign_id,
-                tenant_id,
-            ),
+        from db.mongo import Repository
+        updated = Repository("campaigns").update(
+            {"id": campaign_id, "tenant_id": tenant_id},
+            {
+                "name": body.name,
+                "status": body.status,
+                "campaign_type": body.campaign_type,
+                "audience_type": body.audience_type,
+                "segment_id": body.segment_id,
+                "segment_json": json.dumps(criteria),
+                "target_count": target,
+                "whatsapp_template": body.whatsapp_template.strip(),
+                "template_type": body.template_type,
+                "message_template": message,
+                "template_variables_json": json.dumps(body.template_variables),
+                "variable_fallbacks_json": json.dumps(body.variable_fallbacks or {}),
+                "buttons_json": json.dumps(body.buttons),
+                "list_items_json": json.dumps(body.list_items),
+                "media_filename": body.media_filename,
+                "schedule_mode": body.schedule_mode,
+                "scheduled_at": body.scheduled_at,
+                "timezone": body.timezone,
+                "updated_at": now,
+            },
         )
-
-        if result.rowcount == 0:
+        if not updated:
             raise HTTPException(404, f"Campaign {campaign_id} not found")
-        
-        # Record audit event for campaign update
         record_admin_audit_event(
-            conn,
+            None,
             action="campaign_updated",
             actor=current_admin,
             resource_type="campaign",
@@ -969,9 +1362,75 @@ def update_campaign(
                 "campaign_type": body.campaign_type,
                 "audience_type": body.audience_type,
                 "status": body.status,
-                "target_count": target
-            }
+                "target_count": target,
+            },
         )
+    else:
+        with get_db_context() as conn:
+            _get_campaign(conn, campaign_id, tenant_id)
+
+            errors, template, segment = _campaign_errors(conn, body, tenant_id)
+            if errors:
+                raise HTTPException(422, "; ".join(errors))
+
+            audience = segment["audience_type"] if segment else body.audience_type
+            criteria = json.loads(segment["criteria_json"] or "{}") if segment else {}
+            target = _estimate_target_count(conn, criteria, tenant_id, audience)
+            message = (body.message_template or "").strip() or (template or {}).get("body_template", "")
+
+            now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+            result = conn.execute(
+                """UPDATE campaigns SET
+                    name = ?, status = ?, campaign_type = ?, audience_type = ?, segment_id = ?,
+                    segment_json = ?, target_count = ?, whatsapp_template = ?, template_type = ?,
+                    message_template = ?, template_variables_json = ?, variable_fallbacks_json = ?,
+                    buttons_json = ?, list_items_json = ?, media_filename = ?, schedule_mode = ?,
+                    scheduled_at = ?, timezone = ?, updated_at = ?
+                WHERE id = ? AND tenant_id = ?""",
+                (
+                    body.name,
+                    body.status,
+                    body.campaign_type,
+                    body.audience_type,
+                    body.segment_id,
+                    json.dumps(criteria),
+                    target,
+                    body.whatsapp_template.strip(),
+                    body.template_type,
+                    message,
+                    json.dumps(body.template_variables),
+                    json.dumps(body.variable_fallbacks or {}),
+                    json.dumps(body.buttons),
+                    json.dumps(body.list_items),
+                    body.media_filename,
+                    body.schedule_mode,
+                    body.scheduled_at,
+                    body.timezone,
+                    now,
+                    campaign_id,
+                    tenant_id,
+                ),
+            )
+
+            if result.rowcount == 0:
+                raise HTTPException(404, f"Campaign {campaign_id} not found")
+
+            record_admin_audit_event(
+                conn,
+                action="campaign_updated",
+                actor=current_admin,
+                resource_type="campaign",
+                resource_id=campaign_id,
+                tenant_id=tenant_id,
+                details={
+                    "campaign_name": body.name,
+                    "campaign_type": body.campaign_type,
+                    "audience_type": body.audience_type,
+                    "status": body.status,
+                    "target_count": target,
+                },
+            )
 
     logger.info(f"CAMPAIGN_UPDATED | tenant={tenant_id} | id={campaign_id}")
     return {"ok": True}
@@ -985,36 +1444,54 @@ def delete_campaign(
     campaign_id: int,
     current_admin: dict = Depends(require_permission("manage_campaigns")),
 ):
-    with get_db_context() as conn:
-        # Get campaign details before deletion for audit
-        campaign_row = conn.execute(
-            "SELECT name, status FROM campaigns WHERE id = ? AND tenant_id = ?",
-            (campaign_id, tenant_id),
-        ).fetchone()
-        
-        result = conn.execute(
-            "DELETE FROM campaigns WHERE id = ? AND tenant_id = ?",
-            (campaign_id, tenant_id),
-        )
-
-        if result.rowcount == 0:
+    if use_mongodb():
+        from db.mongo import Repository
+        repo = Repository("campaigns")
+        campaign_row = repo.find_one({"id": campaign_id, "tenant_id": tenant_id})
+        if not campaign_row:
             raise HTTPException(404, f"Campaign {campaign_id} not found")
-        
-        # Record audit event for campaign deletion
-        if campaign_row:
-            campaign_details = dict(campaign_row)
-            record_admin_audit_event(
-                conn,
-                action="campaign_deleted",
-                actor=current_admin,
-                resource_type="campaign",
-                resource_id=campaign_id,
-                tenant_id=tenant_id,
-                details={
-                    "campaign_name": campaign_details.get("name", ""),
-                    "campaign_status": campaign_details.get("status", "")
-                }
+        repo.delete_one({"id": campaign_id, "tenant_id": tenant_id})
+        record_admin_audit_event(
+            None,
+            action="campaign_deleted",
+            actor=current_admin,
+            resource_type="campaign",
+            resource_id=campaign_id,
+            tenant_id=tenant_id,
+            details={
+                "campaign_name": campaign_row.get("name", ""),
+                "campaign_status": campaign_row.get("status", ""),
+            },
+        )
+    else:
+        with get_db_context() as conn:
+            campaign_row = conn.execute(
+                "SELECT name, status FROM campaigns WHERE id = ? AND tenant_id = ?",
+                (campaign_id, tenant_id),
+            ).fetchone()
+
+            result = conn.execute(
+                "DELETE FROM campaigns WHERE id = ? AND tenant_id = ?",
+                (campaign_id, tenant_id),
             )
+
+            if result.rowcount == 0:
+                raise HTTPException(404, f"Campaign {campaign_id} not found")
+
+            if campaign_row:
+                campaign_details = dict(campaign_row)
+                record_admin_audit_event(
+                    conn,
+                    action="campaign_deleted",
+                    actor=current_admin,
+                    resource_type="campaign",
+                    resource_id=campaign_id,
+                    tenant_id=tenant_id,
+                    details={
+                        "campaign_name": campaign_details.get("name", ""),
+                        "campaign_status": campaign_details.get("status", ""),
+                    },
+                )
 
     logger.info(f"CAMPAIGN_DELETED | tenant={tenant_id} | id={campaign_id}")
     return {"ok": True}
@@ -1028,43 +1505,66 @@ def duplicate_campaign(
     campaign_id: int,
     current_admin: dict = Depends(require_permission("manage_campaigns")),
 ):
-    with get_db_context() as conn:
-        row = _get_campaign(conn, campaign_id, tenant_id)
-
-        d = dict(row)
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-        cursor = conn.execute(
-            """INSERT INTO campaigns
-                (tenant_id, name, status, campaign_type, audience_type, segment_json, target_count,
-                 whatsapp_template, template_type, message_template, template_variables_json,
-                 buttons_json, list_items_json, media_filename,
-                 schedule_mode, scheduled_at, timezone, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                tenant_id,
-                f"{d['name']} (copy)",
-                "draft",
-                d.get("campaign_type", "promotional"),
-                d["audience_type"],
-                d["segment_json"],
-                d["target_count"],
-                d.get("whatsapp_template", ""),
-                d["template_type"],
-                d["message_template"],
-                d["template_variables_json"],
-                d["buttons_json"],
-                d["list_items_json"],
-                d["media_filename"],
-                d["schedule_mode"],
-                None,
-                d["timezone"],
-                now,
-                now,
-            ),
-        )
-
-        new_id = cursor.lastrowid
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    if use_mongodb():
+        d = dict(_get_campaign_mongo(campaign_id, tenant_id))
+        from db.mongo import Repository
+        new_row = Repository("campaigns").insert({
+            "tenant_id": tenant_id,
+            "name": f"{d['name']} (copy)",
+            "status": "draft",
+            "campaign_type": d.get("campaign_type", "promotional"),
+            "audience_type": d["audience_type"],
+            "segment_json": d.get("segment_json"),
+            "target_count": d.get("target_count"),
+            "whatsapp_template": d.get("whatsapp_template", ""),
+            "template_type": d["template_type"],
+            "message_template": d["message_template"],
+            "template_variables_json": d.get("template_variables_json"),
+            "buttons_json": d.get("buttons_json"),
+            "list_items_json": d.get("list_items_json"),
+            "media_filename": d.get("media_filename"),
+            "schedule_mode": d.get("schedule_mode"),
+            "scheduled_at": None,
+            "timezone": d.get("timezone"),
+            "created_at": now,
+            "updated_at": now,
+        })
+        new_id = new_row["id"]
+    else:
+        with get_db_context() as conn:
+            row = _get_campaign(conn, campaign_id, tenant_id)
+            d = dict(row)
+            cursor = conn.execute(
+                """INSERT INTO campaigns
+                    (tenant_id, name, status, campaign_type, audience_type, segment_json, target_count,
+                     whatsapp_template, template_type, message_template, template_variables_json,
+                     buttons_json, list_items_json, media_filename,
+                     schedule_mode, scheduled_at, timezone, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    tenant_id,
+                    f"{d['name']} (copy)",
+                    "draft",
+                    d.get("campaign_type", "promotional"),
+                    d["audience_type"],
+                    d["segment_json"],
+                    d["target_count"],
+                    d.get("whatsapp_template", ""),
+                    d["template_type"],
+                    d["message_template"],
+                    d["template_variables_json"],
+                    d["buttons_json"],
+                    d["list_items_json"],
+                    d["media_filename"],
+                    d["schedule_mode"],
+                    None,
+                    d["timezone"],
+                    now,
+                    now,
+                ),
+            )
+            new_id = cursor.lastrowid
 
     logger.info(f"CAMPAIGN_DUPLICATED | tenant={tenant_id} | from={campaign_id} → to={new_id}")
     return {"ok": True, "id": new_id}
@@ -1082,8 +1582,11 @@ def audience_count(
     errors = _criteria_errors(body.audience_type, body.criteria)
     if errors:
         raise HTTPException(422, "; ".join(errors))
-    with get_db_context() as conn:
-        count = _estimate_target_count(conn, body.criteria, tenant_id, body.audience_type)
+    if use_mongodb():
+        count = _estimate_target_count_mongo(body.criteria, tenant_id, body.audience_type)
+    else:
+        with get_db_context() as conn:
+            count = _estimate_target_count(conn, body.criteria, tenant_id, body.audience_type)
 
     return {"count": count}
 
@@ -1096,9 +1599,12 @@ def campaign_metrics(
     campaign_id: int,
     current_admin: dict = Depends(require_tenant_access()),
 ):
-    with get_db_context() as conn:
-        row = _get_campaign(conn, campaign_id, tenant_id)
-        d = dict(row)
+    if use_mongodb():
+        d = dict(_get_campaign_mongo(campaign_id, tenant_id))
+    else:
+        with get_db_context() as conn:
+            row = _get_campaign(conn, campaign_id, tenant_id)
+            d = dict(row)
 
     return {
         "campaign_id": campaign_id,
@@ -1124,16 +1630,22 @@ def campaign_replies(
     campaign_id: int,
     current_admin: dict = Depends(require_tenant_access()),
 ):
-    with get_db_context() as conn:
-        _get_campaign(conn, campaign_id, tenant_id)
-
-        rows = conn.execute(
-            """SELECT wa_id, name, reply_text, replied_at
-            FROM campaign_replies
-            WHERE campaign_id = ?
-            ORDER BY replied_at DESC""",
-            (campaign_id,),
-        ).fetchall()
+    if use_mongodb():
+        _get_campaign_mongo(campaign_id, tenant_id)
+        from db.mongo import Repository
+        rows = Repository("campaign_replies").find_all(
+            {"campaign_id": campaign_id}, sort=[("replied_at", -1)],
+        )
+    else:
+        with get_db_context() as conn:
+            _get_campaign(conn, campaign_id, tenant_id)
+            rows = conn.execute(
+                """SELECT wa_id, name, reply_text, replied_at
+                FROM campaign_replies
+                WHERE campaign_id = ?
+                ORDER BY replied_at DESC""",
+                (campaign_id,),
+            ).fetchall()
 
     return {"replies": [dict(r) for r in rows]}
 
@@ -1163,66 +1675,122 @@ def list_recipients(
     """Everyone the tenant can message, from the customer directory and the
     distributor network, de-duplicated by WhatsApp id. The console's Sync
     button reads this so an admin can pick exactly who receives a campaign."""
-    with get_db_context() as conn:
-        customer_ids = conn.execute(
-            """SELECT wa_id FROM (
-                   SELECT wa_id FROM customers WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM orders WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM complaints WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM chat_history WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM user_states WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
-               )""",
-            (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id),
-        ).fetchall()
+    if use_mongodb():
+        wa_ids: set[str] = set()
+        for table in ("customers", "orders", "complaints", "chat_history", "user_states"):
+            for row in _mongo_repo(table).find_all({"tenant_id": tenant_id}):
+                wa = (row.get("wa_id") or "").strip()
+                if wa:
+                    wa_ids.add(wa)
+        customers_by = {
+            (r.get("wa_id") or "").strip(): r
+            for r in _mongo_repo("customers").find_all({"tenant_id": tenant_id})
+            if (r.get("wa_id") or "").strip()
+        }
+        orders_by_wa: dict = {}
+        for order in _mongo_repo("orders").find_all({"tenant_id": tenant_id}):
+            wa = (order.get("wa_id") or "").strip()
+            if not wa:
+                continue
+            oid = int(order.get("id") or 0)
+            prev = orders_by_wa.get(wa)
+            if prev is None or oid > int(prev.get("id") or 0):
+                orders_by_wa[wa] = order
+        chat_by_wa: dict = {}
+        for chat in _mongo_repo("chat_history").find_all({"tenant_id": tenant_id}):
+            wa = (chat.get("wa_id") or "").strip()
+            if not wa:
+                continue
+            cid = int(chat.get("id") or 0)
+            prev = chat_by_wa.get(wa)
+            if prev is None or cid > int(prev.get("id") or 0):
+                chat_by_wa[wa] = chat
         customers = []
-        for row in customer_ids:
-            wa_id = row["wa_id"]
-            cust = conn.execute(
-                """SELECT name, phone, city, company FROM customers
-                   WHERE tenant_id = ? AND wa_id = ?""",
-                (tenant_id, wa_id),
-            ).fetchone()
-            name = cust["name"] if cust and cust["name"] else ""
-            phone = cust["phone"] if cust and cust["phone"] else ""
-            city = cust["city"] if cust and cust["city"] else ""
-            company = cust["company"] if cust and cust["company"] else ""
+        for wa_id in wa_ids:
+            cust = customers_by.get(wa_id)
+            name = (cust.get("name") if cust else "") or ""
+            phone = (cust.get("phone") if cust else "") or ""
+            city = (cust.get("city") if cust else "") or ""
+            company = (cust.get("company") if cust else "") or ""
             if not name:
-                order = conn.execute(
-                    """SELECT customer_name, customer_mobile FROM orders
-                       WHERE tenant_id = ? AND wa_id = ? AND customer_name IS NOT NULL AND customer_name != ''
-                       ORDER BY id DESC LIMIT 1""",
-                    (tenant_id, wa_id),
-                ).fetchone()
-                if order:
+                order = orders_by_wa.get(wa_id)
+                if order and (order.get("customer_name") or "").strip():
                     name = order["customer_name"]
-                    phone = phone or order["customer_mobile"] or ""
+                    phone = phone or order.get("customer_mobile") or ""
             if not name:
-                chat = conn.execute(
-                    """SELECT sender_name FROM chat_history
-                       WHERE tenant_id = ? AND wa_id = ? AND sender_name IS NOT NULL AND sender_name != ''
-                       ORDER BY id DESC LIMIT 1""",
-                    (tenant_id, wa_id),
-                ).fetchone()
-                if chat:
+                chat = chat_by_wa.get(wa_id)
+                if chat and (chat.get("sender_name") or "").strip():
                     name = chat["sender_name"]
             customers.append({
                 "wa_id": wa_id, "name": name, "phone": phone,
                 "city": city, "company": company,
             })
-        distributors = conn.execute(
-            """SELECT wa_id, name, phone, region, tier, city FROM distributors
-               WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",
-            (tenant_id,),
-        ).fetchall()
-        opted_out = {
-            r["wa_id"] for r in conn.execute(
-                "SELECT wa_id FROM campaign_opt_outs WHERE tenant_id = ?", (tenant_id,)
+        distributors = [
+            d for d in _mongo_repo("distributors").find_all({"tenant_id": tenant_id})
+            if (d.get("wa_id") or "").strip()
+        ]
+        opted_out = _opt_out_wa_ids_mongo(tenant_id)
+    else:
+        with get_db_context() as conn:
+            customer_ids = conn.execute(
+                """SELECT wa_id FROM (
+                       SELECT wa_id FROM customers WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                       UNION
+                       SELECT wa_id FROM orders WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                       UNION
+                       SELECT wa_id FROM complaints WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                       UNION
+                       SELECT wa_id FROM chat_history WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                       UNION
+                       SELECT wa_id FROM user_states WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''
+                   )""",
+                (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id),
             ).fetchall()
-        }
+            customers = []
+            for row in customer_ids:
+                wa_id = row["wa_id"]
+                cust = conn.execute(
+                    """SELECT name, phone, city, company FROM customers
+                       WHERE tenant_id = ? AND wa_id = ?""",
+                    (tenant_id, wa_id),
+                ).fetchone()
+                name = cust["name"] if cust and cust["name"] else ""
+                phone = cust["phone"] if cust and cust["phone"] else ""
+                city = cust["city"] if cust and cust["city"] else ""
+                company = cust["company"] if cust and cust["company"] else ""
+                if not name:
+                    order = conn.execute(
+                        """SELECT customer_name, customer_mobile FROM orders
+                           WHERE tenant_id = ? AND wa_id = ? AND customer_name IS NOT NULL AND customer_name != ''
+                           ORDER BY id DESC LIMIT 1""",
+                        (tenant_id, wa_id),
+                    ).fetchone()
+                    if order:
+                        name = order["customer_name"]
+                        phone = phone or order["customer_mobile"] or ""
+                if not name:
+                    chat = conn.execute(
+                        """SELECT sender_name FROM chat_history
+                           WHERE tenant_id = ? AND wa_id = ? AND sender_name IS NOT NULL AND sender_name != ''
+                           ORDER BY id DESC LIMIT 1""",
+                        (tenant_id, wa_id),
+                    ).fetchone()
+                    if chat:
+                        name = chat["sender_name"]
+                customers.append({
+                    "wa_id": wa_id, "name": name, "phone": phone,
+                    "city": city, "company": company,
+                })
+            distributors = conn.execute(
+                """SELECT wa_id, name, phone, region, tier, city FROM distributors
+                   WHERE tenant_id = ? AND wa_id IS NOT NULL AND wa_id != ''""",
+                (tenant_id,),
+            ).fetchall()
+            opted_out = {
+                r["wa_id"] for r in conn.execute(
+                    "SELECT wa_id FROM campaign_opt_outs WHERE tenant_id = ?", (tenant_id,)
+                ).fetchall()
+            }
 
     merged: dict = {}
 
@@ -1283,16 +1851,24 @@ def send_selection(
     if not wa_ids:
         raise HTTPException(422, "select at least one recipient")
 
-    with get_db_context() as conn:
-        row = _get_campaign(conn, campaign_id, tenant_id)
+    if use_mongodb():
+        row = _get_campaign_mongo(campaign_id, tenant_id)
+    else:
+        with get_db_context() as conn:
+            row = _get_campaign(conn, campaign_id, tenant_id)
     sent, failed, skipped = _blast_campaign(row, tenant_id, wa_ids)
 
-    with get_db_context() as conn:
-        conn.execute(
-            "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
-            "status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
-            (sent, failed, datetime.utcnow().isoformat(), campaign_id, tenant_id),
+    if use_mongodb():
+        _mongo_bump_campaign_stats(
+            campaign_id, tenant_id, sent, failed, status="completed",
         )
+    else:
+        with get_db_context() as conn:
+            conn.execute(
+                "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
+                "status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
+                (sent, failed, datetime.utcnow().isoformat(), campaign_id, tenant_id),
+            )
 
     logger.info(
         f"CAMPAIGN_SELECTION_SENT | tenant={tenant_id} | campaign={campaign_id} "
@@ -1308,24 +1884,33 @@ def _blast_campaign(row, tenant_id: str, wa_ids: list) -> tuple:
     the customer/distributor records. Returns (sent, failed, skipped).
     """
     d = dict(row)
-    try:
-        fallbacks = json.loads(d.get("variable_fallbacks_json") or "{}")
-    except (json.JSONDecodeError, TypeError):
-        fallbacks = {}
+    fallbacks = _loads_json_val(d.get("variable_fallbacks_json"), {})
 
-    with get_db_context() as conn:
-        opted_out = {
-            r["wa_id"] for r in conn.execute(
-                "SELECT wa_id FROM campaign_opt_outs WHERE tenant_id = ?", (tenant_id,)
+    if use_mongodb():
+        opted_out = _opt_out_wa_ids_mongo(tenant_id)
+        names = {}
+        for r in _mongo_repo("customers").find_all({"tenant_id": tenant_id}):
+            wa = r.get("wa_id")
+            if wa:
+                names[wa] = r.get("name") or ""
+        for r in _mongo_repo("distributors").find_all({"tenant_id": tenant_id}):
+            wa = r.get("wa_id")
+            if wa:
+                names.setdefault(wa, r.get("name") or "")
+    else:
+        with get_db_context() as conn:
+            opted_out = {
+                r["wa_id"] for r in conn.execute(
+                    "SELECT wa_id FROM campaign_opt_outs WHERE tenant_id = ?", (tenant_id,)
+                ).fetchall()
+            }
+            name_rows = conn.execute(
+                """SELECT wa_id, name FROM customers WHERE tenant_id = ?
+                   UNION
+                   SELECT wa_id, name FROM distributors WHERE tenant_id = ?""",
+                (tenant_id, tenant_id),
             ).fetchall()
-        }
-        name_rows = conn.execute(
-            """SELECT wa_id, name FROM customers WHERE tenant_id = ?
-               UNION
-               SELECT wa_id, name FROM distributors WHERE tenant_id = ?""",
-            (tenant_id, tenant_id),
-        ).fetchall()
-    names = {r["wa_id"]: (r["name"] or "") for r in name_rows}
+        names = {r["wa_id"]: (r["name"] or "") for r in name_rows}
 
     from routing.whatsapp import send_whatsapp_message
 
@@ -1442,12 +2027,18 @@ def _audience_wa_ids(conn, tenant_id: str, audience_type: str, criteria: dict | 
 def _async_campaign_blast(row, tenant_id: str, wa_ids: list, campaign_id: int):
     """Background worker for large broadcast batches."""
     sent, failed, skipped = _blast_campaign(row, tenant_id, wa_ids)
-    with get_db_context() as conn:
-        conn.execute(
-            "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
-            "target_count = ?, status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
-            (sent, failed, len(wa_ids), datetime.utcnow().isoformat(), campaign_id, tenant_id),
+    if use_mongodb():
+        _mongo_bump_campaign_stats(
+            campaign_id, tenant_id, sent, failed,
+            status="completed", target_count=len(wa_ids),
         )
+    else:
+        with get_db_context() as conn:
+            conn.execute(
+                "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
+                "target_count = ?, status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
+                (sent, failed, len(wa_ids), datetime.utcnow().isoformat(), campaign_id, tenant_id),
+            )
     logger.info(
         f"ASYNC_CAMPAIGN_FINISHED | tenant={tenant_id} | campaign={campaign_id} "
         f"| sent={sent} failed={failed} skipped={skipped}"
@@ -1468,33 +2059,54 @@ def send_campaign_to_audience(
     criteria select. Opted-out contacts are always skipped.
     Batches > 10 are queued in the background to prevent HTTP timeouts.
     """
-    with get_db_context() as conn:
-        row = _get_campaign(conn, campaign_id, tenant_id)
+    if use_mongodb():
+        row = _get_campaign_mongo(campaign_id, tenant_id)
         audience = row["audience_type"]
         criteria = None
         if audience == "segments":
-            seg = conn.execute(
-                "SELECT * FROM segments WHERE id = ? AND tenant_id = ?",
-                (row["segment_id"], tenant_id),
-            ).fetchone()
+            seg = _mongo_repo("segments").find_one(
+                {"id": row["segment_id"], "tenant_id": tenant_id},
+            )
             if not seg:
                 raise HTTPException(422, "the campaign's segment no longer exists")
-            try:
-                criteria = json.loads(seg.get("criteria_json") or "{}")
-            except (json.JSONDecodeError, TypeError):
-                criteria = {}
+            criteria = _segment_criteria(seg)
             audience = seg.get("audience_type") or "distributors"
-        wa_ids = _audience_wa_ids(conn, tenant_id, audience, criteria)
+        wa_ids = _audience_wa_ids_mongo(tenant_id, audience, criteria)
+    else:
+        with get_db_context() as conn:
+            row = _get_campaign(conn, campaign_id, tenant_id)
+            audience = row["audience_type"]
+            criteria = None
+            if audience == "segments":
+                seg = conn.execute(
+                    "SELECT * FROM segments WHERE id = ? AND tenant_id = ?",
+                    (row["segment_id"], tenant_id),
+                ).fetchone()
+                if not seg:
+                    raise HTTPException(422, "the campaign's segment no longer exists")
+                try:
+                    criteria = json.loads(seg.get("criteria_json") or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    criteria = {}
+                audience = seg.get("audience_type") or "distributors"
+            wa_ids = _audience_wa_ids(conn, tenant_id, audience, criteria)
 
     if not wa_ids:
         raise HTTPException(422, f"the '{audience}' audience is empty — nothing to send")
 
     if len(wa_ids) > 10:
-        with get_db_context() as conn:
-            conn.execute(
-                "UPDATE campaigns SET target_count = ?, status = 'sending', updated_at = ? WHERE id = ? AND tenant_id = ?",
-                (len(wa_ids), datetime.utcnow().isoformat(), campaign_id, tenant_id),
+        now_iso = datetime.utcnow().isoformat()
+        if use_mongodb():
+            _mongo_repo("campaigns").update(
+                {"id": campaign_id, "tenant_id": tenant_id},
+                {"target_count": len(wa_ids), "status": "sending", "updated_at": now_iso},
             )
+        else:
+            with get_db_context() as conn:
+                conn.execute(
+                    "UPDATE campaigns SET target_count = ?, status = 'sending', updated_at = ? WHERE id = ? AND tenant_id = ?",
+                    (len(wa_ids), now_iso, campaign_id, tenant_id),
+                )
         background_tasks.add_task(_async_campaign_blast, row, tenant_id, wa_ids, campaign_id)
         logger.info(
             f"CAMPAIGN_QUEUED_ASYNC | tenant={tenant_id} | campaign={campaign_id} "
@@ -1511,12 +2123,18 @@ def send_campaign_to_audience(
 
     sent, failed, skipped = _blast_campaign(row, tenant_id, wa_ids)
 
-    with get_db_context() as conn:
-        conn.execute(
-            "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
-            "target_count = ?, status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
-            (sent, failed, len(wa_ids), datetime.utcnow().isoformat(), campaign_id, tenant_id),
+    if use_mongodb():
+        _mongo_bump_campaign_stats(
+            campaign_id, tenant_id, sent, failed,
+            status="completed", target_count=len(wa_ids),
         )
+    else:
+        with get_db_context() as conn:
+            conn.execute(
+                "UPDATE campaigns SET sent = COALESCE(sent, 0) + ?, failed = COALESCE(failed, 0) + ?, "
+                "target_count = ?, status = 'completed', updated_at = ? WHERE id = ? AND tenant_id = ?",
+                (sent, failed, len(wa_ids), datetime.utcnow().isoformat(), campaign_id, tenant_id),
+            )
 
     logger.info(
         f"CAMPAIGN_AUDIENCE_SENT | tenant={tenant_id} | campaign={campaign_id} "

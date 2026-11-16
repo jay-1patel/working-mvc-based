@@ -48,8 +48,19 @@ async def root_webhook(request: Request, background_tasks: BackgroundTasks):
 @router.get("/chat-history")
 def legacy_chat_history(current_admin: dict = Depends(get_current_admin)):
     """Legacy compatibility route used by old admin panel."""
-    from database import get_db
+    from db.core import use_mongodb
+
     scope = scoped_tenant_id(current_admin)
+    if use_mongodb():
+        from db.mongo import Repository
+
+        flt = {"tenant_id": scope} if scope else {}
+        rows = Repository("chat_history").find(
+            flt, sort=[("created_at", -1), ("id", -1)], limit=50
+        )
+        return {"history": [dict(row) for row in rows]}
+    from database import get_db
+
     conn = get_db()
     try:
         if scope:

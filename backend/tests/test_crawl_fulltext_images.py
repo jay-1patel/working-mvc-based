@@ -21,6 +21,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -290,14 +292,13 @@ class FulltextUnitTests(unittest.TestCase):
 
 class FulltextPipelineTests(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
         self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "deep.sqlite3")
         self.upload = Path(self.temp.name) / "uploads"
         self.upload.mkdir()
         self.clients_root = Path(self.temp.name) / "clients"
         self.clients_root.mkdir()
 
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
         self.env_patch = patch.dict(os.environ, {
             "UPLOAD_DIR": str(self.upload),
             "CRAWL_URL_ALLOWLIST": "127.0.0.1,localhost",
@@ -341,6 +342,8 @@ class FulltextPipelineTests(unittest.TestCase):
         self.server, self.base = _start_server()
 
     def tearDown(self):
+        self.mongo.stop()
+        self.temp.cleanup()
         self.server.shutdown()
         for p in (
             self.db_patch, self.env_patch, self.clients_patch, self.resolver_patch,
@@ -351,7 +354,6 @@ class FulltextPipelineTests(unittest.TestCase):
                 p.stop()
             except Exception:
                 pass
-        self.temp.cleanup()
 
     def _run_pipeline(self):
         from services.crawl_pipeline import run_crawl_pipeline

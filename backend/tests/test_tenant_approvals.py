@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -32,13 +34,10 @@ PASSWORD = "RootPass123!"
 
 class TenantApprovalTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "approvals.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
         database.init_db()
 
@@ -56,9 +55,8 @@ class TenantApprovalTests(unittest.TestCase):
         assert first.status_code == 200, first.text
 
     def tearDown(self):
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     # ── helpers ────────────────────────────────────────────────────────
 

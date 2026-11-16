@@ -32,15 +32,25 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("[STARTUP] init_db done")
     try:
-        from routing.config import DB_PATH as _routing_db
-        from database import DB_PATH as _app_db
-        logger.info(
-            "[STARTUP] DB paths app=%s routing=%s same=%s "
-            "(run ONE server process against this file — dual processes double WhatsApp replies)",
-            _app_db, _routing_db, os.path.abspath(str(_app_db or "")) == os.path.abspath(str(_routing_db or "")),
-        )
+        from db.core import use_mongodb
+        if use_mongodb():
+            logger.info(
+                "[STARTUP] database backend=mongodb uri_set=%s database=%s "
+                "(run ONE server process — dual processes double WhatsApp replies)",
+                bool((os.environ.get("MONGODB_URI") or "").strip()),
+                (os.environ.get("MONGODB_DATABASE") or "").strip() or "(default)",
+            )
+        else:
+            from routing.config import DB_PATH as _routing_db
+            from database import DB_PATH as _app_db
+            logger.info(
+                "[STARTUP] DB paths app=%s routing=%s same=%s "
+                "(run ONE server process against this file — dual processes double WhatsApp replies)",
+                _app_db, _routing_db,
+                os.path.abspath(str(_app_db or "")) == os.path.abspath(str(_routing_db or "")),
+            )
     except Exception as _db_path_exc:
-        logger.warning("[STARTUP] could not compare DB paths: %s", _db_path_exc)
+        logger.warning("[STARTUP] could not log database backend: %s", _db_path_exc)
     logger.info(
         "[STARTUP] HANDOFF_TIMEOUT_NOTIFY=%s (customer WhatsApp on handoff auto-revert)",
         os.environ.get("HANDOFF_TIMEOUT_NOTIFY", "0"),

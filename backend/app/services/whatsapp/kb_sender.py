@@ -17,7 +17,7 @@ import base64
 from typing import List, Dict, Optional
 import httpx
 
-from kb.database import get_db, get_db_context, is_session_open, update_session_outbound
+from kb.database import is_session_open, update_session_outbound
 from routing.config import (
     SEND2_USERNAME,
     SEND2_PASSWORD,
@@ -38,6 +38,12 @@ from routing.config import (
     TEMPLATE_PREFIX,
     logger,
 )
+
+
+def _mongo_repo(name: str):
+    from db.mongo import Repository
+    return Repository(name)
+
 
 # ============================================
 # API ENDPOINT CONSTANTS
@@ -1381,25 +1387,31 @@ def fetch_incoming_messages(from_date, to_date):
 
 def store_incoming_messages(messages):
     stored = 0
-    with get_db_context() as conn:
-        for msg in messages:
-            msg_id = msg.get("messageid") or msg.get("message_id") or msg.get("id")
-            number = msg.get("Number") or msg.get("number") or ""
-            message = msg.get("Message") or msg.get("message") or ""
-            status = msg.get("status") or "received"
+    repo = _mongo_repo("incoming_messages")
+    for msg in messages:
+        msg_id = msg.get("messageid") or msg.get("message_id") or msg.get("id")
+        number = msg.get("Number") or msg.get("number") or ""
+        message = msg.get("Message") or msg.get("message") or ""
+        status = msg.get("status") or "received"
+        try:
+            if not msg_id or repo.find_one({"message_id": msg_id}):
+                continue
             try:
-                try:
-                    from shared.tenancy.resolver import resolve_tenant_for_user
-                    _tenant = resolve_tenant_for_user(number)
-                except Exception:
-                    _tenant = None
-                conn.execute(
-                    "INSERT OR IGNORE INTO incoming_messages (message_id, number, message, status, raw_payload, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
-                    (msg_id, number, message, status, json.dumps(msg), _tenant),
-                )
-                stored += 1
-            except Exception as e:
-                logger.error(f"store_incoming_messages insert error: {e}")
+                from shared.tenancy.resolver import resolve_tenant_for_user
+                _tenant = resolve_tenant_for_user(number)
+            except Exception:
+                _tenant = None
+            repo.insert({
+                "message_id": msg_id,
+                "number": number,
+                "message": message,
+                "status": status,
+                "raw_payload": json.dumps(msg),
+                "tenant_id": _tenant,
+            })
+            stored += 1
+        except Exception as e:
+            logger.error(f"store_incoming_messages insert error: {e}")
     return stored
 
 
@@ -1478,84 +1490,76 @@ def download_media(media_id: str, mime_type: str = None) -> str:
 
 def _fetch_all_categories() -> list:
     """Get all unique categories from products and faq_dataset."""
-    from kb.database import get_db_context
+    from database import list_products
     categories = set()
-    with get_db_context() as conn:
-        rows = conn.execute("SELECT DISTINCT category FROM products WHERE is_active = 1").fetchall()
-        categories.update(r[0] for r in rows)
-        rows = conn.execute("SELECT DISTINCT category FROM faq_dataset").fetchall()
-        categories.update(r[0] for r in rows)
+    for p in list_products(active_only=True, limit=500):
+        if p.get("category"):
+            categories.add(p["category"])
+    for r in _mongo_repo("faq_dataset").find_all({}, limit=None):
+        if r.get("category"):
+            categories.add(r["category"])
+        elif r.get("source_file"):
+            categories.add(r["source_file"])
     return sorted(categories)
 
 
 def _fetch_items_from_category(category: str, limit: int = 10) -> list:
     """Fetch items from any category across products and faq."""
-    from kb.database import get_db_context
+    from database import list_products
     items = []
-    with get_db_context() as conn:
-        # Check products
-        rows = conn.execute(
-            "SELECT id, name, short_description, price, mrp, moq, media_url "
-            "FROM products WHERE category = ? AND is_active = 1 ORDER BY sort_order ASC LIMIT ?",
-            (category, limit),
-        ).fetchall()
-        for r in rows:
-            items.append({
-                "id": f"prod_{r[0]}",
-                "title": r[1],
-                "description": (r[2] or "")[:50],
-                "media_url": r[6],
-                "type": "product",
-                "price": r[3],
-            })
-
-        # Check FAQ
-        rows = conn.execute(
-            "SELECT id, content, source_file FROM faq_dataset WHERE source_file = ? ORDER BY id LIMIT ?",
-            (category, limit),
-        ).fetchall()
-        for r in rows:
-            items.append({
-                "id": f"faq_{r[0]}",
-                "title": r[2] or "FAQ",
-                "description": (r[1] or "")[:80],
-                "answer": r[1],
-                "type": "faq",
-            })
+    for p in list_products(category=category, active_only=True, limit=limit):
+        items.append({
+            "id": f"prod_{p.get('id')}",
+            "title": p.get("name"),
+            "description": (p.get("short_description") or "")[:50],
+            "media_url": p.get("media_url"),
+            "type": "product",
+            "price": p.get("price"),
+        })
+    faq_rows = _mongo_repo("faq_dataset").find(
+        {"source_file": category}, sort=[("id", 1)], limit=limit,
+    )
+    for r in faq_rows:
+        items.append({
+            "id": f"faq_{r.get('id')}",
+            "title": r.get("source_file") or "FAQ",
+            "description": (r.get("content") or "")[:80],
+            "answer": r.get("content"),
+            "type": "faq",
+        })
     return items
 
 
 def _fetch_faq_by_keyword(keyword: str, limit: int = 5) -> list:
     """Search FAQ dataset for keyword matches."""
-    from kb.database import get_db_context
+    from db.search import search_faq_db
+    rows = search_faq_db(keyword, limit=limit)
     results = []
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT id, content, source_file FROM faq_dataset "
-            "WHERE content LIKE ? LIMIT ?",
-            (f"%{keyword}%", limit),
-        ).fetchall()
-        for r in rows:
-            results.append({
-                "id": f"faq_{r[0]}",
-                "title": r[2] or "FAQ",
-                "description": r[1][:80] if r[1] else "",
-                "answer": r[1],
-                "type": "faq",
-            })
+    for r in rows:
+        content = r.get("content") or ""
+        results.append({
+            "id": f"faq_{r.get('id')}",
+            "title": r.get("source_file") or "FAQ",
+            "description": content[:80],
+            "answer": content,
+            "type": "faq",
+        })
     return results
 
 
 def _fetch_banner_images() -> list:
     """Get banner images from products with category='banner'."""
-    from kb.database import get_db_context
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT id, name, media_url, media_type FROM products "
-            "WHERE category = 'banner' AND is_active = 1 AND media_url IS NOT NULL "
-            "ORDER BY sort_order ASC LIMIT 3"
-        ).fetchall()
-    return [{"id": r[0], "name": r[1], "url": r[2], "media_type": r[3]} for r in rows]
+    from database import list_products
+    banners = []
+    for p in list_products(category="banner", active_only=True, limit=3):
+        if p.get("media_url"):
+            banners.append({
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "url": p.get("media_url"),
+                "media_type": p.get("media_type"),
+            })
+    return banners
 
 
 def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) -> bool:
@@ -1625,15 +1629,13 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
     elif selected_id.startswith("faq_"):
         try:
             faq_id = int(selected_id.replace("faq_", ""))
-            from kb.database import get_db_context
-            with get_db_context() as conn:
-                row = conn.execute(
-                    "SELECT content, source_file FROM faq_dataset WHERE id = ?",
-                    (faq_id,),
-                ).fetchone()
-                if row:
-                    send_whatsapp_message(wa_id, f"*{row['source_file'] or 'FAQ'}*\n\n{row['content'][:3500]}")
-                    return True
+            row = _mongo_repo("faq_dataset").find_one({"id": faq_id})
+            if row:
+                send_whatsapp_message(
+                    wa_id,
+                    f"*{row.get('source_file') or 'FAQ'}*\n\n{(row.get('content') or '')[:3500]}",
+                )
+                return True
         except ValueError:
             # deliberate: the selection id is not a FAQ id — the caller tries
             # the next selection kind.
@@ -1642,15 +1644,13 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
     elif selected_id.startswith("kb_"):
         try:
             kb_id = int(selected_id.replace("kb_", ""))
-            from kb.database import get_db_context
-            with get_db_context() as conn:
-                row = conn.execute(
-                    "SELECT title, content FROM knowledge_base WHERE id = ?",
-                    (kb_id,),
-                ).fetchone()
-                if row:
-                    send_whatsapp_message(wa_id, f"*{row['title']}*\n\n{row['content'][:3500]}")
-                    return True
+            row = _mongo_repo("knowledge_base").find_one({"id": kb_id})
+            if row:
+                send_whatsapp_message(
+                    wa_id,
+                    f"*{row.get('title')}*\n\n{(row.get('content') or '')[:3500]}",
+                )
+                return True
         except ValueError:
             # deliberate: the selection id is not a KB id — the caller tries
             # the next selection kind.
@@ -1668,7 +1668,7 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
 
 
 def send_menu(to: str) -> bool:
-    from kb.database import list_products as _list_products, get_db_context
+    from kb.database import list_products as _list_products
 
     banner_imgs = _fetch_banner_images()
     if banner_imgs and banner_imgs[0].get("url"):
@@ -1677,10 +1677,10 @@ def send_menu(to: str) -> bool:
     buttons = []
     categories = _fetch_all_categories()
 
-    with get_db_context() as conn:
-        has_catalogue = conn.execute(
-            "SELECT id FROM products WHERE category = 'catalogue' AND media_url IS NOT NULL AND is_active = 1 LIMIT 1"
-        ).fetchone()
+    has_catalogue = any(
+        p.get("media_url")
+        for p in _list_products(category="catalogue", limit=5)
+    )
 
     has_products = bool(_list_products(limit=1))
 
@@ -1739,13 +1739,12 @@ def send_category_menu(to: str, category: str) -> bool:
 
 
 def send_products_by_category(to: str) -> bool:
-    from kb.database import get_db_context
+    from kb.database import list_products as _list_products
 
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT category FROM products WHERE is_active = 1 ORDER BY category"
-        ).fetchall()
-        categories = [r[0] for r in rows if r[0]]
+    categories = sorted({
+        p["category"] for p in _list_products(active_only=True, limit=500)
+        if p.get("category")
+    })
 
     if not categories:
         return send_whatsapp_message(to, "No products available yet. Check back soon!")
@@ -1783,26 +1782,24 @@ def send_products_by_category(to: str) -> bool:
 
 def _get_admin_document(module: str, default_filename: str, tenant_id: str = None) -> dict | None:
     try:
-        from kb.database import get_db_context
-        with get_db_context() as conn:
-            if tenant_id:
-                row = conn.execute(
-                    "SELECT name, url, file_path FROM admin_files "
-                    "WHERE module = ? AND tenant_id = ? "
-                    "ORDER BY created_at DESC, id DESC LIMIT 1",
-                    (module, tenant_id),
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    "SELECT name, url, file_path FROM admin_files "
-                    "WHERE module = ? AND tenant_id IS NULL "
-                    "ORDER BY created_at DESC, id DESC LIMIT 1",
-                    (module,),
-                ).fetchone()
+        repo = _mongo_repo("admin_files")
+        if tenant_id:
+            rows = repo.find(
+                {"module": module, "tenant_id": tenant_id},
+                sort=[("created_at", -1), ("id", -1)],
+                limit=1,
+            )
+        else:
+            rows = repo.find(
+                {"module": module, "$or": [{"tenant_id": None}, {"tenant_id": ""}]},
+                sort=[("created_at", -1), ("id", -1)],
+                limit=1,
+            )
+        row = rows[0] if rows else None
         if row:
-            name = row["name"] or default_filename
-            url = row["url"] or ""
-            file_path = row["file_path"] or ""
+            name = row.get("name") or default_filename
+            url = row.get("url") or ""
+            file_path = row.get("file_path") or ""
             if url.startswith(("http://", "https://")):
                 return {"url": url, "filename": name}
             if file_path and os.path.isfile(file_path):

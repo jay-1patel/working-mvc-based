@@ -37,12 +37,14 @@ from database import (
     delete_product,
     get_db_context,
     get_product,
+    get_product_by_slug,
+    list_product_categories,
     list_products,
     record_admin_audit_event,
     save_product,
     update_product,
 )
-from db.core import unique_violation_error_types
+from db.core import unique_violation_error_types, use_mongodb
 from routes.auth import get_current_admin, has_permission, require_tenant_access, security
 from shared.tenancy import records as record_schema
 
@@ -210,6 +212,8 @@ def _vertical(tenant_id: str) -> str:
 
 def _columns(tenant_id: str) -> List[Dict[str, Any]]:
     """The tenant's columns, seeded and reconciled with the physical table."""
+    if use_mongodb():
+        return record_schema.sync_columns(None, tenant_id, _vertical(tenant_id))
     with get_db_context() as conn:
         return record_schema.sync_columns(conn, tenant_id, _vertical(tenant_id))
 
@@ -224,11 +228,15 @@ def _unique_slug(name: str, exclude_id: int = None) -> str:
     candidate = base
     counter = 1
     while True:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT id FROM products WHERE slug = ?", (candidate,)
-            ).fetchone()
-        if row and row["id"] != exclude_id:
+        if use_mongodb():
+            row = get_product_by_slug(candidate)
+        else:
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT id FROM products WHERE slug = ?", (candidate,)
+                ).fetchone()
+                row = dict(row) if row else None
+        if row and int(row.get("id")) != int(exclude_id or 0):
             counter += 1
             candidate = f"{base}-{counter}"
             continue
@@ -308,10 +316,19 @@ def _write_cells(tenant_id: str, offering_id: int, columns: List[Dict[str, Any]]
     updates = {k: v for k, v in clean.items() if k in dynamic}
     if not updates:
         return
+    if use_mongodb():
+        from db.mongo import Repository
+
+        physical = set(record_schema.existing_columns(None))
+        updates = {k: v for k, v in updates.items() if k in physical}
+        if not updates:
+            return
+        Repository("products").update(
+            {"id": offering_id, "tenant_id": tenant_id},
+            updates,
+        )
+        return
     with get_db_context() as conn:
-        # A registered column can drift from the physical table (schema seeded
-        # before the column existed). The value still reaches the bot through
-        # the attrs_json mirror, so skip the dead column rather than 500.
         physical = set(record_schema.existing_columns(conn))
         updates = {k: v for k, v in updates.items() if k in physical}
         if not updates:
@@ -334,10 +351,10 @@ def get_record_schema(tenant_id: str, principal: dict = Depends(read_access)):
 @router.post("/record-schema/columns")
 def create_record_column(tenant_id: str, body: ColumnIn, principal: dict = Depends(schema_access)):
     try:
-        with get_db_context() as conn:
-            record_schema.seed_columns(conn, tenant_id, _vertical(tenant_id))
+        if use_mongodb():
+            record_schema.seed_columns(None, tenant_id, _vertical(tenant_id))
             column = record_schema.create_column(
-                conn,
+                None,
                 tenant_id,
                 key=body.key,
                 label=body.label,
@@ -346,20 +363,44 @@ def create_record_column(tenant_id: str, body: ColumnIn, principal: dict = Depen
                 options=body.options,
                 help=body.help,
             )
+        else:
+            with get_db_context() as conn:
+                record_schema.seed_columns(conn, tenant_id, _vertical(tenant_id))
+                column = record_schema.create_column(
+                    conn,
+                    tenant_id,
+                    key=body.key,
+                    label=body.label,
+                    col_type=body.type,
+                    required=body.required,
+                    options=body.options,
+                    help=body.help,
+                )
     except record_schema.ColumnError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="record_schema_column_created", actor=principal, resource_type="record_schema_column", resource_id=f"{tenant_id}/{body.key}", tenant_id=tenant_id, details={"column_key": body.key, "column_label": body.label[:100], "column_type": body.type})
+    audit = dict(
+        action="record_schema_column_created",
+        actor=principal,
+        resource_type="record_schema_column",
+        resource_id=f"{tenant_id}/{body.key}",
+        tenant_id=tenant_id,
+        details={"column_key": body.key, "column_label": body.label[:100], "column_type": body.type},
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit)
     return {"status": "created", "column": column, "columns": _columns(tenant_id)}
 
 
 @router.put("/record-schema/columns/{key}")
 def patch_record_column(tenant_id: str, key: str, body: ColumnPatch, principal: dict = Depends(schema_access)):
     try:
-        with get_db_context() as conn:
-            record_schema.seed_columns(conn, tenant_id, _vertical(tenant_id))
+        if use_mongodb():
+            record_schema.seed_columns(None, tenant_id, _vertical(tenant_id))
             column = record_schema.update_column(
-                conn,
+                None,
                 tenant_id,
                 key,
                 label=body.label,
@@ -369,23 +410,68 @@ def patch_record_column(tenant_id: str, key: str, body: ColumnPatch, principal: 
                 help=body.help,
                 sort_order=body.sort_order,
             )
+        else:
+            with get_db_context() as conn:
+                record_schema.seed_columns(conn, tenant_id, _vertical(tenant_id))
+                column = record_schema.update_column(
+                    conn,
+                    tenant_id,
+                    key,
+                    label=body.label,
+                    col_type=body.type,
+                    required=body.required,
+                    options=body.options,
+                    help=body.help,
+                    sort_order=body.sort_order,
+                )
     except record_schema.ColumnError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="record_schema_column_updated", actor=principal, resource_type="record_schema_column", resource_id=f"{tenant_id}/{key}", tenant_id=tenant_id, details={"column_key": key, "changed_fields": [name for name, value in body.model_dump(exclude_unset=True).items() if value is not None]})
+    audit = dict(
+        action="record_schema_column_updated",
+        actor=principal,
+        resource_type="record_schema_column",
+        resource_id=f"{tenant_id}/{key}",
+        tenant_id=tenant_id,
+        details={
+            "column_key": key,
+            "changed_fields": [
+                name for name, value in body.model_dump(exclude_unset=True).items() if value is not None
+            ],
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit)
     return {"status": "updated", "column": column, "columns": _columns(tenant_id)}
 
 
 @router.delete("/record-schema/columns/{key}")
 def delete_record_column(tenant_id: str, key: str, principal: dict = Depends(schema_access)):
     try:
-        with get_db_context() as conn:
-            record_schema.seed_columns(conn, tenant_id, _vertical(tenant_id))
-            dropped = record_schema.remove_column(conn, tenant_id, key)
+        if use_mongodb():
+            record_schema.seed_columns(None, tenant_id, _vertical(tenant_id))
+            dropped = record_schema.remove_column(None, tenant_id, key)
+        else:
+            with get_db_context() as conn:
+                record_schema.seed_columns(conn, tenant_id, _vertical(tenant_id))
+                dropped = record_schema.remove_column(conn, tenant_id, key)
     except record_schema.ColumnError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="record_schema_column_deleted", actor=principal, resource_type="record_schema_column", resource_id=f"{tenant_id}/{key}", tenant_id=tenant_id, details={"column_key": key, "database_column_dropped": dropped})
+    audit = dict(
+        action="record_schema_column_deleted",
+        actor=principal,
+        resource_type="record_schema_column",
+        resource_id=f"{tenant_id}/{key}",
+        tenant_id=tenant_id,
+        details={"column_key": key, "database_column_dropped": dropped},
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit)
     return {
         "status": "deleted",
         "key": key,
@@ -397,9 +483,29 @@ def delete_record_column(tenant_id: str, key: str, principal: dict = Depends(sch
 @router.post("/record-schema/reset")
 def reset_record_schema(tenant_id: str, principal: dict = Depends(schema_access)):
     """Drop this tenant's own columns and re-seed from its vertical defaults."""
-    with get_db_context() as conn:
-        columns = record_schema.reset_columns(conn, tenant_id, _vertical(tenant_id))
-        record_admin_audit_event(conn, action="record_schema_reset", actor=principal, resource_type="record_schema", resource_id=tenant_id, tenant_id=tenant_id, details={"vertical": _vertical(tenant_id), "column_count": len(columns)})
+    if use_mongodb():
+        columns = record_schema.reset_columns(None, tenant_id, _vertical(tenant_id))
+        record_admin_audit_event(
+            None,
+            action="record_schema_reset",
+            actor=principal,
+            resource_type="record_schema",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+            details={"vertical": _vertical(tenant_id), "column_count": len(columns)},
+        )
+    else:
+        with get_db_context() as conn:
+            columns = record_schema.reset_columns(conn, tenant_id, _vertical(tenant_id))
+            record_admin_audit_event(
+                conn,
+                action="record_schema_reset",
+                actor=principal,
+                resource_type="record_schema",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"vertical": _vertical(tenant_id), "column_count": len(columns)},
+            )
     return {"status": "reset", "vertical": _vertical(tenant_id), "columns": columns}
 
 
@@ -425,14 +531,7 @@ def list_offerings(
 
 @router.get("/offerings/categories")
 def list_offering_categories(tenant_id: str, principal: dict = Depends(read_access)):
-    with get_db_context() as conn:
-        rows = conn.execute(
-            """SELECT DISTINCT category FROM products
-               WHERE tenant_id = ? AND is_active = 1 AND category IS NOT NULL
-               ORDER BY category""",
-            (tenant_id,),
-        ).fetchall()
-    return {"categories": [r[0] for r in rows if r[0]]}
+    return {"categories": list_product_categories(active_only=True, tenant_id=tenant_id)}
 
 
 @router.post("/offerings")

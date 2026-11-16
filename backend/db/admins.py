@@ -33,7 +33,7 @@ def count_admins() -> int:
 
 def create_admin(username: str, password_hash: str = "", salt: str = "", role: str = "sub_admin",
                  permissions: dict = None, recovery_key: str = None, tenant_id: str = None,
-                 session_id: str = None) -> int:
+                 session_id: str = None, email: str = None) -> int:
     if use_mongodb():
         from .mongo import Repository
         row = Repository("admins").insert({
@@ -45,14 +45,15 @@ def create_admin(username: str, password_hash: str = "", salt: str = "", role: s
             "recovery_key": recovery_key,
             "tenant_id": tenant_id,
             "session_id": session_id,
+            "email": email,
         })
         return int(row["id"])
     with get_db_context() as conn:
         cur = conn.execute(
-            """INSERT INTO admins (username, password_hash, salt, role, permissions, recovery_key, tenant_id, session_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO admins (username, password_hash, salt, role, permissions, recovery_key, tenant_id, session_id, email)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (username, password_hash, salt, role,
-             json.dumps(permissions or {}), recovery_key, tenant_id, session_id),
+             json.dumps(permissions or {}), recovery_key, tenant_id, session_id, email),
         )
         return cur.lastrowid
 
@@ -720,21 +721,39 @@ def get_chat_history(chat_id: str, limit: int = 200) -> list:
     return [_chat_message_to_dict(r) for r in rows]
 
 
-def get_chat_last_message(chat_id: str) -> dict:
+def get_chat_last_message(chat_id: str, tenant_id: str = None) -> dict:
     if use_mongodb():
         from .mongo import Repository
+        flt: dict = {"chat_id": chat_id}
+        if tenant_id:
+            flt["tenant_id"] = tenant_id
         rows = Repository("admin_chat_messages").find(
-            {"chat_id": chat_id}, sort=[("id", -1)], limit=1
+            flt, sort=[("id", -1)], limit=1
         )
         return _chat_message_to_dict(rows[0]) if rows else None
+    tenant_clause = " AND tenant_id = ?" if tenant_id else ""
+    params = (chat_id, tenant_id) if tenant_id else (chat_id,)
     with get_db_context() as conn:
         row = conn.execute(
-            """SELECT * FROM admin_chat_messages
-               WHERE chat_id = ?
+            f"""SELECT * FROM admin_chat_messages
+               WHERE chat_id = ?{tenant_clause}
                ORDER BY id DESC LIMIT 1""",
-            (chat_id,),
+            params,
         ).fetchone()
     return _chat_message_to_dict(row) if row else None
+
+
+def get_admin_chat_message_tenant(msg_id: int) -> str | None:
+    """Return tenant_id for an admin chat message, or None when absent."""
+    if use_mongodb():
+        from .mongo import Repository
+        row = Repository("admin_chat_messages").find_one({"id": msg_id})
+        return row.get("tenant_id") if row else None
+    with get_db_context() as conn:
+        row = conn.execute(
+            "SELECT tenant_id FROM admin_chat_messages WHERE id = ?", (msg_id,)
+        ).fetchone()
+    return row["tenant_id"] if row else None
 
 
 def save_chat_message(chat_id: str, sender: str, text: str,

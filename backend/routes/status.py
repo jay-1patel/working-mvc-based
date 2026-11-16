@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from routing.config import WHATSAPP_VERIFY_TOKEN, SEND2_USERNAME, SEND2_PASSWORD, SEND2_NUMBER
-from database import get_db, get_webhook_stats
+from database import clear_webhook_logs, get_webhook_stats, list_webhook_logs
 import logging
 
 from routes.auth import require_super_admin
@@ -15,28 +15,12 @@ def get_webhook_logs(
     direction: str = None,
     current_admin: dict = Depends(require_super_admin),
 ):
-    conn = get_db()
-    try:
-        if direction:
-            rows = conn.execute(
-                "SELECT * FROM webhook_logs WHERE direction = ? ORDER BY created_at DESC LIMIT ?",
-                (direction, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM webhook_logs ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+    return list_webhook_logs(limit=limit, direction=direction)
 
 
 @router.delete("/logs")
-def clear_webhook_logs(current_admin: dict = Depends(require_super_admin)):
-    from database import get_db_context
-    with get_db_context() as conn:
-        conn.execute("DELETE FROM webhook_logs")
+def clear_webhook_logs_endpoint(current_admin: dict = Depends(require_super_admin)):
+    clear_webhook_logs()
     return {"status": "logs cleared"}
 
 

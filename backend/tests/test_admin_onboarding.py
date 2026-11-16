@@ -22,6 +22,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -76,17 +78,11 @@ STAGED = {
 
 class AdminOnboardingTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "onboarding.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
-        # Same ADMIN_SECRET_KEY patch as test_role_panels (gate-env gap).
-        self.key_patch = patch.object(auth_routes, "ADMIN_SECRET_KEY", "test-admin-signing-key")
-        self.key_patch.start()
         database.init_db()
 
         self.app = FastAPI()
@@ -118,10 +114,8 @@ class AdminOnboardingTests(unittest.TestCase):
         self.leeway_admin = self._create_admin("leeway-admin", tenant_id="leeway")
 
     def tearDown(self):
-        self.key_patch.stop()
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     # ── helpers ────────────────────────────────────────────────────────
 

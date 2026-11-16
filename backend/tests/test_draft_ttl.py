@@ -7,11 +7,11 @@ as gone instead of resurrecting stale configuration.
 """
 
 import os
-import sqlite3
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from mongo_test_support import MongomockSession
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
@@ -26,38 +26,22 @@ from shared.tenancy import store as tenancy_store
 
 class DraftTtlTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "ttl.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
         database.init_db()
         tenancy_store.ensure_tenant("lease", vertical="generic", display_name="Lease")
 
     def tearDown(self):
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
-
-    def _exec(self, sql, params=()):
-        """Run raw SQL against the test DB, closing the handle (Windows)."""
-        conn = sqlite3.connect(self.db_path)
-        try:
-            cur = conn.execute(sql, params)
-            conn.commit()
-            return cur.rowcount
-        finally:
-            conn.close()
 
     def _backdate(self, days):
         """Age the tenant's draft row as if it was saved ``days`` days ago."""
-        return self._exec(
-            "UPDATE draft_config SET updated_at = datetime('now', ?) WHERE scope = ?",
-            (f"-{days} days", tenancy_store.profile_scope("lease")),
-        )
+        self.mongo.backdate_draft(tenancy_store.profile_scope("lease"), days)
+        return 1
 
     def test_fresh_draft_is_returned(self):
         tenancy_store.save_draft("lease", {"brand": {"name": "Lease"}}, updated_by="t")
@@ -76,14 +60,7 @@ class DraftTtlTests(unittest.TestCase):
 
         # The row is gone, not just filtered: a re-read stays empty and the
         # next save starts from a clean slate.
-        conn = sqlite3.connect(self.db_path)
-        try:
-            remaining = conn.execute(
-                "SELECT COUNT(*) FROM draft_config WHERE scope = ?",
-                (tenancy_store.profile_scope("lease"),),
-            ).fetchone()[0]
-        finally:
-            conn.close()
+        remaining = self.mongo.draft_row_count(tenancy_store.profile_scope("lease"))
         self.assertEqual(remaining, 0)
 
         tenancy_store.save_draft("lease", {"brand": {"name": "Fresh"}})
@@ -100,10 +77,7 @@ class DraftTtlTests(unittest.TestCase):
         # The lease applies to tenant profile drafts only; other draft_config
         # scopes keep the legacy never-expire behaviour.
         database.save_draft_config("some_other_scope", {"a": 1}, updated_by="t")
-        self._exec(
-            "UPDATE draft_config SET updated_at = datetime('now', '-30 days') "
-            "WHERE scope = 'some_other_scope'"
-        )
+        self.mongo.backdate_draft("some_other_scope", 30)
         self.assertEqual(database.get_draft_config("some_other_scope"), {"a": 1})
 
 

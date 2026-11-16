@@ -186,19 +186,18 @@ def get_tenant_send2_credentials(tenant_id: str = None) -> tuple:
 
     if tid:
         try:
-            from routing.database import get_db_context
             import json
-            with get_db_context() as conn:
-                row = conn.execute(
-                    "SELECT credentials_json FROM tenant_integrations WHERE tenant_id = ? AND LOWER(provider) IN ('send2', 'whatsapp')",
-                    (tid,),
-                ).fetchone()
-                if row and row["credentials_json"]:
-                    creds = json.loads(row["credentials_json"])
-                    u = creds.get("username") or creds.get("send2_username") or creds.get("user_name")
-                    p = creds.get("password") or creds.get("send2_password")
-                    if u and p:
-                        return str(u), str(p)
+            from db.integrations_ops import list_tenant_integrations
+            for row in list_tenant_integrations(tid):
+                prov = str(row.get("provider") or "").lower()
+                if prov not in ("send2", "whatsapp"):
+                    continue
+                raw = row.get("credentials_json") or row.get("credentials") or {}
+                creds = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                u = creds.get("username") or creds.get("send2_username") or creds.get("user_name")
+                p = creds.get("password") or creds.get("send2_password")
+                if u and p:
+                    return str(u), str(p)
         except Exception as e:
             logger.debug(f"Could not load custom credentials for tenant {tid}: {e}")
 

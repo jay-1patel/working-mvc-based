@@ -268,12 +268,32 @@ class CallbackService:
     def save_callback_to_db(self, callback_request: CallbackRequest) -> bool:
         """Save or update callback request in database."""
         try:
+            from db.core import use_mongodb
+            callback_data = callback_request.to_dict()
+            payload = {
+                "id": callback_request.id,
+                "tenant_id": callback_request.tenant_id,
+                "wa_id": callback_request.wa_id,
+                "data": callback_data,
+                "status": callback_request.status,
+                "scheduled_start_time": callback_request.scheduled_start_time,
+                "scheduled_end_time": callback_request.scheduled_end_time,
+                "meet_link": callback_request.meet_link,
+                "calendar_event_id": callback_request.calendar_event_id,
+                "created_at": callback_request.created_at,
+                "updated_at": datetime.now(dt_timezone.utc).isoformat(),
+            }
+            if use_mongodb():
+                from db.mongo import Repository
+                mongo_payload = {**payload, "data": json.dumps(callback_data)}
+                Repository("callbacks").upsert({"id": callback_request.id}, mongo_payload)
+                return True
             from database import get_db_context
-            callback_data = json.dumps(callback_request.to_dict())
             with get_db_context() as conn:
                 existing = conn.execute(
                     "SELECT id FROM callbacks WHERE id = ?", (callback_request.id,)
                 ).fetchone()
+                data_json = json.dumps(callback_data)
                 if existing:
                     conn.execute(
                         """UPDATE callbacks SET 
@@ -282,7 +302,7 @@ class CallbackService:
                            meet_link = ?, calendar_event_id = ?, updated_at = ?
                            WHERE id = ?""",
                         (
-                            callback_data,
+                            data_json,
                             callback_request.status,
                             callback_request.tenant_id,
                             callback_request.wa_id,
@@ -290,7 +310,7 @@ class CallbackService:
                             callback_request.scheduled_end_time,
                             callback_request.meet_link,
                             callback_request.calendar_event_id,
-                            datetime.now(dt_timezone.utc).isoformat(),
+                            payload["updated_at"],
                             callback_request.id,
                         ),
                     )
@@ -303,7 +323,7 @@ class CallbackService:
                             callback_request.id,
                             callback_request.tenant_id,
                             callback_request.wa_id,
-                            callback_data,
+                            data_json,
                             callback_request.status,
                             callback_request.scheduled_start_time,
                             callback_request.scheduled_end_time,
@@ -321,6 +341,16 @@ class CallbackService:
     def get_callback_by_id(self, callback_id: str) -> Optional[CallbackRequest]:
         """Retrieve callback request by ID from database."""
         try:
+            from db.core import use_mongodb
+            if use_mongodb():
+                from db.mongo import Repository
+                row = Repository("callbacks").find_one({"id": callback_id})
+                if row and row.get("data"):
+                    data = row["data"]
+                    if isinstance(data, str):
+                        data = json.loads(data)
+                    return CallbackRequest(**data)
+                return None
             from database import get_db_context
             with get_db_context() as conn:
                 row = conn.execute(
@@ -346,6 +376,26 @@ class CallbackService:
     ) -> List[CallbackRequest]:
         """List callback requests from database with filters."""
         try:
+            from db.core import use_mongodb
+            if use_mongodb():
+                from db.mongo import Repository
+                filters = {"tenant_id": tenant_id}
+                if status and status != "all":
+                    filters["status"] = status
+                if wa_id:
+                    filters["wa_id"] = wa_id
+                rows = Repository("callbacks").find(
+                    filters, sort=[("created_at", -1)], limit=limit, offset=offset,
+                )
+                results = []
+                for row in rows:
+                    data = row.get("data")
+                    if not data:
+                        continue
+                    if isinstance(data, str):
+                        data = json.loads(data)
+                    results.append(CallbackRequest(**data))
+                return results
             from database import get_db_context
             with get_db_context() as conn:
                 query = "SELECT data FROM callbacks WHERE tenant_id = ?"

@@ -45,21 +45,22 @@ def _parse_ts(value) -> Optional[datetime]:
 
 
 def _crawl_schedule_row(row) -> dict:
-    keys = set(row.keys()) if hasattr(row, "keys") else set()
+    """Map a schedule document/row. Optional fields may be absent on Mongo docs."""
+    row = dict(row) if not isinstance(row, dict) else row
     return {
-        "id": row["id"],
-        "tenant_id": row["tenant_id"],
-        "url": row["url"],
-        "interval_hours": row["interval_hours"],
-        "max_pages": row["max_pages"],
-        "auto_publish": bool(row["auto_publish"]),
-        "is_enabled": bool(row["is_enabled"]),
-        "last_crawled_at": row["last_crawled_at"],
-        "last_status": row["last_status"],
-        "last_error": row["last_error"],
-        "last_pages_found": row["last_pages_found"] if "last_pages_found" in keys else None,
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "id": row.get("id"),
+        "tenant_id": row.get("tenant_id"),
+        "url": row.get("url"),
+        "interval_hours": row.get("interval_hours"),
+        "max_pages": row.get("max_pages"),
+        "auto_publish": bool(row.get("auto_publish")),
+        "is_enabled": bool(row.get("is_enabled")),
+        "last_crawled_at": row.get("last_crawled_at"),
+        "last_status": row.get("last_status"),
+        "last_error": row.get("last_error"),
+        "last_pages_found": row.get("last_pages_found"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
     }
 
 
@@ -240,19 +241,20 @@ def mark_crawl_finished(
 
 
 def _run_row(row) -> dict:
+    row = dict(row) if not isinstance(row, dict) else row
     return {
-        "id": row["id"],
-        "tenant_id": row["tenant_id"],
-        "source_url": row["source_url"],
-        "trigger": row["trigger"],
-        "status": row["status"],
-        "started_at": row["started_at"],
-        "finished_at": row["finished_at"],
-        "pages_found": row["pages_found"] or 0,
-        "pages_scraped": row["pages_scraped"] or 0,
-        "error": row["error"],
-        "created_by": row["created_by"],
-        "created_at": row["created_at"],
+        "id": row.get("id"),
+        "tenant_id": row.get("tenant_id"),
+        "source_url": row.get("source_url"),
+        "trigger": row.get("trigger"),
+        "status": row.get("status"),
+        "started_at": row.get("started_at"),
+        "finished_at": row.get("finished_at"),
+        "pages_found": row.get("pages_found") or 0,
+        "pages_scraped": row.get("pages_scraped") or 0,
+        "error": row.get("error"),
+        "created_by": row.get("created_by"),
+        "created_at": row.get("created_at"),
     }
 
 

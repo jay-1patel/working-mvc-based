@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from database import get_db
+from db.audit_history_ops import audit_logs_statistics, list_audit_logs as query_audit_logs
 from routes.auth import get_current_admin
 
 router = APIRouter(tags=["audit-logs"])
@@ -36,87 +36,27 @@ def list_audit_logs(
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
     
-    # Build SQL query with parameterized inputs
-    conn = get_db()
     try:
-        where_clauses = []
-        params = []
-        
-        # Date range filter
-        where_clauses.append("created_at >= ? AND created_at <= ?")
-        params.extend([start_date.isoformat(), end_date.isoformat()])
-        
-        # Search filter (searches description and metadata)
-        if search and search.strip():
-            search_term = f"%{search.strip()}%"
-            where_clauses.append("(description LIKE ? OR metadata LIKE ?)")
-            params.extend([search_term, search_term])
-        
-        # Actor filter
-        if actor and actor.strip():
-            where_clauses.append("actor = ?")
-            params.append(actor.strip())
-        
-        # Action filter
-        if action and action.strip():
-            where_clauses.append("action = ?")
-            params.append(action.strip())
-        
-        # Category filter
-        if category and category.strip():
-            where_clauses.append("category = ?")
-            params.append(category.strip())
-        
-        # Build final query
-        where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-        
-        query = f"""
-            SELECT id, created_at as timestamp, actor, action, category, status, description, metadata
-            FROM audit_logs 
-            WHERE {where_clause}
-            ORDER BY created_at DESC, id DESC
-            LIMIT ? OFFSET ?
-        """
-        params.extend([limit, offset])
-        
-        rows = conn.execute(query, params).fetchall()
-        
-        # Get total count
-        count_query = f"""
-            SELECT COUNT(*) FROM audit_logs 
-            WHERE {where_clause}
-        """
-        total_count = conn.execute(count_query, params[:-2]).fetchone()[0]
-        
-        # Format results
-        events = []
-        for row in rows:
-            event = dict(row)
-            # Convert metadata from JSON string if present
-            if event.get("metadata"):
-                try:
-                    import json
-                    event["metadata"] = json.loads(event["metadata"])
-                except (json.JSONDecodeError, TypeError):
-                    event["metadata"] = {}
-            events.append(event)
-        
+        payload = query_audit_logs(
+            start_iso=start_date.isoformat(),
+            end_iso=end_date.isoformat(),
+            search=search,
+            actor=actor,
+            action=action,
+            category=category,
+            limit=limit,
+            offset=offset,
+        )
         return {
-            "events": events,
-            "total": total_count,
-            "limit": limit,
-            "offset": offset,
+            **payload,
             "date_range": {
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
-                "days": days
-            }
+                "days": days,
+            },
         }
-    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    finally:
-        conn.close()
 
 
 @router.get("/api/audit-logs/statistics")
@@ -132,84 +72,21 @@ def get_audit_logs_statistics(
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
     
-    conn = get_db()
     try:
-        # Total events
-        total_query = """
-            SELECT COUNT(*) FROM audit_logs 
-            WHERE created_at >= ? AND created_at <= ?
-        """
-        total = conn.execute(total_query, [start_date.isoformat(), end_date.isoformat()]).fetchone()[0]
-        
-        # By status
-        status_query = """
-            SELECT status, COUNT(*) as count 
-            FROM audit_logs 
-            WHERE created_at >= ? AND created_at <= ?
-            GROUP BY status
-        """
-        status_rows = conn.execute(status_query, [start_date.isoformat(), end_date.isoformat()]).fetchall()
-        by_status = {row[0]: row[1] for row in status_rows}
-        
-        # By category
-        category_query = """
-            SELECT category, COUNT(*) as count 
-            FROM audit_logs 
-            WHERE created_at >= ? AND created_at <= ?
-            GROUP BY category
-        """
-        category_rows = conn.execute(category_query, [start_date.isoformat(), end_date.isoformat()]).fetchall()
-        by_category = {row[0]: row[1] for row in category_rows}
-        
-        # By action
-        action_query = """
-            SELECT action, COUNT(*) as count 
-            FROM audit_logs 
-            WHERE created_at >= ? AND created_at <= ?
-            GROUP BY action
-        """
-        action_rows = conn.execute(action_query, [start_date.isoformat(), end_date.isoformat()]).fetchall()
-        by_action = {row[0]: row[1] for row in action_rows}
-        
-        # By actor
-        actor_query = """
-            SELECT actor, COUNT(*) as count 
-            FROM audit_logs 
-            WHERE created_at >= ? AND created_at <= ?
-            GROUP BY actor
-        """
-        actor_rows = conn.execute(actor_query, [start_date.isoformat(), end_date.isoformat()]).fetchall()
-        by_actor = {row[0]: row[1] for row in actor_rows}
-        
-        # By date (daily)
-        date_query = """
-            SELECT date(created_at) as date, COUNT(*) as count 
-            FROM audit_logs 
-            WHERE created_at >= ? AND created_at <= ?
-            GROUP BY date(created_at)
-            ORDER BY date(created_at)
-        """
-        date_rows = conn.execute(date_query, [start_date.isoformat(), end_date.isoformat()]).fetchall()
-        by_date = {row[0]: row[1] for row in date_rows}
-        
+        stats = audit_logs_statistics(
+            start_iso=start_date.isoformat(),
+            end_iso=end_date.isoformat(),
+        )
         return {
-            "total_events": total,
-            "by_status": by_status,
-            "by_category": by_category,
-            "by_action": by_action,
-            "by_actor": by_actor,
-            "by_date": by_date,
+            **stats,
             "date_range": {
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
-                "days": days
-            }
+                "days": days,
+            },
         }
-    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    finally:
-        conn.close()
 
 
 @router.get("/api/audit-logs/export")

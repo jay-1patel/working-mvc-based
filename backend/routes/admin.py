@@ -16,7 +16,22 @@ from database import (
     get_menu_items, upsert_menu_item, reset_menu, get_menu_settings, set_menu_settings,
     record_admin_audit_event, update_admin_file_status,
     save_product, update_product, delete_product,
+    list_webhook_logs, clear_webhook_logs,
 )
+from db.admin_ops import (
+    admin_chat_history,
+    admin_list_customers,
+    analytics_frequent_questions,
+    analytics_overview,
+    analytics_response_time,
+    analytics_top_questions,
+    analytics_unanswered,
+    convert_unanswered_to_faq,
+    dashboard_stats as load_dashboard_stats,
+    delete_admin_file_row,
+    get_admin_file_row,
+)
+from db.core import use_mongodb
 from services.menu_catalog import (
     invalidate_menu_cache, get_menu_editor_items, get_effective_item,
 )
@@ -26,6 +41,14 @@ from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger("chiki_webhook")
 router = APIRouter(prefix="/api/admin")
+
+
+def _record_audit(**kwargs):
+    if use_mongodb():
+        record_admin_audit_event(None, **kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **kwargs)
 
 
 def _tenant_clause(admin: dict, column: str, params: list) -> str:
@@ -85,62 +108,7 @@ def dashboard_stats(current_admin: dict = Depends(get_current_admin)):
         logger.exception("Failed to count products for dashboard")
         product_count = 0
 
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            """SELECT message, COUNT(*) as count
-               FROM chat_history
-               WHERE created_at >= DATE('now', '-7 days')
-               GROUP BY LOWER(message)
-               ORDER BY count DESC
-               LIMIT 7""",
-        ).fetchall()
-        questions = [{"query": r["message"], "count": r["count"]} for r in rows]
-
-        total_customers = (
-            conn.execute(
-                """SELECT COUNT(*) AS c FROM (
-                       SELECT wa_id FROM orders WHERE wa_id IS NOT NULL
-                       UNION
-                       SELECT wa_id FROM complaints WHERE wa_id IS NOT NULL
-                       UNION
-                       SELECT wa_id FROM user_states WHERE wa_id IS NOT NULL
-                   )"""
-            ).fetchone()["c"]
-            or 0
-        )
-
-        total_orders = (
-            conn.execute("SELECT COUNT(*) AS c FROM orders").fetchone()["c"] or 0
-        )
-        orders_solved = (
-            conn.execute(
-                "SELECT COUNT(*) AS c FROM orders WHERE status IN ('delivered','completed')"
-            ).fetchone()["c"] or 0
-        )
-
-        total_complaints = (
-            conn.execute("SELECT COUNT(*) AS c FROM complaints").fetchone()["c"] or 0
-        )
-        complaints_solved = (
-            conn.execute(
-                "SELECT COUNT(*) AS c FROM complaints WHERE status = 'resolved'"
-            ).fetchone()["c"] or 0
-        )
-    finally:
-        conn.close()
-
-    return {
-        "kb_files": kb_count,
-        "faq_files": faq_count,
-        "products": product_count,
-        "top_questions": questions,
-        "total_customers": total_customers,
-        "total_orders": total_orders,
-        "orders_solved": orders_solved,
-        "total_complaints": total_complaints,
-        "complaints_solved": complaints_solved,
-    }
+    return load_dashboard_stats(kb_count=kb_count, faq_count=faq_count, product_count=product_count)
 
 
 # ── Customers (aggregated from orders / complaints / chat_history) ────────
@@ -157,94 +125,7 @@ def list_customers(
     returns their best-known name/mobile, order and complaint totals, total
     spend, and last activity timestamp.
     """
-    conn = get_db()
-    try:
-        customer_rows = conn.execute(
-            """SELECT wa_id FROM (
-                   SELECT wa_id FROM orders WHERE wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM complaints WHERE wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM chat_history WHERE wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM user_states WHERE wa_id IS NOT NULL AND wa_id != ''
-               )""",
-        ).fetchall()
-        wa_ids = [r["wa_id"] for r in customer_rows]
-
-        if q.strip():
-            needle = q.strip()
-            wa_ids = [
-                wid for wid in wa_ids
-                if needle.lower() in wid.lower()
-            ]
-
-        customers = []
-        for wid in wa_ids[:limit]:
-            name_row = conn.execute(
-                """SELECT customer_name FROM orders
-                   WHERE wa_id=? AND customer_name IS NOT NULL AND customer_name != ''
-                   ORDER BY id DESC LIMIT 1""",
-                (wid,),
-            ).fetchone()
-            sender_row = conn.execute(
-                """SELECT sender_name FROM chat_history
-                   WHERE wa_id=? AND sender_name IS NOT NULL AND sender_name != ''
-                   ORDER BY id DESC LIMIT 1""",
-                (wid,),
-            ).fetchone()
-            mobile_row = conn.execute(
-                """SELECT customer_mobile FROM orders
-                   WHERE wa_id=? AND customer_mobile IS NOT NULL AND customer_mobile != ''
-                   ORDER BY id DESC LIMIT 1""",
-                (wid,),
-            ).fetchone()
-
-            order_count = conn.execute(
-                "SELECT COUNT(*) AS c FROM orders WHERE wa_id=?", (wid,)
-            ).fetchone()["c"] or 0
-            complaint_count = conn.execute(
-                "SELECT COUNT(*) AS c FROM complaints WHERE wa_id=?", (wid,)
-            ).fetchone()["c"] or 0
-            open_complaints = conn.execute(
-                "SELECT COUNT(*) AS c FROM complaints WHERE wa_id=? AND status NOT IN ('resolved','closed')",
-                (wid,),
-            ).fetchone()["c"] or 0
-            spent = conn.execute(
-                """SELECT COALESCE(SUM(total_amount), 0) AS v FROM orders
-                   WHERE wa_id=? AND status NOT IN ('cancelled','returned')""",
-                (wid,),
-            ).fetchone()["v"] or 0
-            last_active = conn.execute(
-                """SELECT MAX(last_seen) AS l FROM (
-                       SELECT MAX(created_at) AS last_seen FROM chat_history WHERE wa_id=?
-                       UNION ALL
-                       SELECT MAX(created_at) AS last_seen FROM orders WHERE wa_id=?
-                       UNION ALL
-                       SELECT MAX(created_at) AS last_seen FROM complaints WHERE wa_id=?
-                       UNION ALL
-                       SELECT MAX(updated_at) AS last_seen FROM user_states WHERE wa_id=?
-                   )""",
-                (wid, wid, wid, wid),
-            ).fetchone()["l"]
-
-            customers.append({
-                "wa_id": wid,
-                "name": (name_row["customer_name"] if name_row else None)
-                        or (sender_row["sender_name"] if sender_row else None)
-                        or wid,
-                "mobile": mobile_row["customer_mobile"] if mobile_row else None,
-                "total_orders": order_count,
-                "total_complaints": complaint_count,
-                "open_complaints": open_complaints,
-                "total_spent": round(float(spent), 2),
-                "last_active": last_active,
-            })
-
-        customers.sort(key=lambda c: c["last_active"] or "", reverse=True)
-        return {"customers": customers, "count": len(customers)}
-    finally:
-        conn.close()
+    return admin_list_customers(q=q, limit=limit)
 
 
 @router.get("/logs")
@@ -253,27 +134,12 @@ def get_logs(
     limit: int = Query(100, ge=1, le=500),
     current_admin: dict = Depends(require_super_admin),
 ):
-    conn = get_db()
-    try:
-        if direction:
-            rows = conn.execute(
-                "SELECT * FROM webhook_logs WHERE direction = ? ORDER BY created_at DESC LIMIT ?",
-                (direction, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM webhook_logs ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+    return list_webhook_logs(limit=limit, direction=direction)
 
 
 @router.delete("/logs")
 def clear_logs(current_admin: dict = Depends(require_super_admin)):
-    with get_db_context() as conn:
-        conn.execute("DELETE FROM webhook_logs")
+    clear_webhook_logs()
     return {"status": "ok", "message": "Logs cleared"}
 
 
@@ -362,33 +228,7 @@ def get_response_time_analytics(
     days: int = Query(7, ge=1, le=90),
     current_admin: dict = Depends(get_current_admin),
 ):
-    params: list = [f"-{days} days"]
-    tenant_sql = _tenant_clause(current_admin, "tenant_id", params)
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""SELECT DATE(created_at) as date, AVG(response_time_ms) as avg_ms, COUNT(*) as count
-               FROM webhook_logs
-               WHERE direction = 'outgoing' AND response_time_ms IS NOT NULL
-                 AND created_at >= DATE('now', ?)
-                 {tenant_sql}
-               GROUP BY DATE(created_at)
-               ORDER BY date ASC""",
-            params,
-        ).fetchall()
-        return {
-            "days": days,
-            "data": [
-                {
-                    "date": r["date"],
-                    "avg_ms": round(r["avg_ms"], 1) if r["avg_ms"] else 0,
-                    "count": r["count"],
-                }
-                for r in rows
-            ],
-        }
-    finally:
-        conn.close()
+    return analytics_response_time(days=days, tenant_id=scoped_tenant_id(current_admin))
 
 
 @router.get("/analytics/frequent-questions")
@@ -397,35 +237,9 @@ def get_frequent_questions(
     limit: int = Query(20, ge=1, le=100),
     current_admin: dict = Depends(get_current_admin),
 ):
-    params: list = [f"-{days} days"]
-    tenant_sql = _tenant_clause(current_admin, "tenant_id", params)
-    params.append(limit)
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""SELECT message, COUNT(*) as count, MAX(created_at) as last_asked
-               FROM chat_history
-               WHERE created_at >= DATE('now', ?)
-                 {tenant_sql}
-               GROUP BY LOWER(message)
-               ORDER BY count DESC, last_asked DESC
-               LIMIT ?""",
-            params,
-        ).fetchall()
-        return {
-            "days": days,
-            "total_unique": len(rows),
-            "questions": [
-                {
-                    "query": r["message"],
-                    "count": r["count"],
-                    "last_asked": r["last_asked"],
-                }
-                for r in rows
-            ],
-        }
-    finally:
-        conn.close()
+    return analytics_frequent_questions(
+        days=days, limit=limit, tenant_id=scoped_tenant_id(current_admin),
+    )
 
 
 @router.get("/analytics/overview")
@@ -433,51 +247,7 @@ def get_analytics_overview(
     days: int = Query(7, ge=1, le=90),
     current_admin: dict = Depends(get_current_admin),
 ):
-    chat_params: list = [f"-{days} days"]
-    chat_tenant = _tenant_clause(current_admin, "tenant_id", chat_params)
-    log_params: list = [f"-{days} days"]
-    log_tenant = _tenant_clause(current_admin, "tenant_id", log_params)
-    conn = get_db()
-    try:
-        total_messages = conn.execute(
-            f"""SELECT COUNT(*) as cnt FROM chat_history
-               WHERE created_at >= DATE('now', ?) {chat_tenant}""",
-            chat_params,
-        ).fetchone()["cnt"]
-
-        user_params: list = [f"-{days} days"]
-        user_tenant = _tenant_clause(current_admin, "tenant_id", user_params)
-        unique_users = conn.execute(
-            f"""SELECT COUNT(DISTINCT wa_id) as cnt FROM chat_history
-               WHERE created_at >= DATE('now', ?) {user_tenant}""",
-            user_params,
-        ).fetchone()["cnt"]
-
-        avg_response = conn.execute(
-            f"""SELECT AVG(response_time_ms) as avg_ms FROM webhook_logs
-               WHERE direction = 'outgoing' AND response_time_ms IS NOT NULL
-                 AND created_at >= DATE('now', ?) {log_tenant}""",
-            log_params,
-        ).fetchone()["avg_ms"]
-
-        route_params: list = [f"-{days} days"]
-        route_tenant = _tenant_clause(current_admin, "tenant_id", route_params)
-        route_breakdown = conn.execute(
-            f"""SELECT route, COUNT(*) as count FROM chat_history
-               WHERE created_at >= DATE('now', ?) {route_tenant}
-               GROUP BY route""",
-            route_params,
-        ).fetchall()
-
-        return {
-            "days": days,
-            "total_messages": total_messages,
-            "unique_users": unique_users,
-            "avg_response_ms": round(avg_response, 1) if avg_response else 0,
-            "route_breakdown": [dict(r) for r in route_breakdown],
-        }
-    finally:
-        conn.close()
+    return analytics_overview(days=days, tenant_id=scoped_tenant_id(current_admin))
 
 
 # ── Top questions ─────────────────────────────────────────────────────────
@@ -488,32 +258,9 @@ def get_top_questions(
     limit: int = Query(10, ge=1, le=50),
     current_admin: dict = Depends(get_current_admin),
 ):
-    params: list = [f"-{days} days"]
-    tenant_sql = _tenant_clause(current_admin, "tenant_id", params)
-    params.append(limit)
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""SELECT message, COUNT(*) as count
-               FROM chat_history
-               WHERE created_at >= DATE('now', ?)
-                 {tenant_sql}
-               GROUP BY LOWER(message)
-               ORDER BY count DESC
-               LIMIT ?""",
-            params,
-        ).fetchall()
-        total = sum(r["count"] for r in rows)
-        return {
-            "days": days,
-            "total": total,
-            "questions": [
-                {"query": r["message"], "count": r["count"]}
-                for r in rows
-            ],
-        }
-    finally:
-        conn.close()
+    return analytics_top_questions(
+        days=days, limit=limit, tenant_id=scoped_tenant_id(current_admin),
+    )
 
 
 class UnansweredToFAQ(BaseModel):
@@ -543,19 +290,13 @@ def convert_unanswered_to_faq(
     if scope and target_tenant != scope:
         raise HTTPException(status_code=403, detail=f"Admin is scoped to tenant '{scope}'")
 
-    content = f"Q: {query}\nA: {answer}"
-    conn = get_db()
-    try:
-        cur = conn.execute(
-            "INSERT INTO faq_dataset (source_file, content_type, content, page_number, module, tenant_id) "
-            "VALUES (?, ?, ?, 1, ?, ?)",
-            (f"admin_unanswered_{current_admin.get('username', 'admin')}", "text",
-             content, body.module.strip() or "faq", body.tenant_id.strip() or "default"),
-        )
-        conn.commit()
-        row_id = cur.lastrowid
-    finally:
-        conn.close()
+    row_id = convert_unanswered_to_faq(
+        query=query,
+        answer=answer,
+        module=body.module.strip() or "faq",
+        tenant_id=target_tenant,
+        source_file=f"admin_unanswered_{current_admin.get('username', 'admin')}",
+    )
     logger.info(
         "UNANSWERED_CONVERTED_TO_FAQ | admin=%s | tenant=%s | faq_id=%s",
         current_admin.get("username"), body.tenant_id, row_id)
@@ -575,38 +316,9 @@ def get_unanswered_queries(
     limit: int = Query(20, ge=1, le=100),
     current_admin: dict = Depends(get_current_admin),
 ):
-    conn = get_db()
-    try:
-        keywords = ("i don't know", "i do not know", "sorry", "unable to find", "couldn't find", "no answer", "not available", "don't have that information")
-        params: list = [f"-{days} days"]
-        tenant_sql = _tenant_clause(current_admin, "tenant_id", params)
-        params.extend([f"%{keywords[0]}%", limit])
-        rows = conn.execute(
-            f"""SELECT message, response, COUNT(*) as count, MAX(created_at) as last_asked
-               FROM chat_history
-               WHERE created_at >= DATE('now', ?)
-                 {tenant_sql}
-                 AND LOWER(response) LIKE ?
-               GROUP BY LOWER(message)
-               ORDER BY count DESC, last_asked DESC
-               LIMIT ?""",
-            params,
-        ).fetchall()
-        return {
-            "days": days,
-            "total": len(rows),
-            "queries": [
-                {
-                    "query": r["message"],
-                    "response": r["response"],
-                    "count": r["count"],
-                    "last_asked": r["last_asked"],
-                }
-                for r in rows
-            ],
-        }
-    finally:
-        conn.close()
+    return analytics_unanswered(
+        days=days, limit=limit, tenant_id=scoped_tenant_id(current_admin),
+    )
 
 
 # ── File management ───────────────────────────────────────────────────────
@@ -1118,27 +830,13 @@ def get_chat_history_api(
     search: str = Query(None),
     current_admin: dict = Depends(require_permission("chat_history")),
 ):
-    conn = get_db()
-    try:
-        if from_date and to_date:
-            query = """SELECT ch.*
-                       FROM chat_history ch
-                       WHERE ch.created_at >= ? AND ch.created_at <= ?"""
-            params = [from_date, to_date + " 23:59:59"]
-        else:
-            query = """SELECT ch.*
-                       FROM chat_history ch
-                       WHERE ch.created_at >= DATE('now', ?)"""
-            params = [f"-{days} days"]
-        query += _tenant_clause(current_admin, "ch.tenant_id", params)
-        if search:
-            query += " AND (ch.wa_id LIKE ? OR ch.sender_name LIKE ? OR ch.message LIKE ? OR ch.response LIKE ?)"
-            params.extend([f"%{search}%"] * 4)
-        query += " ORDER BY ch.created_at DESC LIMIT 500"
-        rows = conn.execute(query, params).fetchall()
-        return {"history": [dict(r) for r in rows]}
-    finally:
-        conn.close()
+    return admin_chat_history(
+        days=days,
+        from_date=from_date,
+        to_date=to_date,
+        search=search,
+        tenant_id=scoped_tenant_id(current_admin),
+    )
 
 
 # ── Products / Catalogue ──────────────────────────────────────────────────
@@ -1459,8 +1157,7 @@ def set_menu_settings_api(
         raise HTTPException(status_code=400, detail="No valid settings fields supplied")
     after = get_menu_settings(menu_key)
     changed = {key: {"before": before.get(key), "after": after.get(key)} for key in data if before.get(key) != after.get(key)}
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_settings_updated", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"changed_fields": sorted(changed), "changes": changed})
+    _record_audit(action="menu_settings_updated", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"changed_fields": sorted(changed), "changes": changed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "settings": after}
 
@@ -1534,8 +1231,7 @@ def update_menu_item_api(
         if effective["is_default"]:
             upsert_menu_item(menu_key, item_id, is_active=False)
         upsert_menu_item(menu_key, new_item_id, **merged)
-        with get_db_context() as conn:
-            record_admin_audit_event(conn, action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{new_item_id}", details={"menu_key": menu_key, "item_id": new_item_id, "renamed_from": item_id, "changed_fields": ["item_id", "title", "description", "section", "icon", "sort_order", "is_active"]})
+        _record_audit(action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{new_item_id}", details={"menu_key": menu_key, "item_id": new_item_id, "renamed_from": item_id, "changed_fields": ["item_id", "title", "description", "section", "icon", "sort_order", "is_active"]})
         invalidate_menu_cache()
         return {"ok": True, "menu_key": menu_key, "item_id": new_item_id, "renamed_from": item_id}
 
@@ -1550,8 +1246,7 @@ def update_menu_item_api(
     changed = {key: {"before": effective.get(key), "after": value} for key, value in fields.items() if effective.get(key) != value}
     upsert_menu_item(menu_key, item_id, **fields)
     if changed:
-        with get_db_context() as conn:
-            record_admin_audit_event(conn, action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "changed_fields": sorted(changed), "changes": changed})
+        _record_audit(action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "changed_fields": sorted(changed), "changes": changed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "item_id": item_id}
 
@@ -1594,8 +1289,7 @@ def create_menu_item_api(
     )
     if not ok:
         raise HTTPException(status_code=400, detail="Could not create menu item")
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_item_created", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": title[:120], "section": str(data.get("section", "General"))[:80]})
+    _record_audit(action="menu_item_created", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": title[:120], "section": str(data.get("section", "General"))[:80]})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "item_id": item_id}
 
@@ -1631,8 +1325,7 @@ def reorder_menu_items_api(
     for idx, iid in enumerate(item_ids):
         if upsert_menu_item(menu_key, str(iid).strip(), sort_order=idx):
             applied += 1
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_reordered", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "item_count": applied, "item_ids": [str(i)[:80] for i in item_ids[:100]]})
+    _record_audit(action="menu_reordered", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "item_count": applied, "item_ids": [str(i)[:80] for i in item_ids[:100]]})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "reordered": applied}
 
@@ -1666,8 +1359,7 @@ def delete_menu_item_api(
 
     if effective["is_default"]:
         upsert_menu_item(menu_key, item_id, is_active=False)
-        with get_db_context() as conn:
-            record_admin_audit_event(conn, action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": True})
+        _record_audit(action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": True})
         invalidate_menu_cache()
         return {"ok": True, "menu_key": menu_key, "item_id": item_id, "hidden": True}
 
@@ -1685,8 +1377,7 @@ def delete_menu_item_api(
     invalidate_menu_cache()
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": False})
+    _record_audit(action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": False})
     return {"ok": True, "menu_key": menu_key, "item_id": item_id, "hidden": False}
 
 
@@ -1703,8 +1394,7 @@ def reset_menu_api(menu_key: str, request: Request, current_admin: dict = Depend
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
     removed = reset_menu(menu_key)
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_reset", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "removed_count": removed})
+    _record_audit(action="menu_reset", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "removed_count": removed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "removed": removed}
 
@@ -1755,12 +1445,8 @@ async def get_brochure(brochure_id: int):
     service = BrochureService()
     
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT * FROM admin_files WHERE id = ?", (brochure_id,)
-            ).fetchone()
-            
-            if row:
+        row = get_admin_file_row(brochure_id)
+        if row:
                 brochure = service.Brochure(
                     file_id=row["id"],
                     tenant_id=row["tenant_id"] or "",
@@ -1799,27 +1485,23 @@ async def get_brochure(brochure_id: int):
 async def delete_brochure(brochure_id: int, current_admin: dict = Depends(get_current_admin)):
     """Delete a specific brochure."""
     try:
-        with get_db_context() as conn:
-            # Get brochure info first for audit
-            row = conn.execute(
-                "SELECT * FROM admin_files WHERE id = ?", (brochure_id,)
-            ).fetchone()
-            
-            if not row:
-                return {"ok": False, "error": f"Brochure {brochure_id} not found"}
-            
-            # Delete the brochure
-            conn.execute("DELETE FROM admin_files WHERE id = ?", (brochure_id,))
-            
-            # Record audit event
-            record_admin_audit_event(
-                conn, 
-                action="brochure_delete", 
-                actor=current_admin, 
-                resource_type="brochure", 
-                resource_id=brochure_id,
-                details={"filename": row.get("name", "Unknown"), "module": row.get("module", "unknown")}
-            )
+        row = get_admin_file_row(brochure_id)
+        if not row:
+            return {"ok": False, "error": f"Brochure {brochure_id} not found"}
+        if not delete_admin_file_row(brochure_id):
+            return {"ok": False, "error": f"Brochure {brochure_id} not found"}
+        audit = dict(
+            action="brochure_delete",
+            actor=current_admin,
+            resource_type="brochure",
+            resource_id=brochure_id,
+            details={"filename": row.get("name", "Unknown"), "module": row.get("module", "unknown")},
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **audit)
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **audit)
         
         return {"ok": True, "deleted": brochure_id}
         
@@ -1908,20 +1590,18 @@ async def upload_brochure(
         )
         
         # Record audit event
-        with get_db_context() as conn:
-            record_admin_audit_event(
-                conn,
-                action="brochure_upload",
-                actor=current_admin,
-                resource_type="brochure",
-                resource_id=filename,
-                details={
-                    "filename": filename,
-                    "module": module,
-                    "size": len(content),
-                    "metadata": metadata
-                }
-            )
+        _record_audit(
+            action="brochure_upload",
+            actor=current_admin,
+            resource_type="brochure",
+            resource_id=filename,
+            details={
+                "filename": filename,
+                "module": module,
+                "size": len(content),
+                "metadata": metadata,
+            },
+        )
         
         return {
             "ok": True,

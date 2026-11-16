@@ -129,9 +129,11 @@ def start_crawl(
     )
 
     try:
-        with get_db_context() as conn:
+        from db.core import use_mongodb
+
+        if use_mongodb():
             record_admin_audit_event(
-                conn,
+                None,
                 action="crawl_run_queued",
                 actor=principal,
                 resource_type="crawl_run",
@@ -139,6 +141,17 @@ def start_crawl(
                 tenant_id=tenant_id,
                 details={"url": url[:200], "max_pages": body.max_pages},
             )
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(
+                    conn,
+                    action="crawl_run_queued",
+                    actor=principal,
+                    resource_type="crawl_run",
+                    resource_id=str(run["id"]),
+                    tenant_id=tenant_id,
+                    details={"url": url[:200], "max_pages": body.max_pages},
+                )
     except Exception:
         logger.exception("AUDIT_EVENT_RECORD_FAILED | action=crawl_run_queued")
 

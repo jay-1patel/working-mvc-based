@@ -1,7 +1,6 @@
 ﻿"""B2B business logic.
 
-All database access goes through the existing shared ``get_db_context()``
-context manager. No new connection pools or API clients are created here.
+Database access uses shared ``database`` / ``db.mongo`` helpers (MongoDB-only).
 """
 
 import json
@@ -11,9 +10,9 @@ from datetime import datetime, timedelta
 logger = logging.getLogger("b2b_tools")
 
 
-def _db():
-    from database import get_db_context
-    return get_db_context()
+def _repo(name: str):
+    from db.mongo import Repository
+    return Repository(name)
 
 
 def _now_str():
@@ -25,10 +24,8 @@ def _now_str():
 def get_distributor_profile(wa_id: str) -> dict:
     """Return the distributor's profile row as a dict (or {} if unknown)."""
     try:
-        with _db() as conn:
-            row = conn.execute(
-                "SELECT * FROM distributors WHERE wa_id = ?", (wa_id,)
-            ).fetchone()
+        from db.distributors_ops import get_distributor_by_wa_id
+        row = get_distributor_by_wa_id(wa_id)
         if row is None:
             return {}
         d = dict(row)
@@ -53,14 +50,10 @@ def get_distributor_tier(wa_id: str) -> str:
 def get_outstanding_balance(wa_id: str) -> float:
     """Return the distributor's current outstanding payment balance."""
     try:
-        with _db() as conn:
-            row = conn.execute(
-                "SELECT outstanding_payments FROM distributors WHERE wa_id = ?",
-                (wa_id,),
-            ).fetchone()
-        if row is None:
+        profile = get_distributor_profile(wa_id)
+        if not profile:
             return 0.0
-        return float(row[0] or 0.0)
+        return float(profile.get("outstanding_payments") or 0.0)
     except Exception as e:
         logger.error(f"get_outstanding_balance failed for {wa_id}: {e}")
         return 0.0
@@ -290,13 +283,7 @@ def _lead_time(wa_id: str) -> int:
 def get_order_status(order_id: str) -> dict:
     """Query the orders table for the status of a given order."""
     try:
-        with _db() as conn:
-            row = conn.execute(
-                "SELECT order_number, status, payment_status, total_amount, "
-                "tier, discount_applied, delivery_date, created_at "
-                "FROM orders WHERE order_number = ?",
-                (order_id,),
-            ).fetchone()
+        row = _repo("orders").find_one({"order_number": order_id})
         if row is None:
             return {}
         return dict(row)
@@ -308,13 +295,11 @@ def get_order_status(order_id: str) -> dict:
 def get_distributor_orders(wa_id: str, limit: int = 10) -> list:
     """Return the distributor's most recent orders."""
     try:
-        with _db() as conn:
-            rows = conn.execute(
-                "SELECT order_number, total_amount, status, payment_status, "
-                "tier, delivery_date, created_at FROM orders "
-                "WHERE wa_id = ? ORDER BY id DESC LIMIT ?",
-                (wa_id, limit),
-            ).fetchall()
+        rows = _repo("orders").find(
+            {"wa_id": wa_id},
+            sort=[("id", -1)],
+            limit=limit,
+        )
         return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"get_distributor_orders failed for {wa_id}: {e}")
@@ -342,16 +327,18 @@ def create_ticket(wa_id: str, category: str, subject: str, details: str,
     ticket_id = f"TICK-{seq}"
     now = _now_str()
 
-    with _db() as conn:
-        conn.execute(
-            "INSERT INTO complaints (ticket_id, wa_id, complaint_type, description, "
-            "status, priority, assigned_to, subject, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                ticket_id, wa_id, category or "Other", details or "",
-                "open", priority or "normal", assigned_to, subject or category, now,
-            ),
-        )
+    _repo("complaints").insert({
+        "ticket_id": ticket_id,
+        "wa_id": wa_id,
+        "complaint_type": category or "Other",
+        "description": details or "",
+        "status": "open",
+        "priority": priority or "normal",
+        "assigned_to": assigned_to,
+        "subject": subject or category,
+        "updated_at": now,
+        "created_at": now,
+    })
     logger.info(f"create_ticket | wa_id={wa_id} | ticket={ticket_id} | cat={category} | pri={priority}")
     return ticket_id
 
@@ -374,35 +361,40 @@ def get_latest_price_list(category: str = None) -> list:
     override exists in ``latest_price_list``.
     """
     try:
-        with _db() as conn:
-            if category:
-                rows = conn.execute(
-                    """SELECT p.id, p.name, p.category, p.unit,
-                              COALESCE(lpl.price, p.price) AS price,
-                              lpl.effective_from, lpl.effective_to, lpl.notes
-                         FROM products p
-                         LEFT JOIN latest_price_list lpl
-                           ON lpl.product_id = p.id
-                          AND (lpl.effective_to IS NULL OR lpl.effective_to >= DATE('now'))
-                          AND lpl.effective_from <= DATE('now')
-                        WHERE p.is_active = 1 AND lower(p.category) = lower(?)
-                        ORDER BY p.sort_order ASC, p.id ASC""",
-                    (category,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT p.id, p.name, p.category, p.unit,
-                              COALESCE(lpl.price, p.price) AS price,
-                              lpl.effective_from, lpl.effective_to, lpl.notes
-                         FROM products p
-                         LEFT JOIN latest_price_list lpl
-                           ON lpl.product_id = p.id
-                          AND (lpl.effective_to IS NULL OR lpl.effective_to >= DATE('now'))
-                          AND lpl.effective_from <= DATE('now')
-                        WHERE p.is_active = 1
-                        ORDER BY p.sort_order ASC, p.id ASC"""
-                ).fetchall()
-        return [dict(r) for r in rows]
+        from database import list_products
+
+        products = list_products(category=category, active_only=True, limit=500)
+        price_overrides = {
+            int(r["product_id"]): r
+            for r in _repo("latest_price_list").find_all({}, limit=None)
+            if r.get("product_id") is not None
+        }
+        now = datetime.utcnow().date()
+        rows = []
+        for p in products:
+            pid = int(p.get("id") or 0)
+            price = p.get("price")
+            lpl = price_overrides.get(pid)
+            if lpl:
+                eff_to = lpl.get("effective_to")
+                eff_from = lpl.get("effective_from")
+                if eff_to and str(eff_to)[:10] < str(now):
+                    lpl = None
+                elif eff_from and str(eff_from)[:10] > str(now):
+                    lpl = None
+                if lpl and lpl.get("price") is not None:
+                    price = lpl.get("price")
+            rows.append({
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "category": p.get("category"),
+                "unit": p.get("unit"),
+                "price": price,
+                "effective_from": (lpl or {}).get("effective_from"),
+                "effective_to": (lpl or {}).get("effective_to"),
+                "notes": (lpl or {}).get("notes"),
+            })
+        return rows
     except Exception as e:
         logger.error(f"get_latest_price_list failed: {e}")
         return []
@@ -411,16 +403,18 @@ def get_latest_price_list(category: str = None) -> list:
 def get_active_schemes() -> list:
     """Return currently active schemes/offers (within valid_from..valid_to)."""
     try:
-        with _db() as conn:
-            rows = conn.execute(
-                """SELECT id, title, description, valid_from, valid_to
-                     FROM schemes_offers
-                    WHERE active = 1
-                      AND (valid_to IS NULL OR valid_to >= DATE('now'))
-                      AND valid_from <= DATE('now')
-                    ORDER BY id DESC"""
-            ).fetchall()
-        return [dict(r) for r in rows]
+        today = datetime.utcnow().date()
+        schemes = []
+        for row in _repo("schemes_offers").find_all({"active": {"$in": [1, True]}}, limit=None):
+            vf = row.get("valid_from")
+            vt = row.get("valid_to")
+            if vf and str(vf)[:10] > str(today):
+                continue
+            if vt and str(vt)[:10] < str(today):
+                continue
+            schemes.append(dict(row))
+        schemes.sort(key=lambda r: int(r.get("id") or 0), reverse=True)
+        return schemes
     except Exception as e:
         logger.error(f"get_active_schemes failed: {e}")
         return []
@@ -442,14 +436,15 @@ def record_payment_confirmation(
             tenant = resolve_tenant_for_user(wa_id)
         except Exception:
             tenant = None
-        with _db() as conn:
-            cur = conn.execute(
-                """INSERT INTO payment_confirmations
-                    (wa_id, amount, utr_txn_id, order_number, notes, tenant_id)
-                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (wa_id, float(amount or 0), utr_txn_id or "", order_number or "", notes or "", tenant),
-            )
-            new_id = cur.lastrowid
+        row = _repo("payment_confirmations").insert({
+            "wa_id": wa_id,
+            "amount": float(amount or 0),
+            "utr_txn_id": utr_txn_id or "",
+            "order_number": order_number or "",
+            "notes": notes or "",
+            "tenant_id": tenant,
+        })
+        new_id = row.get("id")
         logger.info(
             f"record_payment_confirmation | wa_id={wa_id} | amount={amount} "
             f"| utr={utr_txn_id} | order={order_number} | id={new_id}"
@@ -467,32 +462,28 @@ def record_invoice_request(wa_id: str, order_number: str, notes: str = "") -> in
     Returns 0 if the order is invalid.
     """
     try:
-        with _db() as conn:
-            order = conn.execute(
-                "SELECT wa_id FROM orders WHERE order_number = ?", (order_number,)
-            ).fetchone()
-            if order is None:
-                logger.info(f"record_invoice_request | unknown order {order_number}")
-                return 0
-            if order["wa_id"] and order["wa_id"] != wa_id:
-                logger.info(
-                    f"record_invoice_request | wa_id mismatch for {order_number} "
-                    f"(req={wa_id} owner={order['wa_id']})"
-                )
-                return -1  # exists but not theirs
-            # Tenancy: same per-conversation resolution as payment rows.
-            try:
-                from shared.tenancy.resolver import resolve_tenant_for_user
-                tenant = resolve_tenant_for_user(wa_id)
-            except Exception:
-                tenant = None
-            cur = conn.execute(
-                """INSERT INTO invoice_requests
-                    (wa_id, order_number, notes, tenant_id)
-                    VALUES (?, ?, ?, ?)""",
-                (wa_id, order_number, notes or "", tenant),
+        order = _repo("orders").find_one({"order_number": order_number})
+        if order is None:
+            logger.info(f"record_invoice_request | unknown order {order_number}")
+            return 0
+        if order.get("wa_id") and order.get("wa_id") != wa_id:
+            logger.info(
+                f"record_invoice_request | wa_id mismatch for {order_number} "
+                f"(req={wa_id} owner={order.get('wa_id')})"
             )
-            new_id = cur.lastrowid
+            return -1  # exists but not theirs
+        try:
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            tenant = resolve_tenant_for_user(wa_id)
+        except Exception:
+            tenant = None
+        row = _repo("invoice_requests").insert({
+            "wa_id": wa_id,
+            "order_number": order_number,
+            "notes": notes or "",
+            "tenant_id": tenant,
+        })
+        new_id = row.get("id")
         logger.info(
             f"record_invoice_request | wa_id={wa_id} | order={order_number} | id={new_id}"
         )

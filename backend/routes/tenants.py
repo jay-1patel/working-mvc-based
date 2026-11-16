@@ -24,7 +24,8 @@ enforces token.tenant_id == target (Phase 0.5).
 import logging
 import re
 import secrets
-import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -32,6 +33,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 
 from database import get_db_context, record_admin_audit_event
+from db.core import use_mongodb
 from database import (
     delete_crawl_schedule,
     get_crawl_schedule,
@@ -59,24 +61,35 @@ logger = logging.getLogger("tenants")
 router = APIRouter(prefix="/api/admin/tenants", tags=["tenants"])
 
 
+@contextmanager
+def _with_conn():
+    """No SQL connection — MongoDB-only."""
+    yield None
+
+
 def _backfill_domain(conn, tenant_id: str, website: str, only_if_empty: bool = False) -> None:
     """Record the tenant's website on the registry row.
 
     A convenience column only — the bot reads the website from the profile
-    snapshot, never from this — so it must never reject the save. Deployments
-    that started before the `domain` migration ran have no such column, and an
-    uncaught sqlite3.OperationalError there 500s the whole PUT. The error is
-    raised at execute time and leaves the surrounding transaction usable.
+    snapshot, never from this — so it must never reject the save.
     """
     website = (website or "").strip()
     if not website:
         return
-    sql = "UPDATE tenants SET domain = ? WHERE (id = ? OR slug = ?)"
-    if only_if_empty:
-        sql += " AND (domain IS NULL OR domain = '')"
+    from db.mongo import Repository
+
+    repo = Repository("tenants")
+    row = repo.find_one({"$or": [{"id": tenant_id}, {"slug": tenant_id}]})
+    if not row:
+        return
+    if only_if_empty and str(row.get("domain") or "").strip():
+        return
     try:
-        conn.execute(sql, (website, tenant_id, tenant_id))
-    except sqlite3.OperationalError as exc:
+        repo.update(
+            {"id": row["id"]},
+            {"domain": website, "updated_at": datetime.now(timezone.utc)},
+        )
+    except Exception as exc:
         logger.warning("domain backfill skipped for %s: %s", tenant_id, exc)
 
 
@@ -203,7 +216,15 @@ def _public_tenant(record: dict) -> dict:
 def _latest_test_wa_id() -> Optional[str]:
     """Most recent real WhatsApp number from chat history (skip simulator ids)."""
     try:
-        with get_db_context() as conn:
+        if use_mongodb():
+            from db.mongo import Repository
+
+            for row in Repository("chat_history").find_all(sort=[("id", -1)], limit=500):
+                wa_id = str(row.get("wa_id") or "").strip()
+                if wa_id.isdigit() and len(wa_id) >= 10:
+                    return wa_id
+            return None
+        with _with_conn() as conn:
             row = conn.execute(
                 """
                 SELECT wa_id FROM chat_history
@@ -446,7 +467,7 @@ def create_tenant(
         raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}")
 
     website_clean = (body.website or "").strip()
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         if tenancy_store.find_registry_conflict(tid, slug):
             raise HTTPException(status_code=409, detail=f"tenant '{tid}' already exists")
         clash = tenancy_store.find_tenant_by_mobile(body.mobile_number)
@@ -514,7 +535,7 @@ def delete_tenant(
     tenant_snapshot = tenancy_store.get_tenant(tenant_id)
     if not tenant_snapshot:
         raise HTTPException(status_code=404, detail="tenant not found")
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         purge = tenancy_store.purge_tenant_data(
             tenant_id,
             conn=conn,
@@ -658,7 +679,7 @@ def save_profile_draft(    tenant_id: str,
     by = principal.get("username") or principal.get("label", "")
     draft = tenancy_store.get_draft(tenant_id) or {}
     merged = merge_drafts(draft, body.snapshot)
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
         _backfill_domain(conn, tenant_id, (body.snapshot.get("brand") or {}).get("website") or "", only_if_empty=True)
         if principal.get("type") == "admin":
@@ -801,7 +822,7 @@ def save_intent_draft(
     by = principal.get("username") or principal.get("label", "")
     draft = tenancy_store.get_draft(tenant_id) or {}
     merged = deep_merge(draft, {"intents": [override]})
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
         # Intent drafts have no brand.snapshot — do not call _backfill_domain here.
         if principal.get("type") == "admin":
@@ -917,7 +938,7 @@ def set_tenant_crawl_schedule(
         auto_publish=False,  # gated pipeline — never auto-publish
         is_enabled=body.is_enabled,
     )
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         record_admin_audit_event(
             conn,
             action="crawl_schedule_saved",
@@ -938,7 +959,7 @@ def remove_tenant_crawl_schedule(
     deleted = delete_crawl_schedule(tenant_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="No crawl schedule exists for this tenant")
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         record_admin_audit_event(
             conn,
             action="crawl_schedule_deleted",
@@ -1032,7 +1053,7 @@ def publish_profile(
         )
 
     by = principal.get("username") or principal.get("label", "")
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         version = tenancy_store.publish_version(tenant_id, draft, published_by=by, conn=conn)
         if principal.get("type") == "admin":
             record_admin_audit_event(
@@ -1113,7 +1134,7 @@ def rollback_profile(
     principal: dict = Depends(require_tenant_access()),
 ):
     """Re-point is_current at an earlier version. Nothing is deleted."""
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         if not tenancy_store.rollback(tenant_id, body.version, conn=conn):
             raise HTTPException(status_code=404, detail=f"version {body.version} not found")
         if principal.get("type") == "admin":
@@ -1155,7 +1176,7 @@ def bind_phone(
         phone_id = tenancy_store.normalize_waba_phone_id(phone_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         if not tenancy_store.set_waba_phone_id(tenant_id, phone_id, conn=conn):
             raise HTTPException(
                 status_code=409,
@@ -1187,7 +1208,7 @@ def bind_mobile(
         mobile = tenancy_store.normalize_mobile_number(body.mobile_number)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         if not tenancy_store.set_mobile_number(tenant_id, mobile, conn=conn):
             raise HTTPException(
                 status_code=409,
@@ -1213,15 +1234,18 @@ def set_webhook_secret(
 ):
     """Per-tenant HMAC secret for outbound CRM webhooks."""
     _admin_only(principal)
-    with get_db_context() as conn:
-        cur = conn.execute(
-            "UPDATE tenants SET webhook_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (body.secret, tenant_id),
-        )
-        if cur.rowcount == 0:
+    if use_mongodb():
+        from db.mongo import Repository
+
+        repo = Repository("tenants")
+        if not repo.find_one({"id": tenant_id}):
             raise HTTPException(status_code=404, detail="tenant not found")
+        repo.update(
+            {"id": tenant_id},
+            {"webhook_secret": body.secret, "updated_at": datetime.now(timezone.utc)},
+        )
         record_admin_audit_event(
-            conn,
+            None,
             action="tenant_webhook_secret_configured",
             actor=principal,
             resource_type="tenant",
@@ -1229,6 +1253,23 @@ def set_webhook_secret(
             tenant_id=tenant_id,
             details={"configured": True},
         )
+    else:
+        with _with_conn() as conn:
+            cur = conn.execute(
+                "UPDATE tenants SET webhook_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (body.secret, tenant_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="tenant not found")
+            record_admin_audit_event(
+                conn,
+                action="tenant_webhook_secret_configured",
+                actor=principal,
+                resource_type="tenant",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={"configured": True},
+            )
     logger.info("TENANT_WEBHOOK_SECRET_SET | tenant=%s | by=%s",
                 tenant_id, principal.get("username"))
     return {"ok": True, "tenant_id": tenant_id, "configured": True}
@@ -1250,7 +1291,7 @@ def create_token(
     if not tenancy_store.get_tenant(tenant_id):
         raise HTTPException(status_code=404, detail="tenant not found")
     raw = secrets.token_urlsafe(40)
-    with get_db_context() as conn:
+    with _with_conn() as conn:
         token_id = tenancy_store.create_tenant_token(
             tenant_id, hash_tenant_token(raw), label=body.label, created_by=by, conn=conn
         )
@@ -1286,15 +1327,16 @@ def revoke_token(
     principal: dict = Depends(require_tenant_access()),
 ):
     _admin_only(principal)
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT id, label FROM tenant_tokens WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL",
-            (token_id, tenant_id),
-        ).fetchone()
-        if not row or not tenancy_store.revoke_tenant_token(token_id, conn=conn):
+    if use_mongodb():
+        from db.mongo import Repository
+
+        row = Repository("tenant_tokens").find_one(
+            {"id": int(token_id), "tenant_id": tenant_id, "revoked_at": None}
+        )
+        if not row or not tenancy_store.revoke_tenant_token(token_id):
             raise HTTPException(status_code=404, detail="token not found or already revoked")
         record_admin_audit_event(
-            conn,
+            None,
             action="tenant_token_revoked",
             actor=principal,
             resource_type="tenant_token",
@@ -1302,6 +1344,23 @@ def revoke_token(
             tenant_id=tenant_id,
             details={},
         )
+    else:
+        with _with_conn() as conn:
+            row = conn.execute(
+                "SELECT id, label FROM tenant_tokens WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL",
+                (token_id, tenant_id),
+            ).fetchone()
+            if not row or not tenancy_store.revoke_tenant_token(token_id, conn=conn):
+                raise HTTPException(status_code=404, detail="token not found or already revoked")
+            record_admin_audit_event(
+                conn,
+                action="tenant_token_revoked",
+                actor=principal,
+                resource_type="tenant_token",
+                resource_id=token_id,
+                tenant_id=tenant_id,
+                details={},
+            )
     return {"ok": True, "id": token_id}
 
 

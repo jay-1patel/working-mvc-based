@@ -1,0 +1,99 @@
+{"case": "first_admin_call", "ts": 1794806894.8080187, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794806894.841738, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794806894.8701682, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_652e5c7b\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794806894.9185557, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_e68c5619\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794806894.9644496, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_1ff70475\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794806894.999681, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794806896.0953014, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794806896.1271214, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794806896.1429288, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794806988.546033, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794806988.593096, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794806988.6250837, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_a935ebfa\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794806988.6759312, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_d3553ca2\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794806988.7206762, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_e800aa4f\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794806988.770886, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794806989.7553957, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794806989.80097, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794806989.8172345, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807078.2624118, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807078.3206046, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807078.3489792, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_a3d49097\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807078.3989847, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_97cb66e2\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807078.432998, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_79610a1e\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807078.4761171, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807079.4761038, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807079.5057592, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807079.514522, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807165.3853452, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807165.4174907, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807165.4488888, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_ec478ae3\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807165.512384, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_a0d81826\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807165.5602345, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_6006e290\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807165.592074, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807166.7034647, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807166.7192976, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807166.7192976, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807421.4737508, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807421.505058, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807421.5196412, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_7154b038\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807421.5666323, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_cde88679\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807421.5830488, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_be4be828\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807421.6151102, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807422.3597796, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807422.3756275, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807422.391478, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807467.4039173, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807467.4271944, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807467.483343, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_1a618113\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807467.5282264, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_cca06b25\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807467.593072, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_19d3eedd\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807467.627805, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807468.7014341, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807468.7660866, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807468.7712994, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807577.1393137, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807577.167268, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807577.1961024, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_5854c7ee\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807577.2292671, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_e7632133\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807577.2472854, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_53b2fc47\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807577.2715952, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807577.8945396, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807577.910208, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807577.9176002, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807642.0036328, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807642.0201633, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807642.0360177, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_5959b657\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807642.0666347, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_69152c64\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807642.0807116, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_1d40010c\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807642.091713, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807642.5817494, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807642.5941477, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807642.6201692, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807785.8726256, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807785.9006438, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807785.9356534, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_970a0b96\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807785.952619, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_df2c46b9\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807785.9676304, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_a864afcd\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807785.9956138, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807786.6874182, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807786.702546, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807786.7231874, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807854.2008786, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807854.2297053, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807854.2463377, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_c6ee6e2a\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807854.2796583, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_37eea8a0\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807854.2941177, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_5ba88cf1\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807854.3063347, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807854.883894, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807854.9122357, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807854.91976, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}
+{"case": "first_admin_call", "ts": 1794807929.8379607, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "first_admin_second", "ts": 1794807929.8568811, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_empty", "ts": 1794807929.876313, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_acfb256e\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_sqli", "ts": 1794807929.9120266, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_20356296\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "login_wrong", "ts": 1794807929.9332752, "status": 422, "body": "{\"detail\":[{\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"type\":\"missing\"}],\"request_id\":\"req_c4711348\",\"api\":\"POST /api/auth/login\"}"}
+{"case": "admins_no_auth", "ts": 1794807929.9464478, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "login_rate_limit", "ts": 1794807930.7899046, "codes": [422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422, 422]}
+{"case": "tampered_jwt", "ts": 1794807930.8195689, "status": 401, "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"}
+{"case": "webhook_status_leak", "ts": 1794807930.8478594, "status": 200, "keys": ["webhook_url", "verify_token_set", "api_provider", "send2_config", "routing", "setup"], "has_token": false}

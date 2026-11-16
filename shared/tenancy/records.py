@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
 from typing import Any, Dict, Iterable, List, Optional
 
 logger = logging.getLogger("records")
@@ -242,14 +241,8 @@ def sql_type(col_type: str) -> str:
 # ── DDL ──────────────────────────────────────────────────────────────────
 
 def _supports_drop_column() -> bool:
-    """`ALTER TABLE ... DROP COLUMN` landed in SQLite 3.35.0."""
-    if _mongodb_enabled():
-        return True
-    try:
-        parts = tuple(int(p) for p in sqlite3.sqlite_version.split(".")[:3])
-    except ValueError:  # pragma: no cover - only on a non-numeric build string
-        return False
-    return parts >= (3, 35, 0)
+    """MongoDB document store does not need physical column drops."""
+    return _mongodb_enabled()
 
 
 def existing_columns(conn) -> set:

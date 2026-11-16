@@ -26,8 +26,9 @@ from fastapi.security import HTTPAuthorizationCredentials
 from routing.config import ADMIN_SECRET_KEY
 from database import (
     get_admin_chat_history,
+    get_admin_chat_message_tenant,
     get_all_admins_except,
-    get_db_context,
+    get_chat_last_message,
     save_admin_chat_message,
     soft_delete_message_for_everyone,
     soft_delete_message_for_user,
@@ -171,29 +172,28 @@ def list_tenant_chat_users(
         include_all=is_global_admin,
     )
     result = []
-    with get_db_context() as conn:
-        for admin in admins:
-            cid = make_chat_id(username, admin)
-            row = conn.execute(
-                """SELECT username, message, created_at, attachment_json
-                   FROM admin_chat_messages
-                   WHERE chat_id = ? AND tenant_id = ?
-                   ORDER BY id DESC LIMIT 1""",
-                (cid, tenant_id),
-            ).fetchone()
-            last = None
-            if row:
-                last = {
-                    "username": row["username"],
-                    "message": row["message"],
-                    "created_at": row["created_at"],
-                    "attachment": json.loads(row["attachment_json"]) if row["attachment_json"] else None,
-                }
-            result.append({
-                "username": admin,
-                "chat_id": cid,
-                "last_message": last,
-            })
+    for admin in admins:
+        cid = make_chat_id(username, admin)
+        row = get_chat_last_message(cid, tenant_id=tenant_id)
+        last = None
+        if row:
+            att = row.get("attachment")
+            if att is None and row.get("attachment_json"):
+                try:
+                    att = json.loads(row["attachment_json"])
+                except (TypeError, ValueError):
+                    att = None
+            last = {
+                "username": row.get("username"),
+                "message": row.get("message") or row.get("text"),
+                "created_at": row.get("created_at"),
+                "attachment": att,
+            }
+        result.append({
+            "username": admin,
+            "chat_id": cid,
+            "last_message": last,
+        })
     return {"users": result}
 
 
@@ -241,11 +241,8 @@ def delete_tenant_chat_message(
     msg_id: int,
     principal: dict = Depends(_require("chat")),
 ):
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT tenant_id FROM admin_chat_messages WHERE id = ?", (msg_id,)
-        ).fetchone()
-    if not row or (row["tenant_id"] not in (tenant_id, None)):
+    msg_tenant = get_admin_chat_message_tenant(msg_id)
+    if msg_tenant not in (tenant_id, None):
         raise HTTPException(status_code=404, detail="Message not found for this tenant")
     soft_delete_message_for_everyone(msg_id)
     return {"status": "ok"}

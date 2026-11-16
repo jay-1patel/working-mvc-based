@@ -297,20 +297,12 @@ def build_catalog_summary(user_text: str) -> dict | None:
     media_url = None
     media_type = None
     try:
-        from backend.database import get_db_context, _resolve_tenant_ids
-        t_ids = _resolve_tenant_ids(None)
-        placeholders = ", ".join(["?"] * len(t_ids))
-        with get_db_context() as conn:
-            row = conn.execute(
-                f"SELECT media_url, media_type FROM products "
-                f"WHERE tenant_id IN ({placeholders}) "
-                f"AND category = 'catalogue' AND media_url IS NOT NULL AND is_active = 1 "
-                f"ORDER BY sort_order ASC LIMIT 1",
-                list(t_ids),
-            ).fetchone()
-        if row:
-            media_url = row[0]
-            media_type = row[1]
+        from backend.database import list_products
+        for p in list_products(category="catalogue", active_only=True, limit=50):
+            if p.get("media_url"):
+                media_url = p.get("media_url")
+                media_type = p.get("media_type")
+                break
     except Exception as e:
         logger.debug(f"catalogue PDF lookup failed: {e}")
 
@@ -377,12 +369,8 @@ def _is_distributor(wa_id) -> bool:
     if not wa_id:
         return False
     try:
-        from backend.database import get_db_context
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM distributors WHERE wa_id = ?", (str(wa_id),)
-            ).fetchone()
-            return row is not None
+        from db.distributors_ops import distributor_exists_globally
+        return distributor_exists_globally(str(wa_id))
     except Exception as e:
         logger.warning(f"distributor check failed for {wa_id}: {e}")
         return False

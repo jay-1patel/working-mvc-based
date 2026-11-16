@@ -477,20 +477,26 @@ def _save_faq_pairs(faqs: List[Dict[str, str]], tenant_id: str, source_file: str
         return 0
 
     saved = 0
-    with db.get_db_context() as conn:
-        for f in faqs:
-            q = (f.get("question") or "").strip()
-            a = (f.get("answer") or "").strip()
-            if not q or not a:
-                continue
-            content = f"Q: {q}\nA: {a}"
-            conn.execute(
-                """INSERT INTO faq_dataset (source_file, content_type, content, page_number, module, tenant_id)
-                   VALUES (?, 'qa', ?, ?, 'faq', ?)""",
-                (source_file, content, page_number, t_num),
-            )
-            saved += 1
-    return saved
+    chunks = []
+    for f in faqs:
+        q = (f.get("question") or "").strip()
+        a = (f.get("answer") or "").strip()
+        if not q or not a:
+            continue
+        chunks.append({
+            "source_file": source_file,
+            "content_type": "qa",
+            "content": f"Q: {q}\nA: {a}",
+            "page_number": page_number,
+        })
+    if not chunks:
+        return 0
+    try:
+        from db.chat import save_chunks
+    except ImportError:
+        from backend.db.chat import save_chunks
+    save_chunks(chunks, module="faq", tenant_id=t_num, replace_existing=False)
+    return len(chunks)
 
 
 def _save_kb_chunks(kb_chunks: List[Dict[str, str]], tenant_id: str, source_file: str) -> int:
@@ -502,21 +508,26 @@ def _save_kb_chunks(kb_chunks: List[Dict[str, str]], tenant_id: str, source_file
         logger.error("Refusing KB save without tenant_id for source=%s", source_file)
         return 0
 
-    saved = 0
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with db.get_db_context() as conn:
-        for c in kb_chunks:
-            title = (c.get("title") or source_file).strip()
-            content = (c.get("content") or "").strip()
-            if not content:
-                continue
-            conn.execute(
-                """INSERT INTO knowledge_base (title, category, content, tags, source, chunks_json, created_at, tenant_id)
-                   VALUES (?, 'reference', ?, '[]', ?, ?, ?, ?)""",
-                (title, content, source_file, json.dumps([content]), now_str, t_num),
-            )
-            saved += 1
-    return saved
+    kb_rows = []
+    for c in kb_chunks:
+        title = (c.get("title") or source_file).strip()
+        content = (c.get("content") or "").strip()
+        if not content:
+            continue
+        kb_rows.append({"title": title, "content": content, "source_file": source_file})
+    if not kb_rows:
+        return 0
+    try:
+        from db.chat import save_knowledge_base_chunks
+    except ImportError:
+        from backend.db.chat import save_knowledge_base_chunks
+    save_knowledge_base_chunks(
+        kb_rows,
+        source_file,
+        tenant_id=t_num,
+        replace_existing=False,
+    )
+    return len(kb_rows)
 
 
 # ── Main Entry Point: Bifurcate and Ingest ───────────────────────────────────

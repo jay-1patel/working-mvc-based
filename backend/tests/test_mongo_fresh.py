@@ -17,7 +17,7 @@ class FreshMongoTests(unittest.TestCase):
     def test_all_collections_created_without_importing_data(self):
         with patch.object(self.client.admin,'command',return_value={'isWritablePrimary':True}):
             report=bootstrap(self.database)
-        self.assertEqual(report['application_collections'],76)
+        self.assertEqual(report['application_collections'], len(REGISTRY['tables']))
         self.assertFalse(report['data_imported'])
         self.assertEqual(set(REGISTRY['tables'])-set(self.database.list_collection_names()),set())
         self.assertEqual(sum(self.database[name].count_documents({}) for name in REGISTRY['tables']),0)

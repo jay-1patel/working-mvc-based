@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -20,13 +22,11 @@ from shared.tenancy import store as tenancy_store
 
 class TenantHardDeleteTests(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
         self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "hard_delete.sqlite3")
         self.clients_root = Path(self.temp.name) / "clients"
         self.clients_root.mkdir(parents=True, exist_ok=True)
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
         self.clients_patch = patch("shared.tenancy.paths.CLIENTS_DIR", self.clients_root)
-        self.db_patch.start()
         self.clients_patch.start()
         database.init_db()
 
@@ -75,9 +75,9 @@ class TenantHardDeleteTests(unittest.TestCase):
         (pack / "knowledge").mkdir(exist_ok=True)
 
     def tearDown(self):
-        self.db_patch.stop()
-        self.clients_patch.stop()
+        self.mongo.stop()
         self.temp.cleanup()
+        self.clients_patch.stop()
 
     def test_purge_removes_tenant_scoped_rows_and_disk_keeps_audit(self):
         summary = tenancy_store.purge_tenant_data(self.tid, slug="purge-me")

@@ -20,6 +20,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -44,19 +46,11 @@ PASSWORD = "RootPass123!"
 
 class RolePanelTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "roles.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
-        # The gate environment has no ADMIN_SECRET_KEY configured (the known
-        # baseline gap behind many pre-existing failures); these tests patch
-        # one in so the auth flows can actually sign/verify tokens.
-        self.key_patch = patch.object(auth_routes, "ADMIN_SECRET_KEY", "test-admin-signing-key")
-        self.key_patch.start()
         database.init_db()
 
         self.app = FastAPI()
@@ -87,10 +81,8 @@ class RolePanelTests(unittest.TestCase):
         self.acme_admin = self._create_admin("acme-admin", tenant_id="acme")
 
     def tearDown(self):
-        self.key_patch.stop()
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     # ── helpers ────────────────────────────────────────────────────────
 
@@ -252,15 +244,14 @@ class RolePanelTests(unittest.TestCase):
     # ── audit: PDF export + tenant scoping ─────────────────────────────
 
     def _record_event(self, action, tenant_id, *, role="super_admin", username="root"):
-        with database.get_db_context() as conn:
-            database.record_admin_audit_event(
-                conn,
-                action=action,
-                actor={"id": 1, "username": username, "role": role},
-                resource_type="tenant",
-                resource_id=tenant_id,
-                tenant_id=tenant_id,
-            )
+        database.record_admin_audit_event(
+            None,
+            action=action,
+            actor={"id": 1, "username": username, "role": role},
+            resource_type="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+        )
 
     def test_audit_pdf_export_returns_pdf(self):
         self._record_event("tenant_created", "acme")

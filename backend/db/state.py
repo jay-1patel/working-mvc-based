@@ -209,6 +209,31 @@ def set_human_handover(wa_id: str, active: bool, tenant_id: Optional[str] = None
         return False
 
 
+def touch_handover_activity(wa_id: str, tenant_id: Optional[str] = None) -> None:
+    """Refresh user_states.updated_at while human_handover is active."""
+    tid = _resolve_tenant_id(wa_id, tenant_id)
+    try:
+        if use_mongodb():
+            from .mongo import Repository
+            now = datetime.now(timezone.utc)
+            repo = Repository("user_states")
+            row = repo.find_one({"tenant_id": tid, "wa_id": wa_id, "human_handover": 1})
+            if row:
+                repo.update({"id": row["id"]}, {"updated_at": now})
+            return
+        with get_db_context() as conn:
+            conn.execute(
+                """
+                UPDATE user_states
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE wa_id = ? AND human_handover = 1 AND tenant_id = ?
+                """,
+                (wa_id, tid),
+            )
+    except Exception as e:
+        logger.warning("touch_handover_activity failed for %s: %s", wa_id, e)
+
+
 def reopen_conversation_on_inbound(wa_id: str, tenant_id: Optional[str] = None) -> bool:
     """Clear a stale ``handover_resolved_at`` so a new inbound message puts the
     conversation back in the live inbox.

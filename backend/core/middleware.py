@@ -23,7 +23,6 @@ try:  # backend/ on sys.path (the normal import mode)
     from core.context import request_id_var as _request_id_var, request_api_var, error_tenant_var, error_context_var
     from database import (
         clear_audit_request_context,
-        get_db_context,
         record_admin_audit_event,
         set_audit_request_context,
         trusted_client_ip,
@@ -32,7 +31,6 @@ except ImportError:  # imported as part of the `backend` package
     from backend.core.context import request_id_var as _request_id_var, request_api_var, error_tenant_var, error_context_var
     from backend.database import (
         clear_audit_request_context,
-        get_db_context,
         record_admin_audit_event,
         set_audit_request_context,
         trusted_client_ip,
@@ -232,15 +230,14 @@ async def audit_mutations_middleware(request: Request, call_next):
         actor_username = (getattr(request.state, "current_admin", None) or {}).get("username", "unknown")
         
         try:
-            with get_db_context() as conn:
-                record_admin_audit_event(
-                    conn,
-                    action=f"{request.method} {request.url.path}",
-                    actor={"username": actor_username},
-                    resource_type="api_endpoint",
-                    resource_id=request.url.path,
-                    details={"request_body": body_content, "query_params": dict(request.query_params)}
-                )
+            record_admin_audit_event(
+                None,
+                action=f"{request.method} {request.url.path}",
+                actor={"username": actor_username},
+                resource_type="api_endpoint",
+                resource_id=request.url.path,
+                details={"request_body": body_content, "query_params": dict(request.query_params)},
+            )
         except Exception as e:
             logger.exception("AUDIT_MUTATION_RECORD_FAILED | %s %s", request.method, request.url.path)
 

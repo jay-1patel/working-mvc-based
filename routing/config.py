@@ -51,10 +51,12 @@ SEND2_SESSION_SEND_URL = os.getenv(
     "SEND2_SESSION_SEND_URL",
     "https://api.send2.digital/devdesk/session-msg-send",
 )
-# ── Database ──────────────────────────────────────────────────────────────
-# Defaults to the repo-root faq.db — the same file backend/database.py opens.
-# Never hardcode an absolute path here: SQLite silently CREATES a missing file,
-# so a stale path yields a blank DB and every query fails with "no such table".
+# ── Legacy path (not the application database) ─────────────────────────────
+# Application data lives in MongoDB (MONGODB_URI / MONGODB_DATABASE /
+# DATABASE_BACKEND=mongodb). faq.db and ROUTING_DB_PATH are legacy: no runtime
+# code should open them for tenants, products, chat, or admin data.
+# Keep ROUTING_DB_PATH only when something still needs a filesystem path for
+# non-DB artifacts that historically sat beside faq.db.
 DB_PATH = os.getenv("ROUTING_DB_PATH") or str(PROJECT_ROOT / "faq.db")
 if not os.path.isabs(DB_PATH):
     DB_PATH = str((PROJECT_ROOT / DB_PATH).resolve())

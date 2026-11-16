@@ -55,7 +55,7 @@ def invalidate_menu_cache() -> None:
 
 
 def _row_get(row, key: str, default=None):
-    """Read a field from a sqlite3.Row or dict, tolerating missing columns."""
+    """Read a field from a mapping or row-like object, tolerating missing columns."""
     try:
         val = row[key]
     except (KeyError, IndexError, TypeError):

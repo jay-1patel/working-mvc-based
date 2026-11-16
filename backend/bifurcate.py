@@ -33,7 +33,7 @@ try:
         OLLAMA_MODEL as _APP_OLLAMA_MODEL,
     )
 except Exception:
-    _APP_DB_PATH = os.path.join(PROJECT_ROOT, "faq.db")
+    _APP_DB_PATH = os.path.join(PROJECT_ROOT, "legacy-unused.db")
     _APP_OLLAMA_BASE_URL = None
     _APP_OLLAMA_MODEL = None
 
@@ -285,12 +285,7 @@ CREATE INDEX IF NOT EXISTS idx_faq_tenant ON tenant_faq(tenant_id, category);
 
 
 def init_bifurcation_tables(db_path: str = DB_PATH) -> None:
-    from db.core import use_mongodb
-    if use_mongodb():
-        return
-    import sqlite3
-    with sqlite3.connect(db_path, timeout=30.0) as conn:
-        conn.executescript(_SCHEMA)
+    """No-op — tenant_kb / tenant_faq indexes are managed in Mongo init_db()."""
 
 
 def _hash(text: str) -> str:
@@ -306,56 +301,34 @@ def save_bifurcated(
 ) -> Dict[str, int]:
     init_bifurcation_tables(db_path)
     counts = {"kb": 0, "faq": 0}
-    from db.core import use_mongodb, unique_violation_error_types
+    from db.core import unique_violation_error_types
+    from db.mongo import Repository
 
-    if use_mongodb():
-        from db.mongo import Repository
-        dup_types = unique_violation_error_types()
-        for store, table in (("kb", "tenant_kb"), ("faq", "tenant_faq")):
-            rows = result.get(store, [])
-            repo = Repository(table)
-            if replace_source:
-                for src in {r["source_file"] for r in rows if r.get("source_file")}:
-                    repo.delete_many({"tenant_id": tenant_id, "source_file": src})
-            for r in rows:
-                payload = {
-                    "tenant_id": tenant_id,
-                    "industry": industry or "generic",
-                    "source_file": r.get("source_file"),
-                    "category": r.get("category"),
-                    "content_type": r.get("content_type"),
-                    "page_number": r.get("page_number"),
-                    "content": r["content"],
-                    "content_hash": _hash(r["content"]),
-                    "confidence": r.get("confidence"),
-                    "method": r.get("method"),
-                }
-                try:
-                    repo.insert(payload)
-                    counts[store] += 1
-                except dup_types:
-                    continue
-        return counts
-
-    import sqlite3
-    with sqlite3.connect(db_path, timeout=30.0) as conn:
-        for store, table in (("kb", "tenant_kb"), ("faq", "tenant_faq")):
-            rows = result.get(store, [])
-            if replace_source:
-                for src in {r["source_file"] for r in rows}:
-                    conn.execute(f"DELETE FROM {table} WHERE tenant_id=? AND source_file=?", (tenant_id, src))
-            for r in rows:
-                cur = conn.execute(
-                    f"""INSERT OR IGNORE INTO {table}
-                        (tenant_id, industry, source_file, category, content_type, page_number,
-                         content, content_hash, confidence, method)
-                        VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                    (tenant_id, industry or "generic", r.get("source_file"), r.get("category"),
-                     r.get("content_type"), r.get("page_number"), r["content"], _hash(r["content"]),
-                     r.get("confidence"), r.get("method")),
-                )
-                counts[store] += cur.rowcount
-        conn.commit()
+    dup_types = unique_violation_error_types()
+    for store, table in (("kb", "tenant_kb"), ("faq", "tenant_faq")):
+        rows = result.get(store, [])
+        repo = Repository(table)
+        if replace_source:
+            for src in {r["source_file"] for r in rows if r.get("source_file")}:
+                repo.delete_many({"tenant_id": tenant_id, "source_file": src})
+        for r in rows:
+            payload = {
+                "tenant_id": tenant_id,
+                "industry": industry or "generic",
+                "source_file": r.get("source_file"),
+                "category": r.get("category"),
+                "content_type": r.get("content_type"),
+                "page_number": r.get("page_number"),
+                "content": r["content"],
+                "content_hash": _hash(r["content"]),
+                "confidence": r.get("confidence"),
+                "method": r.get("method"),
+            }
+            try:
+                repo.insert(payload)
+                counts[store] += 1
+            except dup_types:
+                continue
     return counts
 
 
@@ -417,23 +390,12 @@ def fetch_store(tenant_id: str, store: str, category: Optional[str] = None,
                 db_path: str = DB_PATH) -> List[Dict[str, Any]]:
     init_bifurcation_tables(db_path)
     table = "tenant_kb" if store == "kb" else "tenant_faq"
-    from db.core import use_mongodb
-    if use_mongodb():
-        from db.mongo import Repository
-        flt = {"tenant_id": tenant_id}
-        if category:
-            flt["category"] = category
-        return Repository(table).find_all(flt, limit=None)
+    from db.mongo import Repository
 
-    import sqlite3
-    sql = f"SELECT * FROM {table} WHERE tenant_id=?"
-    params: List[Any] = [tenant_id]
+    flt = {"tenant_id": tenant_id}
     if category:
-        sql += " AND category=?"
-        params.append(category)
-    with sqlite3.connect(db_path, timeout=30.0) as conn:
-        conn.row_factory = sqlite3.Row
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        flt["category"] = category
+    return Repository(table).find_all(flt, limit=None)
 
 
 if __name__ == "__main__":

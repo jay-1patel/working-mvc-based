@@ -64,20 +64,33 @@ def get_database():
         raise MongoConfigurationError('Specify a database in MONGODB_URI or MONGODB_DATABASE') from None
 
 
+def replica_set_name(database=None):
+    database = get_database() if database is None else database
+    return database.client.admin.command('hello').get('setName')
+
+
 def require_replica_set(database, *, require_initialized=False):
-    hello = database.client.admin.command('hello')
-    if hello.get('setName') != 'rs0':
+    """Prefer rs0. Standalone is allowed for live hosts that are not yet replica-set enabled."""
+    set_name = replica_set_name(database)
+    if set_name not in (None, 'rs0'):
         raise MongoConfigurationError('MongoDB must be configured as replica set rs0 before migration/cutover')
     if require_initialized:
         state = database['_app_meta'].find_one({'_id': 'schema', 'mode': 'fresh'})
         if not state or state.get('version') != REGISTRY['version']:
             raise MongoConfigurationError('Initialize the fresh MongoDB schema before startup')
+    return set_name
 
 
 def transaction(callback, database=None):
-    """Callbacks may retry: keep network sends, file writes and inference outside."""
+    """Callbacks may retry: keep network sends, file writes and inference outside.
+
+    On a replica set, runs with snapshot + majority. On standalone MongoDB,
+    runs the same callback without a session (no multi-doc atomicity).
+    """
     database = get_database() if database is None else database
-    require_replica_set(database)
+    set_name = require_replica_set(database)
+    if not set_name:
+        return callback(None)
     with database.client.start_session() as session:
         return session.with_transaction(lambda active: callback(active),
             read_concern=ReadConcern('snapshot'), write_concern=WriteConcern('majority'))

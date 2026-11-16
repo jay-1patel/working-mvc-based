@@ -1,0 +1,6 @@
+{
+  "status": 200,
+  "has_verify_token": false,
+  "verify_token_set": true,
+  "send2_username_set_flag": true
+}

@@ -94,6 +94,37 @@ def _trim_webhook_logs(conn, max_rows: int = WEBHOOK_LOG_MAX_ROWS):
         logger.error(f"Failed to trim webhook_logs: {e}")
 
 
+def list_webhook_logs(limit: int = 50, direction: str | None = None) -> list:
+    """Recent webhook log rows for admin diagnostics."""
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("webhook_logs")
+        flt = {"direction": direction} if direction else {}
+        rows = repo.find(flt, sort=[("created_at", -1), ("id", -1)], limit=limit)
+        return [dict(r) for r in rows]
+    with get_db_context() as conn:
+        if direction:
+            rows = conn.execute(
+                "SELECT * FROM webhook_logs WHERE direction = ? ORDER BY created_at DESC LIMIT ?",
+                (direction, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM webhook_logs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def clear_webhook_logs() -> None:
+    if use_mongodb():
+        from .mongo import Repository
+        Repository("webhook_logs").delete_many({})
+        return
+    with get_db_context() as conn:
+        conn.execute("DELETE FROM webhook_logs")
+
+
 def get_webhook_stats():
     if use_mongodb():
         from .mongo import Repository

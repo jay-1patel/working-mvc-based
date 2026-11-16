@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter, Request, HTTPException, Query, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 import routing.config as config
-from routing.database import get_db_context, log_webhook, save_chat, set_request_tenant
+from routing.database import log_webhook, save_chat, set_request_tenant
 from routing.whatsapp import (
     send_whatsapp_message,
     send_whatsapp_interactive,
@@ -80,35 +80,18 @@ def _handle_campaign_opt_out(user_text: str, wa_id: str, sender_name: str, tenan
 
     tid = tenant_id or "default"
     try:
-        with get_db_context() as conn:
-            # Safe on a routing-only deployment where the backend schema has
-            # not been created yet.
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS campaign_opt_outs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tenant_id TEXT NOT NULL,
-                    wa_id TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )"""
-            )
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_campaign_opt_outs "
-                "ON campaign_opt_outs(tenant_id, wa_id)"
-            )
-            if text in OPT_OUT_PHRASES:
-                conn.execute(
-                    "INSERT OR IGNORE INTO campaign_opt_outs (tenant_id, wa_id) VALUES (?, ?)",
-                    (tid, wa_id),
-                )
-                reply = OPT_OUT_CONFIRMATION
-                event = "stop"
-            else:
-                conn.execute(
-                    "DELETE FROM campaign_opt_outs WHERE tenant_id = ? AND wa_id = ?",
-                    (tid, wa_id),
-                )
-                reply = OPT_IN_CONFIRMATION
-                event = "start"
+        from db.mongo import Repository
+
+        repo = Repository("campaign_opt_outs")
+        if text in OPT_OUT_PHRASES:
+            if repo.find_one({"tenant_id": tid, "wa_id": wa_id}) is None:
+                repo.insert({"tenant_id": tid, "wa_id": wa_id})
+            reply = OPT_OUT_CONFIRMATION
+            event = "stop"
+        else:
+            repo.delete_many({"tenant_id": tid, "wa_id": wa_id})
+            reply = OPT_IN_CONFIRMATION
+            event = "start"
     except Exception as exc:
         logger.error(f"Campaign opt-out handling failed for {wa_id}: {exc}")
         return False

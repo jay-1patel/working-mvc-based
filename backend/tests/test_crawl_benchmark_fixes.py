@@ -19,6 +19,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -166,6 +168,8 @@ def _start_server():
 
 class _CrawlerTestBase(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
+        self.temp = tempfile.TemporaryDirectory()
         self.server, self.base = _start_server()
         self.env_patch = patch.dict(os.environ, {
             "CRAWL_URL_ALLOWLIST": "127.0.0.1,localhost",
@@ -173,6 +177,8 @@ class _CrawlerTestBase(unittest.TestCase):
         self.env_patch.start()
 
     def tearDown(self):
+        self.mongo.stop()
+        self.temp.cleanup()
         self.env_patch.stop()
         self.server.shutdown()
 
@@ -393,11 +399,8 @@ class LogoHeuristicTests(unittest.TestCase):
 
 class ImageCapRemovalTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "cap.sqlite3")
         self.upload = Path(self.temp.name) / "uploads"
         self.upload.mkdir()
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
         self.env_patch = patch.dict(os.environ, {
             "UPLOAD_DIR": str(self.upload),
             "CRAWL_URL_ALLOWLIST": "127.0.0.1,localhost",
@@ -405,7 +408,6 @@ class ImageCapRemovalTests(unittest.TestCase):
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.env_patch.start()
         self.resolver_patch.start()
         database.init_db()
@@ -417,10 +419,8 @@ class ImageCapRemovalTests(unittest.TestCase):
 
     def tearDown(self):
         self.server.shutdown()
-        self.db_patch.stop()
         self.env_patch.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     def test_more_than_100_images_stored(self):
         self.assertIsNone(crawl_images_mod.MAX_IMAGES_PER_CRAWL)

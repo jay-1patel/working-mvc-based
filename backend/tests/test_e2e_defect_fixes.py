@@ -154,6 +154,8 @@ class QaDedupeKeyTests(unittest.TestCase):
 
 class MenuAndCatalogExtractionTests(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
+        self.temp = tempfile.TemporaryDirectory()
         from services.auto_bifurcator import AutoBifurcator
 
         self.bifurcator = AutoBifurcator("demo")
@@ -391,14 +393,11 @@ class PublishPipelineTests(unittest.TestCase):
         from shared.tenancy import store as tenancy_store
 
         self.database = database
-        self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.db_path = os.path.join(self.temp.name, "e2efix.sqlite3")
         self.clients_root = root / "clients"
         self.clients_root.mkdir()
 
         self.patches = [
-            patch.object(database, "DB_PATH", self.db_path),
             patch("shared.tenancy.paths.CLIENTS_DIR", self.clients_root),
             patch(
                 "shared.tenancy.resolver.resolve_default_tenant",
@@ -417,12 +416,13 @@ class PublishPipelineTests(unittest.TestCase):
         )
 
     def tearDown(self):
+        self.mongo.stop()
+        self.temp.cleanup()
         for p in self.patches:
             try:
                 p.stop()
             except Exception:
                 pass
-        self.temp.cleanup()
 
     def _faq_rows(self):
         with self.database.get_db_context() as conn:

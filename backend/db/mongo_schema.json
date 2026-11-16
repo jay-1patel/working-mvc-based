@@ -9837,6 +9837,115 @@
         }
       ]
     },
+    "whatsapp_outbox": {
+      "columns": [
+        {
+          "name": "id",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "wa_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "message_type",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "payload",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "status",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": "pending"
+        },
+        {
+          "name": "attempts",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": 0
+        },
+        {
+          "name": "next_retry",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        },
+        {
+          "name": "created_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        },
+        {
+          "name": "sent_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": null
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "keys": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "mongo_primary_key",
+            "unique": true,
+            "partialFilterExpression": {
+              "id": {
+                "$type": "number"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "status",
+              1
+            ],
+            [
+              "next_retry",
+              1
+            ]
+          ],
+          "options": {
+            "name": "idx_outbox_status_retry",
+            "unique": false
+          }
+        }
+      ]
+    },
     "whatsapp_send_log": {
       "columns": [
         {

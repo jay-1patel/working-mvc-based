@@ -73,13 +73,12 @@ def validate_pincode(raw: str) -> dict:
 def check_serviceability(pincode: str) -> dict:
     """DB first -> env-var prefix fallback."""
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT is_active FROM serviceable_pincodes WHERE pincode = ?",
-                (pincode,),
-            ).fetchone()
+        from db.core import use_mongodb
+        if use_mongodb():
+            from db.mongo import Repository
+            row = Repository("serviceable_pincodes").find_one({"pincode": pincode})
             if row is not None:
-                if row[0]:
+                if row.get("is_active"):
                     return {"serviceable": True}
                 return {
                     "serviceable": False,
@@ -88,6 +87,22 @@ def check_serviceability(pincode: str) -> dict:
                         "Enter a different pincode or type *cancel*."
                     ),
                 }
+        else:
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT is_active FROM serviceable_pincodes WHERE pincode = ?",
+                    (pincode,),
+                ).fetchone()
+                if row is not None:
+                    if row[0]:
+                        return {"serviceable": True}
+                    return {
+                        "serviceable": False,
+                        "message": (
+                            f"Sorry, we don't deliver to *{pincode}* yet.\n\n"
+                            "Enter a different pincode or type *cancel*."
+                        ),
+                    }
     except Exception as e:
         logger.warning(f"Serviceability DB check failed: {e}")
     default = (

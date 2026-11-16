@@ -9,7 +9,7 @@ from routes.auth import get_current_admin, has_permission, require_permission
 from database import (
     save_product, get_product, get_product_by_slug, list_products,
     update_product, delete_product, search_products, get_products_by_category,
-    get_db_context,
+    list_product_categories,
 )
 
 logger = logging.getLogger("chiki_webhook")
@@ -311,11 +311,7 @@ async def get_catalog(
 
 @router.get("/categories")
 async def list_categories(current_admin: dict = Depends(require_permission("view_products"))):
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT category FROM products WHERE is_active = 1 ORDER BY category"
-        ).fetchall()
-    return {"categories": [r[0] for r in rows if r[0]]}
+    return {"categories": list_product_categories(active_only=True)}
 
 
 # ── NEW ARRIVALS (stored in products with category='new_arrival') ────────

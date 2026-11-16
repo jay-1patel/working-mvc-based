@@ -1,0 +1,32 @@
+[
+  {
+    "value": "Your Company Name",
+    "is_placeholder": true,
+    "expect": true,
+    "pass": true
+  },
+  {
+    "value": "N/A",
+    "is_placeholder": true,
+    "expect": true,
+    "pass": true
+  },
+  {
+    "value": "",
+    "is_placeholder": true,
+    "expect": true,
+    "pass": true
+  },
+  {
+    "value": "Leeway QA Test Foods Pvt Ltd",
+    "is_placeholder": false,
+    "expect": false,
+    "pass": true
+  },
+  {
+    "value": "Acme Corp",
+    "is_placeholder": false,
+    "expect": false,
+    "pass": true
+  }
+]

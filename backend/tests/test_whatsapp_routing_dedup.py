@@ -261,7 +261,6 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = os.path.join(temp_dir, "orch.sqlite3")
             with (
-                patch.object(database, "DB_PATH", db_path),
                 patch(
                     "shared.tenancy.resolver.resolve_effective_tenant_id",
                     return_value=None,

@@ -15,7 +15,6 @@ Order numbers are sequential: ORD-<n> where n = max numeric suffix + 1.
 import json
 import logging
 import re
-import sqlite3
 from datetime import datetime, timezone
 
 logger = logging.getLogger("order_service")
@@ -54,16 +53,6 @@ class OrderError(Exception):
         self.reason = reason
         self.detail = detail
         super().__init__(f"{reason}: {detail}")
-
-
-def _next_order_number(conn) -> str:
-    """Sequential ORD-<n> from the highest existing numeric suffix."""
-    row = conn.execute(
-        """SELECT MAX(CAST(SUBSTR(order_number, 5) AS INTEGER)) AS n
-           FROM orders WHERE order_number GLOB 'ORD-[0-9]*'"""
-    ).fetchone()
-    n = (row["n"] or 0) + 1
-    return f"ORD-{n}"
 
 
 def _next_order_number_mongo(orders_repo, session=None) -> str:
@@ -263,129 +252,10 @@ def create_order(wa_id: str,
     ]
     total = round(sum(i["qty"] * i["price"] for i in items) - float(discount_applied or 0), 2)
 
-    if _use_mongodb():
-        return _create_order_mongo(
-            wa_id, items, total, source, session_id, idempotency_key,
-            tier, discount_applied, tenant_id,
-        )
-
-    conn = db.get_db()
-    try:
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("BEGIN IMMEDIATE")
-
-        # 1. Idempotency: honour an existing order for this key.
-        if idempotency_key:
-            existing = conn.execute(
-                "SELECT order_number, total_amount FROM orders WHERE idempotency_key = ?",
-                (idempotency_key,),
-            ).fetchone()
-            if existing:
-                conn.rollback()
-                logger.info(f"ORDER_IDEMPOTENT_HIT | wa_id={wa_id} | order={existing['order_number']}")
-                return {"ok": True, "duplicate": True,
-                        "order_number": existing["order_number"],
-                        "total": existing["total_amount"]}
-
-        # 2. Atomic confirm lock on the checkout session.
-        if session_id:
-            cur = conn.execute(
-                "UPDATE checkout_sessions SET status='processing' "
-                "WHERE id = ? AND status = 'active'",
-                (session_id,),
-            )
-            if cur.rowcount == 0:
-                conn.rollback()
-                raise OrderError("session_not_active",
-                                 "checkout session already processed or expired")
-
-        # 3. Conditional stock decrement (NULL stock = untracked).
-        for it in items:
-            pid = it.get("product_id")
-            if pid is None:
-                continue
-            cur = conn.execute(
-                "UPDATE products SET stock_quantity = stock_quantity - ? "
-                "WHERE id = ? AND stock_quantity IS NOT NULL AND stock_quantity >= ?",
-                (it["qty"], pid, it["qty"]),
-            )
-            if cur.rowcount == 0:
-                # Not enough stock (or product vanished) — verify which.
-                prod = conn.execute(
-                    "SELECT name, stock_quantity FROM products WHERE id = ?", (pid,)
-                ).fetchone()
-                if prod and prod['stock_quantity'] is None:
-                    continue  # untracked stock — always available
-                conn.rollback()
-                logger.info(
-                    f"STOCK_DECREMENT_FAILED | product={pid} | "
-                    f"stock={prod['stock_quantity'] if prod else 'gone'}"
-                )
-                raise OrderError("out_of_stock",
-                                 f"{prod['name'] if prod else 'Product'} is unavailable")
-
-        # 4. Insert order.
-        # Tenancy: explicit arg wins, else the conversation's tenant from
-        # user_states (stamped by the webhook), else the configured default.
-        tenant = (str(tenant_id or "").strip()) or None
-        if not tenant:
-            try:
-                from shared.tenancy.resolver import resolve_tenant_for_user
-                tenant = resolve_tenant_for_user(wa_id)
-            except Exception:
-                tenant = None
-        if not tenant:
-            try:
-                tenant = db._resolve_tenant()
-            except Exception:
-                tenant = None
-        order_number = _next_order_number(conn)
-        conn.execute(
-            """INSERT INTO orders (order_number, wa_id, items, total_amount, status,
-                                   payment_status, source, tier, discount_applied,
-                                   idempotency_key, tenant_id)
-               VALUES (?, ?, ?, ?, 'placed', 'pending', ?, ?, ?, ?, ?)""",
-            (order_number, wa_id, json.dumps(items), total, source, tier,
-             round(float(discount_applied or 0), 2), idempotency_key, tenant),
-        )
-
-        # 5. Confirm session + clear cart.
-        if session_id:
-            conn.execute(
-                "UPDATE checkout_sessions SET status='confirmed', confirmed_order_number = ? "
-                "WHERE id = ?",
-                (order_number, session_id),
-            )
-        conn.execute(
-            "DELETE FROM carts WHERE wa_id = ?", (wa_id,)
-        )
-
-        conn.commit()
-        logger.info(f"ORDER_CREATED | wa_id={wa_id} | order={order_number} | total={total} | source={source}")
-        return {"ok": True, "duplicate": False, "order_number": order_number, "total": total}
-
-    except sqlite3.IntegrityError:
-        # Concurrent insert raced us on idempotency_key — return the winner (SQLite only).
-        conn.rollback()
-        if idempotency_key:
-            row = conn.execute(
-                "SELECT order_number, total_amount FROM orders WHERE idempotency_key = ?",
-                (idempotency_key,),
-            ).fetchone()
-            if row:
-                logger.info(f"ORDER_IDEMPOTENT_RACE | wa_id={wa_id} | order={row['order_number']}")
-                return {"ok": True, "duplicate": True,
-                        "order_number": row["order_number"], "total": row["total_amount"]}
-        logger.error(f"ORDER_INTEGRITY_FAIL | wa_id={wa_id}")
-        raise OrderError("integrity", "order insert failed")
-    except OrderError:
-        raise
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"ORDER_CREATE_FAIL | wa_id={wa_id} | {e}")
-        raise OrderError("internal", str(e))
-    finally:
-        conn.close()
+    return _create_order_mongo(
+        wa_id, items, total, source, session_id, idempotency_key,
+        tier, discount_applied, tenant_id,
+    )
 
 
 def get_user_orders(wa_id: str, limit: int = 5) -> list:
@@ -400,22 +270,14 @@ def get_user_orders(wa_id: str, limit: int = 5) -> list:
         return blocked
     db = _db()
     try:
-        if _use_mongodb():
-            from db.mongo import Repository
-            rows = Repository("orders").find(
-                {"wa_id": wa_id},
-                sort=[("created_at", -1), ("id", -1)],
-                limit=limit,
-            )
-            return rows
-        with db.get_db_context() as conn:
-            rows = conn.execute(
-                """SELECT order_number, items, total_amount, status, payment_status, created_at
-                   FROM orders WHERE wa_id = ?
-                   ORDER BY created_at DESC, id DESC LIMIT ?""",
-                (wa_id, limit),
-            ).fetchall()
-            return [dict(r) for r in rows]
+        from db.mongo import Repository
+
+        rows = Repository("orders").find(
+            {"wa_id": wa_id},
+            sort=[("created_at", -1), ("id", -1)],
+            limit=limit,
+        )
+        return rows
     except Exception as e:
         logger.error(f"ORDER_LIST_FAIL | wa_id={wa_id} | {e}")
         return []
@@ -456,23 +318,12 @@ def lookup_order_status(wa_id: str, order_ref: str) -> str:
 
     db = _db()
     try:
-        if _use_mongodb():
-            from db.mongo import Repository
-            orders = Repository("orders")
-            row = orders.find_one({"wa_id": wa_id, "order_number": ref})
-            if not row and ref.isdigit():
-                row = orders.find_one({"wa_id": wa_id, "id": int(ref)})
-        else:
-            with db.get_db_context() as conn:
-                row = conn.execute(
-                    """SELECT id, order_number, items, total_amount, status, payment_status,
-                              created_at, tenant_id
-                       FROM orders
-                       WHERE wa_id = ? AND (order_number = ? OR CAST(id AS TEXT) = ?)
-                       LIMIT 1""",
-                    (wa_id, ref, ref),
-                ).fetchone()
-                row = dict(row) if row else None
+        from db.mongo import Repository
+
+        orders = Repository("orders")
+        row = orders.find_one({"wa_id": wa_id, "order_number": ref})
+        if not row and ref.isdigit():
+            row = orders.find_one({"wa_id": wa_id, "id": int(ref)})
         if not row:
             recent = format_orders_text(wa_id, limit=3)
             return (
@@ -496,29 +347,17 @@ def lookup_order_status(wa_id: str, order_ref: str) -> str:
             f"Placed: {row['created_at']}",
         ]
 
-        if _use_mongodb():
-            from db.mongo import Repository
-            ships = Repository("tenant_shipments").find(
-                {
-                    "$or": [
-                        {"order_id": row["order_number"]},
-                        {"order_id": str(row["id"])},
-                    ]
-                },
-                sort=[("id", -1)],
-                limit=1,
-            )
-            ship = ships[0] if ships else None
-        else:
-            with db.get_db_context() as conn:
-                ship = conn.execute(
-                    """SELECT awb_number, tracking_url, status, provider
-                       FROM tenant_shipments
-                       WHERE order_id = ? OR order_id = ?
-                       ORDER BY id DESC LIMIT 1""",
-                    (row["order_number"], str(row["id"])),
-                ).fetchone()
-                ship = dict(ship) if ship else None
+        ships = Repository("tenant_shipments").find(
+            {
+                "$or": [
+                    {"order_id": row["order_number"]},
+                    {"order_id": str(row["id"])},
+                ]
+            },
+            sort=[("id", -1)],
+            limit=1,
+        )
+        ship = ships[0] if ships else None
         if ship:
             lines.append("")
             lines.append(

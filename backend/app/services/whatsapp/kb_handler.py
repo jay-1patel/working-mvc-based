@@ -153,39 +153,41 @@ def _parse_flyer_offers(content: str) -> list:
 def _build_dynamic_discounts() -> str | None:
     """Compose the discounts reply from faq_dataset. None if DB unavailable."""
     try:
-        from kb.database import get_db_context
-        with get_db_context() as conn:
-            first_order = fs_answer = festival_answer = bulk_answer = None
-            flyer_table = ""
-            flyer_table_content = ""
-            rows = conn.execute(
-                """
-                SELECT source_file, content_type, content FROM faq_dataset
-                WHERE module='faq' AND (
-                    content LIKE '%TROOFIRST%'
-                    OR (content LIKE '%free shipping%' AND content LIKE '%499%')
-                    OR content LIKE '%UTRAYANFREE%'
-                    OR (content LIKE '%10,000%' AND content LIKE '%volume-based pricing%')
-                    OR source_file='troogood_discount_flyer.pdf'
-                )
-                ORDER BY id
-                """
-            ).fetchall()
-            for src, content_type, content in rows:
-                if src == "troogood_discount_flyer.pdf":
-                    if content_type == "table" or (not flyer_table and content_type != "table"):
-                        flyer_table_content = content
-                        flyer_table = content_type or "table"
-                    continue
-                content_lc = content.lower()
-                if not first_order and "troofirst" in content_lc:
-                    first_order = _qa_answer(content)
-                if not fs_answer and "free shipping" in content_lc and "499" in content_lc:
-                    fs_answer = _qa_answer(content)
-                if not festival_answer and "utrayanfree" in content_lc:
-                    festival_answer = _qa_answer(content)
-                if not bulk_answer and "volume-based pricing" in content_lc and "10,000" in content_lc:
-                    bulk_answer = _qa_answer(content)
+        from db.mongo import Repository
+        first_order = fs_answer = festival_answer = bulk_answer = None
+        flyer_table = ""
+        flyer_table_content = ""
+        rows = Repository("faq_dataset").find(
+            {"module": "faq"},
+            sort=[("id", 1)],
+            limit=None,
+        )
+        for row in rows:
+            src = row.get("source_file")
+            content_type = row.get("content_type")
+            content = row.get("content") or ""
+            needle = content.lower()
+            if src == "troogood_discount_flyer.pdf":
+                if content_type == "table" or (not flyer_table and content_type != "table"):
+                    flyer_table_content = content
+                    flyer_table = content_type or "table"
+                continue
+            if not any([
+                "troofirst" in needle,
+                ("free shipping" in needle and "499" in needle),
+                "utrayanfree" in needle,
+                ("10,000" in content and "volume-based pricing" in needle),
+            ]):
+                continue
+            content_lc = needle
+            if not first_order and "troofirst" in content_lc:
+                first_order = _qa_answer(content)
+            if not fs_answer and "free shipping" in content_lc and "499" in content_lc:
+                fs_answer = _qa_answer(content)
+            if not festival_answer and "utrayanfree" in content_lc:
+                festival_answer = _qa_answer(content)
+            if not bulk_answer and "volume-based pricing" in content_lc and "10,000" in content_lc:
+                bulk_answer = _qa_answer(content)
     except Exception as e:
         logger.error(f"build_dynamic_discounts failed: {e}")
         return None
@@ -314,15 +316,12 @@ _IMAGE_QUERY_STOPWORDS = {
 
 def _all_products_with_images() -> list:
     """Active products (by sort order) that have a usable media URL."""
-    from kb.database import get_db_context
     try:
-        with get_db_context() as conn:
-            rows = conn.execute(
-                "SELECT * FROM products "
-                "WHERE is_active = 1 AND media_url IS NOT NULL "
-                "ORDER BY sort_order ASC, id ASC"
-            ).fetchall()
-        return [dict(r) for r in rows]
+        from database import list_products
+        return [
+            p for p in list_products(active_only=True, limit=500)
+            if p.get("media_url")
+        ]
     except Exception as e:
         logger.error(f"Failed to list products with images: {e}")
         return []
@@ -1786,13 +1785,12 @@ def _find_product_for_menu(text: str) -> dict | None:
             logger.debug("PRODUCT_ID_PARSE_SKIPPED | prefix=prod_ id=%s", lower, exc_info=True)
 
     if lower.isdigit():
-        from kb.database import get_db_context
+        from database import list_products
         idx = int(lower) - 1
-        with get_db_context() as conn:
-            rows = conn.execute(
-                "SELECT DISTINCT category FROM products WHERE is_active = 1 ORDER BY category"
-            ).fetchall()
-        categories = [r[0] for r in rows if r[0]]
+        categories = sorted({
+            p["category"] for p in list_products(active_only=True, limit=500)
+            if p.get("category")
+        })
         counter = 0
         for cat in categories[:5]:
             items = _fetch_items_from_category_for_menu(cat, limit=10)
@@ -1823,19 +1821,13 @@ def _find_product_for_menu(text: str) -> dict | None:
 
 
 def _fetch_items_from_category_for_menu(category: str, limit: int = 10) -> list:
-    from kb.database import get_db_context
+    from database import list_products
     items = []
-    with get_db_context() as conn:
-        rows = conn.execute(
-            "SELECT id, name, short_description, price, media_url "
-            "FROM products WHERE category = ? AND is_active = 1 ORDER BY sort_order ASC LIMIT ?",
-            (category, limit),
-        ).fetchall()
-        for r in rows:
-            items.append({
-                "id": f"product_{r[0]}",
-                "title": r[1],
-                "description": (r[2] or "")[:50],
-                "type": "product",
-            })
+    for p in list_products(category=category, active_only=True, limit=limit):
+        items.append({
+            "id": f"product_{p.get('id')}",
+            "title": p.get("name"),
+            "description": (p.get("short_description") or "")[:50],
+            "type": "product",
+        })
     return items

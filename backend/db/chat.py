@@ -63,6 +63,43 @@ def save_chat(wa_id, sender_name, message, response, route="faq", tenant_id=None
         logger.warning(f"json_history mirror failed for {wa_id}: {e}")
 
 
+def list_chat_thread(wa_id: str, *, tenant_id: Optional[str] = None, limit: int = 200) -> list:
+    """Chat history rows for the admin thread view (user + bot messages)."""
+    if use_mongodb():
+        from .mongo import Repository
+        flt: dict = {"wa_id": wa_id}
+        if tenant_id:
+            flt["tenant_id"] = tenant_id
+        rows = Repository("chat_history").find(
+            flt, sort=[("id", 1)], limit=limit
+        )
+        return [dict(r) for r in rows]
+    with get_db_context() as conn:
+        if tenant_id:
+            rows = conn.execute(
+                """
+                SELECT id, wa_id, sender_name, message, response, route, created_at
+                FROM chat_history
+                WHERE wa_id = ? AND tenant_id = ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (wa_id, tenant_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, wa_id, sender_name, message, response, route, created_at
+                FROM chat_history
+                WHERE wa_id = ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (wa_id, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_recent_history(
     wa_id: str,
     limit: int = 5,

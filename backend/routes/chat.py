@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional
 
-from database import get_db, get_db_context, save_chat
+from database import list_chat_thread, save_chat, touch_handover_activity
 from routes.auth import get_current_admin, scoped_tenant_id
 from routing.config import (
     SEND2_USERNAME,
@@ -40,46 +40,28 @@ def get_chat_history_for_user(wa_id: str, current_admin: dict = Depends(get_curr
     # A tenant admin only sees this WhatsApp id's thread inside their own tenant.
     # The same phone can talk to several brands; wa_id alone is not a scope.
     scope = scoped_tenant_id(current_admin)
-    where = "wa_id = ?"
-    params: list = [wa_id]
-    if scope:
-        where += " AND tenant_id = ?"
-        params.append(scope)
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""
-            SELECT id, wa_id, sender_name, message, response, route, created_at
-            FROM chat_history
-            WHERE {where}
-            ORDER BY id ASC
-            LIMIT 200
-            """,
-            params,
-        ).fetchall()
+    rows = list_chat_thread(wa_id, tenant_id=scope, limit=200)
 
-        messages = []
-        for row in rows:
-            if row["message"]:
-                messages.append({
-                    "id": row["id"],
-                    "role": "user",
-                    "sender": row["sender_name"] or row["wa_id"],
-                    "text": row["message"],
-                    "created_at": row["created_at"],
-                })
-            if row["response"]:
-                messages.append({
-                    "id": row["id"],
-                    "role": "bot",
-                    "sender": "bot",
-                    "text": row["response"],
-                    "created_at": row["created_at"],
-                })
+    messages = []
+    for row in rows:
+        if row["message"]:
+            messages.append({
+                "id": row["id"],
+                "role": "user",
+                "sender": row["sender_name"] or row["wa_id"],
+                "text": row["message"],
+                "created_at": row["created_at"],
+            })
+        if row["response"]:
+            messages.append({
+                "id": row["id"],
+                "role": "bot",
+                "sender": "bot",
+                "text": row["response"],
+                "created_at": row["created_at"],
+            })
 
-        return {"messages": messages}
-    finally:
-        conn.close()
+    return {"messages": messages}
 
 
 # ── Upload helpers ─────────────────────────────────────────────────────────
@@ -243,16 +225,4 @@ async def send_message(
 def _touch_handover_activity(wa_id: str) -> None:
     """Refresh user_states.updated_at so the 1h auto-revert timeout is measured
     from the last human-agent reply rather than from the handoff start."""
-    try:
-        from database import get_db_context
-        with get_db_context() as conn:
-            conn.execute(
-                """
-                UPDATE user_states
-                SET updated_at = CURRENT_TIMESTAMP
-                WHERE wa_id = ? AND human_handover = 1
-                """,
-                (wa_id,),
-            )
-    except Exception as e:
-        logger.warning(f"Failed to touch handover activity for {wa_id}: {e}")
+    touch_handover_activity(wa_id)

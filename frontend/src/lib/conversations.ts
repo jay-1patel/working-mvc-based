@@ -44,7 +44,7 @@ export const conversationsApi = {
   thread: (tenantId: string, waId: string, limit = 300, signal?: AbortSignal) =>
     api.post<{ wa_id: string; messages: ChatTurn[] }>(
       '/api/admin/tenants/conversations/detail',
-      { tenant_id: tenantId, wa_id: waId, limit },
+      { wa_id: waId, limit },
       { signal },
     ),
 
@@ -55,7 +55,6 @@ export const conversationsApi = {
   ) =>
     api
       .post<{ history: ChatTurn[] }>('/api/admin/tenants/chat-history', {
-        tenant_id: tenantId,
         days: opts.days,
         search: opts.search,
         wa_id: opts.waId,
@@ -66,30 +65,30 @@ export const conversationsApi = {
   inbox: (tenantId: string, includeResolved = false, signal?: AbortSignal) =>
     api.post<{ queue: InboxItem[]; count: number; handoff_count: number }>(
       '/api/admin/tenants/inbox',
-      { tenant_id: tenantId, include_resolved: includeResolved },
+      { include_resolved: includeResolved },
       { signal },
     ),
 
   setHandover: (tenantId: string, waId: string, mode: 'bot' | 'human') =>
-    api.post<{ status: string }>('/api/admin/tenants/inbox/handover', { tenant_id: tenantId, wa_id: waId, mode }),
+    api.post<{ status: string }>('/api/admin/tenants/inbox/handover', { wa_id: waId, mode }),
 
   assign: (tenantId: string, waId: string, agentId: string) =>
-    api.post<{ status: string }>('/api/admin/tenants/inbox/assign', { tenant_id: tenantId, wa_id: waId, agent_id: agentId }),
+    api.post<{ status: string }>('/api/admin/tenants/inbox/assign', { wa_id: waId, agent_id: agentId }),
 
   resolve: (tenantId: string, waId: string, reply = true) =>
     api.post<{ status: string; notified: boolean }>(
       '/api/admin/tenants/inbox/resolve',
-      { tenant_id: tenantId, wa_id: waId, reply },
+      { wa_id: waId, reply },
     ),
 
   reply: (tenantId: string, waId: string, message: string, attachment?: Attachment | null) =>
     api.post<{ status: string; sent: boolean }>(
       '/api/admin/tenants/inbox/reply',
-      { tenant_id: tenantId, wa_id: waId, message, attachment: attachment ?? undefined },
+      { wa_id: waId, message, attachment: attachment ?? undefined },
     ),
 
   agents: (tenantId: string, signal?: AbortSignal) =>
-    api.post<{ agents: Agent[] }>('/api/admin/tenants/agents', { tenant_id: tenantId }, { signal }).then((r) => r.agents),
+    api.post<{ agents: Agent[] }>('/api/admin/tenants/agents', {}, { signal }).then((r) => r.agents),
 
   complaints: (
     tenantId: string,
@@ -98,7 +97,7 @@ export const conversationsApi = {
   ) =>
     api.post<{ complaints: Complaint[]; count: number; open_count: number }>(
       '/api/admin/tenants/complaints',
-      { tenant_id: tenantId, status: opts.status, limit: opts.limit },
+      { status: opts.status, limit: opts.limit },
       { signal },
     ),
 
@@ -107,7 +106,6 @@ export const conversationsApi = {
     ticketId: string,
     body: { status?: string; priority?: string; assigned_to?: string },
   ) => api.post<{ status: string }>('/api/admin/tenants/complaints/update', {
-    tenant_id: tenantId,
     ticket_id: ticketId,
     ...body,
   }),
@@ -115,12 +113,11 @@ export const conversationsApi = {
   replyComplaint: (tenantId: string, ticketId: string, message: string, status?: string) =>
     api.post<{ status: string; sent: boolean; new_status: string | null }>(
       '/api/admin/tenants/complaints/reply',
-      { tenant_id: tenantId, ticket_id: ticketId, message, status },
+      { ticket_id: ticketId, message, status },
     ),
 
   deleteComplaint: (tenantId: string, ticketId: string) =>
     api.post<{ status: string }>('/api/admin/tenants/complaints/delete', {
-      tenant_id: tenantId,
       ticket_id: ticketId,
     }),
 }

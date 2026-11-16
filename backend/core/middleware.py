@@ -40,6 +40,25 @@ except ImportError:  # imported as part of the `backend` package
 
 logger = logging.getLogger("router")
 
+
+class NormalizePathMiddleware:
+    """Strip accidental whitespace from the request path (common Postman typo)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope.get("path") or ""
+            cleaned = path.strip()
+            if cleaned != path:
+                scope = dict(scope)
+                scope["path"] = cleaned
+                if "raw_path" in scope:
+                    scope["raw_path"] = cleaned.encode("utf-8", "ignore")
+        await self.app(scope, receive, send)
+
+
 _PUBLIC_API_ROUTES = (
     re.compile(r"^/api/auth/(?:login|status)$"),
     re.compile(r"^/api/webhooks/payments/[^/]+/[^/]+$"),
@@ -51,11 +70,52 @@ _TENANT_TOKEN_ROUTES = (
 )
 
 
-async def admin_session_auth_middleware(request: Request, call_next):
-    """Require live HTTP Basic admin credentials on every protected /api request.
+async def _load_body_credentials(request: Request) -> None:
+    """Pull lowercase username + session_id from JSON/form body into request.state."""
+    content_type = (request.headers.get("content-type") or "").lower()
+    try:
+        body_bytes = await request.body()
+    except Exception:
+        return
 
-    Explicit provider callbacks stay public. Tenant bearer tokens are passed to
-    the existing tenant-scope dependency, which remains their enforcement point.
+    async def receive():
+        return {"type": "http.request", "body": body_bytes, "more_body": False}
+
+    request._receive = receive
+
+    username = ""
+    session_id = ""
+    if body_bytes and "application/json" in content_type:
+        try:
+            payload = json.loads(body_bytes)
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            username = str(payload.get("username") or "").strip()
+            session_id = str(payload.get("session_id") or "").strip()
+    elif body_bytes and (
+        "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type
+    ):
+        form = await request.form()
+        username = str(form.get("username") or "").strip()
+        session_id = str(form.get("session_id") or "").strip()
+        # Re-inject raw body so downstream can still parse multipart/form.
+        async def receive_again():
+            return {"type": "http.request", "body": body_bytes, "more_body": False}
+
+        request._receive = receive_again
+
+    if username:
+        request.state.auth_username = username
+    if session_id:
+        request.state.auth_session_id = session_id
+
+
+async def admin_session_auth_middleware(request: Request, call_next):
+    """Require a live admin session on every protected /api request.
+
+    Preferred credentials: headers or JSON/form fields ``username`` + ``session_id``.
+    No Authorization header is required.
     """
     path = request.url.path
     if request.method == "OPTIONS" or not path.startswith("/api/"):
@@ -67,6 +127,17 @@ async def admin_session_auth_middleware(request: Request, call_next):
         pattern.match(path) for pattern in _TENANT_TOKEN_ROUTES
     ):
         return await call_next(request)
+    # Prefer lowercase header credentials when present.
+    header_user = str(request.headers.get("username") or "").strip()
+    header_session = str(request.headers.get("session_id") or "").strip()
+    if header_user:
+        request.state.auth_username = header_user
+    if header_session:
+        request.state.auth_session_id = header_session
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not (
+        header_user and header_session
+    ):
+        await _load_body_credentials(request)
     try:
         try:
             from routes.auth import authenticate_basic_header
@@ -216,16 +287,16 @@ async def request_id_middleware(request: Request, call_next):
     except ImportError:
         from backend.routes.auth import BODY_TENANT_POST_PATHS
     if request.method == "POST" and request.url.path in BODY_TENANT_POST_PATHS:
+        # Tenant comes from username/session_id auth — never from the JSON body.
         tenant = None
         try:
-            body_bytes = await request.body()
-            payload = json.loads(body_bytes) if body_bytes else {}
-            selected = payload.get("tenant_id") if isinstance(payload, dict) else None
-            tenant = str(selected).strip() if selected is not None else None
-            async def receive():
-                return {"type": "http.request", "body": body_bytes}
-            request._receive = receive
-            request.state.error_tenant_id = tenant or None
+            try:
+                from routes.auth import authenticate_basic_header
+            except ImportError:
+                from backend.routes.auth import authenticate_basic_header
+            admin = authenticate_basic_header(request)
+            tenant = str(admin.get("tenant_id") or "").strip() or None
+            request.state.error_tenant_id = tenant
         except Exception:
             tenant = None
     api_token = request_api_var.set(api)

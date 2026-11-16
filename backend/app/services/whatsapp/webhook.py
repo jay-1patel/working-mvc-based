@@ -148,17 +148,9 @@ def _set_human_handover(wa_id: str, enabled: bool = True) -> None:
 
 def _is_handover_active(wa_id: str) -> bool:
     """Check if human_handover is currently active for a user."""
-    import sqlite3
-    db_path = config.DB_PATH if hasattr(config, 'DB_PATH') else None
-    if not db_path:
-        return False
     try:
-        conn = sqlite3.connect(db_path)
-        row = conn.execute(
-            "SELECT human_handover FROM user_states WHERE wa_id = ?", (wa_id,)
-        ).fetchone()
-        conn.close()
-        return row is not None and row[0] == 1
+        from db.state import get_user_state
+        return int(get_user_state(wa_id).get("human_handover") or 0) == 1
     except Exception:
         return False
 

@@ -1,19 +1,7 @@
 """Menu items and menu settings data access — extracted from backend/database.py."""
-import os
-import json
-import re
-import sqlite3
-import logging
-import hashlib
-from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
 
-from .core import (
-    DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
-    _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-    get_request_tenant
-)
+from .core import logger, get_db_context, use_mongodb
 
 
 def invalidate_menu_cache():
@@ -27,6 +15,27 @@ def invalidate_menu_cache():
 
 def get_menu_items(menu_key: str, active_only: bool = True) -> list:
     """Rows for one menu, ordered. Empty list when menu not in DB."""
+    if use_mongodb():
+        from .mongo import Repository
+        filters = {"menu_key": menu_key}
+        if active_only:
+            filters["is_active"] = 1
+        rows = Repository("menus").find_all(
+            filters, sort=[("sort_order", 1), ("id", 1)]
+        )
+        return [
+            {
+                "menu_key": r.get("menu_key"),
+                "item_id": r.get("item_id"),
+                "title": r.get("title"),
+                "description": r.get("description"),
+                "section": r.get("section"),
+                "icon": r.get("icon"),
+                "sort_order": r.get("sort_order"),
+                "is_active": r.get("is_active"),
+            }
+            for r in rows
+        ]
     sql = ("SELECT menu_key, item_id, title, description, section, icon, "
            "sort_order, is_active FROM menus WHERE menu_key = ?")
     if active_only:
@@ -47,6 +56,12 @@ def upsert_menu_item(menu_key: str, item_id: str, **fields) -> bool:
     data = {k: v for k, v in fields.items() if k in allowed}
     if not data:
         return False
+    if use_mongodb():
+        from .mongo import Repository
+        payload = {"menu_key": menu_key, "item_id": item_id, **data,
+                   "updated_at": datetime.now(timezone.utc)}
+        Repository("menus").upsert({"menu_key": menu_key, "item_id": item_id}, payload)
+        return True
     sets = ", ".join(f"{k} = ?" for k in data)
     with get_db_context() as conn:
         conn.execute(
@@ -61,6 +76,11 @@ def upsert_menu_item(menu_key: str, item_id: str, **fields) -> bool:
 
 def reset_menu(menu_key: str) -> int:
     """Delete DB overrides for one menu; loader falls back to code defaults."""
+    if use_mongodb():
+        from .mongo import Repository
+        deleted = Repository("menus").delete_many({"menu_key": menu_key})
+        invalidate_menu_cache()
+        return deleted
     with get_db_context() as conn:
         cur = conn.execute("DELETE FROM menus WHERE menu_key = ?", (menu_key,))
     invalidate_menu_cache()
@@ -69,6 +89,11 @@ def reset_menu(menu_key: str) -> int:
 
 def delete_menu_item(menu_key: str, item_id: str) -> bool:
     """Delete a single menu item row. Returns True if a row was removed."""
+    if use_mongodb():
+        from .mongo import Repository
+        deleted = Repository("menus").delete_one({"menu_key": menu_key, "item_id": item_id})
+        invalidate_menu_cache()
+        return deleted > 0
     with get_db_context() as conn:
         cur = conn.execute(
             "DELETE FROM menus WHERE menu_key = ? AND item_id = ?",
@@ -79,6 +104,17 @@ def delete_menu_item(menu_key: str, item_id: str) -> bool:
 
 
 def get_menu_settings(menu_key: str) -> dict:
+    if use_mongodb():
+        from .mongo import Repository
+        row = Repository("menu_settings").find_one({"menu_key": menu_key})
+        if not row:
+            return {}
+        return {
+            "header": row.get("header") or "",
+            "body": row.get("body") or "",
+            "footer": row.get("footer") or "",
+            "button_text": row.get("button_text") or "",
+        }
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT header, body, footer, button_text FROM menu_settings WHERE menu_key = ?",
@@ -95,6 +131,11 @@ def set_menu_settings(menu_key: str, **fields) -> bool:
     data = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not data:
         return False
+    if use_mongodb():
+        from .mongo import Repository
+        payload = {"menu_key": menu_key, **data, "updated_at": datetime.now(timezone.utc)}
+        Repository("menu_settings").upsert({"menu_key": menu_key}, payload)
+        return True
     cols = ", ".join(data)
     sets = ", ".join(f"{k} = ?" for k in data)
     with get_db_context() as conn:

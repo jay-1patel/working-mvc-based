@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from database import get_db, get_db_context, record_admin_audit_event
-from routes.auth import authorize_tenant_access, get_current_admin, has_permission, require_tenant_admin_permission, security
+from routes.auth import authorize_tenant_access, get_current_admin, has_permission, require_tenant_admin_permission, security, session_tenant_id
 from routes.orders import ALLOWED_PAYMENT_STATUSES, ALLOWED_STATUSES, OrderUpdate
 
 
@@ -19,24 +19,23 @@ flat_router = APIRouter(prefix="/api/admin/tenants", tags=["tenant-operations"])
 
 
 class CustomersListRequest(BaseModel):
-    tenant_id: str
     q: str = ""
     limit: int = 200
 
 
 class CustomersExportRequest(BaseModel):
-    tenant_id: str
     format: str = "csv"
 
 
-def _flat_customer_admin(request: Request, tenant_id: str, credentials) -> dict:
+def _flat_customer_admin(request: Request, credentials) -> tuple[dict, str]:
+    tenant_id = session_tenant_id(request=request)
     principal = authorize_tenant_access(request, tenant_id, credentials)
     if principal.get("type") == "tenant":
-        return principal
+        return principal, tenant_id
     admin = get_current_admin(request, credentials)
     if admin.get("role") != "super_admin" and not has_permission(admin, "view_customers"):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
-    return admin
+    return admin, tenant_id
 
 
 @flat_router.post("/customers")
@@ -46,8 +45,8 @@ def list_tenant_customers(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Aggregate this tenant's customers without mixing rows for shared WA IDs."""
-    tenant_id, q, limit = body.tenant_id, body.q, body.limit
-    current_admin = _flat_customer_admin(request, tenant_id, credentials)
+    q, limit = body.q, body.limit
+    current_admin, tenant_id = _flat_customer_admin(request, credentials)
     conn = get_db()
     try:
         customer_rows = conn.execute(
@@ -171,8 +170,8 @@ def export_tenant_customers(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """The tenant's customer directory as a downloadable CSV or Excel file."""
-    tenant_id, format = body.tenant_id, body.format
-    current_admin = _flat_customer_admin(request, tenant_id, credentials)
+    format = body.format
+    current_admin, tenant_id = _flat_customer_admin(request, credentials)
     if format not in ("csv", "xlsx"):
         raise HTTPException(status_code=422, detail="format must be csv or xlsx")
     import csv as csv_mod

@@ -20,7 +20,6 @@ import logging
 import os
 import re
 import shutil
-import sqlite3
 import string
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -2976,7 +2975,10 @@ class AutoBifurcator:
                         actor=self.actor,
                         is_active=active_flag,
                     )
-                except sqlite3.IntegrityError as slug_exc:
+                except Exception as slug_exc:
+                    from db.core import unique_violation_error_types
+                    if not isinstance(slug_exc, unique_violation_error_types()):
+                        raise
                     # Same-name/same-slug races must not abort the whole
                     # publish after the profile version is already out.
                     logger.warning(

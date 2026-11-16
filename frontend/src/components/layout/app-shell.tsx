@@ -374,19 +374,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               </p>
             </div>
           ) : tenantScoped && route.tenantId ? (
-            <div className="space-y-4">
-              {NAV_GROUP_ORDER.map((group) => {
-                const items = nav.filter((i) => i.group === group)
-                if (!items.length) return null
-                return (
-                  <div key={group} className="space-y-0.5">
-                    <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
-                      {group}
-                    </p>
-                    {items.map(navItem)}
-                  </div>
-                )
-              })}
+            <div className="space-y-0.5">
+              {NAV_GROUP_ORDER.flatMap((group) => nav.filter((i) => i.group === group)).map(navItem)}
             </div>
           ) : identity?.role !== 'super_admin' && identity?.tenant_id ? (
             <div className="space-y-0.5">

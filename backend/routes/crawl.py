@@ -28,14 +28,13 @@ from database import (
     record_admin_audit_event,
     get_db_context,
 )
-from routes.auth import authorize_tenant_access, require_tenant_access, security
+from routes.auth import authorize_tenant_access, require_tenant_access, security, session_tenant_id
 
 logger = logging.getLogger("crawl")
 router = APIRouter(prefix="/api/admin/tenants", tags=["crawl"])
 
 
 class CrawlStartRequest(BaseModel):
-    tenant_id: str
     url: str = Field(..., min_length=1)
     # No page-count limit (product decision 2026-11-11): omitted/None/0 =
     # unlimited. An explicit positive value is still honoured for backward
@@ -45,28 +44,23 @@ class CrawlStartRequest(BaseModel):
 
 
 class CrawlRunsRequest(BaseModel):
-    tenant_id: str
     limit: int = 20
 
 
 class CrawlStagedRequest(BaseModel):
-    tenant_id: str
     run_id: int
 
 
 class CrawlExportRequest(BaseModel):
-    tenant_id: str
     run_id: int
     format: str = "json"
 
 
 class CrawlApproveRequest(BaseModel):
-    tenant_id: str
     run_id: int
 
 
 class CrawlRejectRequest(BaseModel):
-    tenant_id: str
     run_id: int
 
 
@@ -100,7 +94,7 @@ def start_crawl(
     background_tasks: BackgroundTasks,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id = body.tenant_id
+    tenant_id = session_tenant_id(request=request)
     principal = authorize_tenant_access(request, tenant_id, credentials)
     url = (body.url or "").strip()
     if not url:
@@ -171,7 +165,8 @@ def get_crawl_runs(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, limit = body.tenant_id, body.limit
+    tenant_id = session_tenant_id(request=request)
+    limit = body.limit
     principal = authorize_tenant_access(request, tenant_id, credentials)
     runs = list_crawl_runs(tenant_id, limit=limit)
     latest = runs[0] if runs else None
@@ -212,7 +207,8 @@ def get_crawl_run_staged(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, run_id = body.tenant_id, body.run_id
+    tenant_id = session_tenant_id(request=request)
+    run_id = body.run_id
     principal = authorize_tenant_access(request, tenant_id, credentials)
     run = get_crawl_run(run_id, tenant_id=tenant_id)
     if not run:
@@ -520,7 +516,8 @@ def export_crawl_run(
     Formats: json (default), csv, pdf. Unknown format → 400; unknown or
     cross-tenant run → 404, mirroring the sibling crawl routes.
     """
-    tenant_id, run_id = body.tenant_id, body.run_id
+    tenant_id = session_tenant_id(request=request)
+    run_id = body.run_id
     principal = authorize_tenant_access(request, tenant_id, credentials)
     fmt = (body.format or "json").strip().lower()
     if fmt not in ("json", "csv", "pdf"):
@@ -564,7 +561,8 @@ def approve_crawl(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, run_id = body.tenant_id, body.run_id
+    tenant_id = session_tenant_id(request=request)
+    run_id = body.run_id
     principal = authorize_tenant_access(request, tenant_id, credentials)
     from services.crawl_pipeline import approve_crawl_run
 
@@ -588,7 +586,8 @@ def reject_crawl(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, run_id = body.tenant_id, body.run_id
+    tenant_id = session_tenant_id(request=request)
+    run_id = body.run_id
     principal = authorize_tenant_access(request, tenant_id, credentials)
     from services.crawl_pipeline import reject_crawl_run
 

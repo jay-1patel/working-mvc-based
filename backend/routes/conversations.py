@@ -31,7 +31,14 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from database import get_db, get_db_context, set_human_handover
-from routes.auth import authorize_tenant_access, get_current_admin, has_permission, require_tenant_access, security
+from routes.auth import (
+    authorize_tenant_access,
+    get_current_admin,
+    has_permission,
+    require_tenant_access,
+    security,
+    session_tenant_id,
+)
 
 logger = logging.getLogger("conversations")
 router = APIRouter(prefix="/api/admin/tenants/{tenant_id}", tags=["conversations"])
@@ -42,13 +49,11 @@ ALLOWED_PRIORITIES = {"low", "normal", "high", "urgent"}
 
 
 class ConversationDetailRequest(BaseModel):
-    tenant_id: str
     wa_id: str
     limit: int = 300
 
 
 class ChatHistoryRequest(BaseModel):
-    tenant_id: str
     days: int = 30
     search: Optional[str] = None
     wa_id: Optional[str] = None
@@ -56,54 +61,46 @@ class ChatHistoryRequest(BaseModel):
 
 
 class InboxListRequest(BaseModel):
-    tenant_id: str
     include_resolved: bool = False
 
 
 class InboxHandoverRequest(BaseModel):
-    tenant_id: str
     wa_id: str
     mode: str
 
 
 class InboxAssignRequest(BaseModel):
-    tenant_id: str
     wa_id: str
     agent_id: str
 
 
 class InboxResolveRequest(BaseModel):
-    tenant_id: str
     wa_id: str
     reply: bool = True
 
 
 class InboxReplyRequest(BaseModel):
-    tenant_id: str
     wa_id: str
     message: str = ""
     attachment: Optional[dict] = None
 
 
 class InboxAttachmentRequest(BaseModel):
-    tenant_id: str
     filename: str
     content: str
     media_type: Optional[str] = None
 
 
 class AgentsListRequest(BaseModel):
-    tenant_id: str
+    pass
 
 
 class ComplaintsListRequest(BaseModel):
-    tenant_id: str
     status: Optional[str] = None
     limit: int = 200
 
 
 class ComplaintUpdateRequest(BaseModel):
-    tenant_id: str
     ticket_id: str
     status: Optional[str] = None
     priority: Optional[str] = None
@@ -111,14 +108,12 @@ class ComplaintUpdateRequest(BaseModel):
 
 
 class ComplaintReplyRequest(BaseModel):
-    tenant_id: str
     ticket_id: str
     message: str
     status: Optional[str] = None
 
 
 class ComplaintDeleteRequest(BaseModel):
-    tenant_id: str
     ticket_id: str
 
 
@@ -142,14 +137,16 @@ def _require(perm: str):
     return dependency
 
 
-def _flat_principal(request: Request, tenant_id: str, credentials, perm: str) -> dict:
+def _flat_principal(request: Request, credentials, perm: str) -> tuple[dict, str]:
+    """Authorize using the tenant bound to username/session_id (not the body)."""
+    tenant_id = session_tenant_id(request=request)
     principal = authorize_tenant_access(request, tenant_id, credentials)
     if principal.get("type") == "tenant":
-        return principal
+        return principal, tenant_id
     admin = get_current_admin(request, credentials)
     if not has_permission(admin, perm):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
-    return principal
+    return principal, tenant_id
 
 
 def _tenant_scope(alias: str) -> str:
@@ -233,8 +230,8 @@ def get_conversation(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, wa_id, limit = body.tenant_id, body.wa_id, body.limit
-    principal = _flat_principal(request, tenant_id, credentials, "chat_history")
+    wa_id, limit = body.wa_id, body.limit
+    principal, tenant_id = _flat_principal(request, credentials, "chat_history")
     if limit > 1000:
         raise HTTPException(status_code=422, detail="limit must be less than or equal to 1000")
     conn = get_db()
@@ -269,8 +266,8 @@ def chat_history(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, days, search, wa_id, limit = body.tenant_id, body.days, body.search, body.wa_id, body.limit
-    principal = _flat_principal(request, tenant_id, credentials, "chat_history")
+    days, search, wa_id, limit = body.days, body.search, body.wa_id, body.limit
+    principal, tenant_id = _flat_principal(request, credentials, "chat_history")
     conn = get_db()
     try:
         sql = f"""
@@ -304,8 +301,8 @@ def inbox_queue(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, include_resolved = body.tenant_id, body.include_resolved
-    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
+    include_resolved = body.include_resolved
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     conn = get_db()
     try:
         where = "" if include_resolved else "AND us.handover_resolved_at IS NULL"
@@ -367,8 +364,8 @@ def set_handover(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, wa_id = body.tenant_id, body.wa_id
-    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
+    wa_id = body.wa_id
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     if body.mode not in ("bot", "human"):
         raise HTTPException(status_code=400, detail="mode must be 'bot' or 'human'")
     set_human_handover(wa_id, active=(body.mode == "human"))
@@ -382,8 +379,7 @@ def assign_conversation(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id = body.tenant_id
-    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     with get_db_context() as conn:
         conn.execute(
             """INSERT INTO conversation_assignments (tenant_id, wa_id, agent_id, assigned_at)
@@ -407,8 +403,8 @@ def resolve_handoff(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, wa_id, reply = body.tenant_id, body.wa_id, body.reply
-    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
+    wa_id, reply = body.wa_id, body.reply
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     set_human_handover(wa_id, active=False)
     sent = False
     if reply:
@@ -446,8 +442,8 @@ def reply_to_customer(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Send an agent's message to the customer and keep the bot out of the way."""
-    tenant_id, wa_id = body.tenant_id, body.wa_id
-    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
+    wa_id = body.wa_id
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     message = (body.message or "").strip()
     attach = body.attachment or None
     attach_url = (attach or {}).get("url") or ""
@@ -549,7 +545,7 @@ async def attach_inbox_file(
     """Host a file on Imghippo/catbox so an agent can send it as WhatsApp media."""
     from routes.admin import decode_attachment_body, store_chat_attachment
 
-    principal = _flat_principal(request, body.tenant_id, credentials, "view_inbox")
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
     data.pop("tenant_id", None)
     filename, content, media_type = decode_attachment_body(data)
@@ -562,8 +558,7 @@ def list_agents(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id = body.tenant_id
-    principal = _flat_principal(request, tenant_id, credentials, "view_inbox")
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     conn = get_db()
     try:
         rows = conn.execute(
@@ -588,8 +583,8 @@ def list_complaints(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, status, limit = body.tenant_id, body.status, body.limit
-    principal = _flat_principal(request, tenant_id, credentials, "view_complaints")
+    status, limit = body.status, body.limit
+    principal, tenant_id = _flat_principal(request, credentials, "view_complaints")
     conn = get_db()
     try:
         sql = "SELECT * FROM complaints WHERE tenant_id = ?"
@@ -633,8 +628,8 @@ def update_complaint(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, ticket_id = body.tenant_id, body.ticket_id
-    principal = _flat_principal(request, tenant_id, credentials, "manage_complaints")
+    ticket_id = body.ticket_id
+    principal, tenant_id = _flat_principal(request, credentials, "manage_complaints")
     if not any([body.status, body.priority, body.assigned_to is not None]):
         raise HTTPException(status_code=400, detail="Nothing to update")
     if body.status and body.status not in ALLOWED_STATUSES:
@@ -684,8 +679,8 @@ def reply_complaint(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, ticket_id = body.tenant_id, body.ticket_id
-    principal = _flat_principal(request, tenant_id, credentials, "manage_complaints")
+    ticket_id = body.ticket_id
+    principal, tenant_id = _flat_principal(request, credentials, "manage_complaints")
     message = (body.message or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
@@ -751,8 +746,8 @@ def delete_complaint(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, ticket_id = body.tenant_id, body.ticket_id
-    principal = _flat_principal(request, tenant_id, credentials, "manage_complaints")
+    ticket_id = body.ticket_id
+    principal, tenant_id = _flat_principal(request, credentials, "manage_complaints")
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT id FROM complaints WHERE ticket_id = ? AND tenant_id = ?",

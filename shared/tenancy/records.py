@@ -30,9 +30,28 @@ from typing import Any, Dict, Iterable, List, Optional
 
 logger = logging.getLogger("records")
 
+
+def _mongodb_enabled() -> bool:
+    try:
+        from db.core import use_mongodb
+        return use_mongodb()
+    except Exception:
+        return False
+
+
 # The physical table every tenant's records live in. Named `products` for
 # historical reasons; the tenant console calls it "records".
 RECORDS_TABLE = "products"
+
+
+def _column_registry():
+    from db.mongo import Repository
+    return Repository("tenant_record_columns")
+
+
+def _product_field_names() -> set:
+    from db.mongo import REGISTRY
+    return {c["name"] for c in REGISTRY["tables"][RECORDS_TABLE]["columns"]}
 
 #: Column types an admin can pick, and the SQL type each maps to. `options` is
 #: only meaningful for `select`, which is why it lives next to the type map.
@@ -224,6 +243,8 @@ def sql_type(col_type: str) -> str:
 
 def _supports_drop_column() -> bool:
     """`ALTER TABLE ... DROP COLUMN` landed in SQLite 3.35.0."""
+    if _mongodb_enabled():
+        return True
     try:
         parts = tuple(int(p) for p in sqlite3.sqlite_version.split(".")[:3])
     except ValueError:  # pragma: no cover - only on a non-numeric build string
@@ -232,6 +253,8 @@ def _supports_drop_column() -> bool:
 
 
 def existing_columns(conn) -> set:
+    if _mongodb_enabled():
+        return _product_field_names()
     return {row[1] for row in conn.execute(f"PRAGMA table_info({RECORDS_TABLE})").fetchall()}
 
 
@@ -249,6 +272,8 @@ def add_column(conn, key: str, col_type: str, *, check_reserved: bool = True) ->
         raise ColumnError(f"Unsafe column name ‘{key}’.")
     if key in existing_columns(conn):
         return False
+    if _mongodb_enabled():
+        return True
     conn.execute(f"ALTER TABLE {RECORDS_TABLE} ADD COLUMN {key} {sql_type(col_type)}")
     logger.info(f"RECORD_COLUMN_ADDED | table={RECORDS_TABLE} | column={key} | type={col_type}")
     return True
@@ -270,6 +295,8 @@ def drop_column(conn, key: str) -> bool:
         return False
     if not IDENT.match(key):
         raise ColumnError(f"Unsafe column name ‘{key}’.")
+    if _mongodb_enabled():
+        return False
     if not _supports_drop_column():
         raise ColumnError(
             "This database cannot drop columns (SQLite is older than 3.35). "
@@ -289,23 +316,61 @@ def _loads(value, default):
         return default
 
 
-def _row_to_column(row: sqlite3.Row) -> Dict[str, Any]:
+def _row_to_column(row) -> Dict[str, Any]:
+    if hasattr(row, "keys") and not isinstance(row, dict):
+        getter = row.__getitem__
+    else:
+        row = dict(row or {})
+        getter = row.get
     return {
-        "id": row["id"],
-        "key": row["key"],
-        "label": row["label"],
-        "type": row["type"],
-        "required": bool(row["required"]),
-        "options": _loads(row["options_json"], []),
-        "help": row["help"] or "",
-        "sort_order": row["sort_order"] or 0,
-        "is_system": bool(row["is_system"]),
-        "created_at": row["created_at"],
+        "id": getter("id"),
+        "key": getter("key"),
+        "label": getter("label"),
+        "type": getter("type"),
+        "required": bool(getter("required")),
+        "options": _loads(getter("options_json"), []),
+        "help": getter("help") or "",
+        "sort_order": getter("sort_order") or 0,
+        "is_system": bool(getter("is_system")),
+        "created_at": getter("created_at"),
     }
 
 
 def seed_columns(conn, tenant_id: str, vertical: str) -> int:
     """Insert the vertical's default columns if this tenant has none yet."""
+    if _mongodb_enabled():
+        repo = _column_registry()
+        if repo.count({"tenant_id": tenant_id}) > 0:
+            return 0
+        inserted = 0
+        for spec in default_columns_for(vertical):
+            if not spec["is_system"] and spec["key"] not in _product_field_names():
+                try:
+                    add_column(conn, spec["key"], spec["type"], check_reserved=False)
+                except ColumnError as exc:
+                    logger.warning(
+                        "RECORD_COLUMN_SEED_SKIPPED | tenant=%s | column=%s | %s",
+                        tenant_id, spec["key"], exc,
+                    )
+                    continue
+            repo.insert({
+                "tenant_id": tenant_id,
+                "key": spec["key"],
+                "label": spec["label"],
+                "type": spec["type"],
+                "required": 1 if spec["required"] else 0,
+                "options_json": json.dumps(spec["options"]),
+                "help": spec["help"],
+                "sort_order": spec["sort_order"],
+                "is_system": 1 if spec["is_system"] else 0,
+            })
+            inserted += 1
+        logger.info(
+            "RECORD_COLUMNS_SEEDED | tenant=%s | vertical=%s | count=%s",
+            tenant_id, vertical, inserted,
+        )
+        return inserted
+
     count = conn.execute(
         "SELECT COUNT(*) AS c FROM tenant_record_columns WHERE tenant_id = ?",
         (tenant_id,),
@@ -342,6 +407,13 @@ def seed_columns(conn, tenant_id: str, vertical: str) -> int:
 
 
 def list_columns(conn, tenant_id: str) -> List[Dict[str, Any]]:
+    if _mongodb_enabled():
+        rows = _column_registry().find(
+            {"tenant_id": tenant_id},
+            sort=[("sort_order", 1), ("id", 1)],
+            limit=500,
+        )
+        return [_row_to_column(r) for r in rows]
     rows = conn.execute(
         "SELECT * FROM tenant_record_columns WHERE tenant_id = ? ORDER BY sort_order ASC, id ASC",
         (tenant_id,),
@@ -384,12 +456,25 @@ def create_column(
 
     add_column(conn, key, col_type)
     order = max((c["sort_order"] for c in list_columns(conn, tenant_id)), default=-1) + 1
-    conn.execute(
-        """INSERT INTO tenant_record_columns
-           (tenant_id, key, label, type, required, options_json, help, sort_order, is_system)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
-        (tenant_id, key, label, col_type, 1 if required else 0, json.dumps(options), help or "", order),
-    )
+    if _mongodb_enabled():
+        _column_registry().insert({
+            "tenant_id": tenant_id,
+            "key": key,
+            "label": label,
+            "type": col_type,
+            "required": 1 if required else 0,
+            "options_json": json.dumps(options),
+            "help": help or "",
+            "sort_order": order,
+            "is_system": 0,
+        })
+    else:
+        conn.execute(
+            """INSERT INTO tenant_record_columns
+               (tenant_id, key, label, type, required, options_json, help, sort_order, is_system)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (tenant_id, key, label, col_type, 1 if required else 0, json.dumps(options), help or "", order),
+        )
     logger.info(f"RECORD_COLUMN_CREATED | tenant={tenant_id} | column={key} | type={col_type}")
     return next(c for c in list_columns(conn, tenant_id) if c["key"] == key)
 
@@ -435,10 +520,17 @@ def update_column(
         new_type = validate_type(col_type)
         updates["type"] = new_type
         updates["options_json"] = json.dumps(validate_options(new_type, updates.get("options_json", column["options"])))
-        populated = conn.execute(
-            f'SELECT COUNT(*) AS c FROM {RECORDS_TABLE} WHERE tenant_id = ? AND "{key}" IS NOT NULL',
-            (tenant_id,),
-        ).fetchone()["c"]
+        if _mongodb_enabled():
+            from db.mongo import Repository
+            populated = Repository(RECORDS_TABLE).count({
+                "tenant_id": tenant_id,
+                key: {"$nin": [None, ""]},
+            })
+        else:
+            populated = conn.execute(
+                f'SELECT COUNT(*) AS c FROM {RECORDS_TABLE} WHERE tenant_id = ? AND "{key}" IS NOT NULL',
+                (tenant_id,),
+            ).fetchone()["c"]
         if populated:
             raise ColumnError(
                 f"‘{column['label']}’ still holds {populated} value(s), so its type cannot change. "
@@ -448,11 +540,14 @@ def update_column(
     if not updates:
         return column
 
-    assignments = ", ".join(f"{field} = ?" for field in updates)
-    conn.execute(
-        f"UPDATE tenant_record_columns SET {assignments} WHERE tenant_id = ? AND key = ?",
-        list(updates.values()) + [tenant_id, key],
-    )
+    if _mongodb_enabled():
+        _column_registry().update({"tenant_id": tenant_id, "key": key}, updates)
+    else:
+        assignments = ", ".join(f"{field} = ?" for field in updates)
+        conn.execute(
+            f"UPDATE tenant_record_columns SET {assignments} WHERE tenant_id = ? AND key = ?",
+            list(updates.values()) + [tenant_id, key],
+        )
     logger.info(f"RECORD_COLUMN_UPDATED | tenant={tenant_id} | column={key} | fields={sorted(updates)}")
     return next(c for c in list_columns(conn, tenant_id) if c["key"] == key)
 
@@ -463,9 +558,12 @@ def remove_column(conn, tenant_id: str, key: str) -> bool:
     if not column:
         raise ColumnError(f"No column called ‘{key}’ on this tenant.")
     dropped = drop_column(conn, key)
-    conn.execute(
-        "DELETE FROM tenant_record_columns WHERE tenant_id = ? AND key = ?", (tenant_id, key)
-    )
+    if _mongodb_enabled():
+        _column_registry().delete_one({"tenant_id": tenant_id, "key": key})
+    else:
+        conn.execute(
+            "DELETE FROM tenant_record_columns WHERE tenant_id = ? AND key = ?", (tenant_id, key)
+        )
     logger.info(f"RECORD_COLUMN_REMOVED | tenant={tenant_id} | column={key} | dropped={dropped}")
     return dropped
 
@@ -482,7 +580,10 @@ def reset_columns(conn, tenant_id: str, vertical: str) -> List[Dict[str, Any]]:
             drop_column(conn, column["key"])
         except ColumnError as exc:
             logger.warning(f"RECORD_COLUMN_RESET_SKIPPED | tenant={tenant_id} | column={column['key']} | {exc}")
-    conn.execute("DELETE FROM tenant_record_columns WHERE tenant_id = ? AND is_system = 0", (tenant_id,))
+    if _mongodb_enabled():
+        _column_registry().delete_many({"tenant_id": tenant_id, "is_system": 0})
+    else:
+        conn.execute("DELETE FROM tenant_record_columns WHERE tenant_id = ? AND is_system = 0", (tenant_id,))
     seed_columns(conn, tenant_id, vertical)
     logger.info(f"RECORD_COLUMNS_RESET | tenant={tenant_id} | vertical={vertical}")
     return list_columns(conn, tenant_id)

@@ -26,7 +26,6 @@ to the default tenant.
 
 import logging
 import re
-import sqlite3
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
@@ -43,6 +42,7 @@ from database import (
     save_product,
     update_product,
 )
+from db.core import unique_violation_error_types
 from routes.auth import get_current_admin, has_permission, require_tenant_access, security
 from shared.tenancy import records as record_schema
 
@@ -457,7 +457,7 @@ def create_offering(tenant_id: str, body: OfferingIn, principal: dict = Depends(
             tenant_id=tenant_id,
             actor=principal,
         )
-    except sqlite3.IntegrityError:
+    except unique_violation_error_types():
         # UNIQUE(tenant_id, slug): _unique_slug() only avoids the clash it
         # can see — a concurrent create with the same name wins the race
         # and this INSERT fails. That is a client conflict, not a server

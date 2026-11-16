@@ -61,7 +61,7 @@ describe('remake — grouped navigation', () => {
     })
     const groups = [...new Set(nav.map((i) => i.group))]
     expect(groups).toEqual([
-      'Today',
+      'Dashboard',
       'Talk to customers',
       'Your business data',
       'Grow',
@@ -92,7 +92,7 @@ describe('remake — grouped navigation', () => {
       can: (perm) => perm !== 'view_inbox',
     })
     expect(nav.map((i) => i.label)).not.toContain('Chats')
-    expect(nav.map((i) => i.label)).toContain('Today')
+    expect(nav.map((i) => i.label)).toContain('Dashboard')
   })
 
   it('hides Grow, Manage, Past chats, Help requests, Callbacks, and & prices from company admins', () => {
@@ -134,11 +134,11 @@ describe('remake — grouped navigation', () => {
 })
 
 describe('remake — shell in the app', () => {
-  it('renders the grouped nav and the super-admin platform group', async () => {
+  it('renders the flat tenant nav and the super-admin platform group', async () => {
     renderApp('#/tenants/acme/overview')
     await waitForScreen()
-    for (const group of ['Talk to customers', 'Your business data', 'Grow', 'Manage']) {
-      expect((await screen.findAllByText(group)).length).toBeGreaterThan(0)
+    for (const group of ['Talk to customers', 'Your business data', 'Grow', 'Manage', 'Settings → Advanced']) {
+      expect(screen.queryByText(group)).not.toBeInTheDocument()
     }
     expect((await screen.findAllByText('Chats')).length).toBeGreaterThan(0)
     expect(await screen.findByRole('button', { name: /businesses/i })).toBeInTheDocument()

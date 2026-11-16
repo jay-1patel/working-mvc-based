@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -13,6 +12,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from database import get_db_context, record_admin_audit_event
+from db.core import use_mongodb, unique_violation_error_types
 from routes.auth import require_permission, require_tenant_access
 from shared.tenancy.gating import is_enabled
 
@@ -654,6 +654,22 @@ def create_segment(
         raise HTTPException(422, "; ".join(errors))
 
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    if use_mongodb():
+        from db.mongo import Repository
+        try:
+            row = Repository("segments").insert({
+                "tenant_id": tenant_id,
+                "name": name,
+                "audience_type": body.audience_type,
+                "criteria_json": json.dumps(body.criteria or {}),
+                "created_at": now,
+                "updated_at": now,
+            })
+        except unique_violation_error_types() as exc:
+            raise HTTPException(409, f"a segment named '{name}' already exists") from exc
+        logger.info(f"SEGMENT_CREATED | tenant={tenant_id} | name={name} | audience={body.audience_type}")
+        return {"ok": True, "id": row["id"]}
+
     with get_db_context() as conn:
         try:
             cursor = conn.execute(
@@ -662,7 +678,7 @@ def create_segment(
                 VALUES (?, ?, ?, ?, ?, ?)""",
                 (tenant_id, name, body.audience_type, json.dumps(body.criteria or {}), now, now),
             )
-        except sqlite3.IntegrityError as exc:
+        except unique_violation_error_types() as exc:
             raise HTTPException(409, f"a segment named '{name}' already exists") from exc
 
     logger.info(f"SEGMENT_CREATED | tenant={tenant_id} | name={name} | audience={body.audience_type}")
@@ -684,6 +700,25 @@ def update_segment(
         raise HTTPException(422, "; ".join(errors))
 
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    if use_mongodb():
+        from db.mongo import Repository
+        repo = Repository("segments")
+        try:
+            updated = repo.update(
+                {"id": segment_id, "tenant_id": tenant_id},
+                {
+                    "name": name,
+                    "audience_type": body.audience_type,
+                    "criteria_json": json.dumps(body.criteria or {}),
+                    "updated_at": now,
+                },
+            )
+        except unique_violation_error_types() as exc:
+            raise HTTPException(409, f"a segment named '{name}' already exists") from exc
+        if not updated:
+            raise HTTPException(404, "segment not found")
+        return {"ok": True}
+
     with get_db_context() as conn:
         try:
             result = conn.execute(
@@ -691,7 +726,7 @@ def update_segment(
                    updated_at = ? WHERE id = ? AND tenant_id = ?""",
                 (name, body.audience_type, json.dumps(body.criteria or {}), now, segment_id, tenant_id),
             )
-        except sqlite3.IntegrityError as exc:
+        except unique_violation_error_types() as exc:
             raise HTTPException(409, f"a segment named '{name}' already exists") from exc
         if result.rowcount == 0:
             raise HTTPException(404, "segment not found")

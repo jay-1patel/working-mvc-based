@@ -2,7 +2,6 @@ import os
 import re
 import json
 import logging
-import sqlite3
 import threading
 import subprocess
 from functools import lru_cache
@@ -14,6 +13,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from rank_bm25 import BM25Okapi
 import faiss
 
+from db.core import get_db_context, use_mongodb
 from routing.config import (
     DB_PATH, EMBEDDING_MODEL_PATH, BRAND_NAME, SUPPORT_EMAIL, SUPPORT_PHONE,
     BRAND_WEBSITE, OLLAMA_API_URL, OLLAMA_MODEL, OLLAMA_BASE_URL,
@@ -822,10 +822,12 @@ class FAQIndex:
             if self.is_built and not force:
                 return
             try:
-                conn = sqlite3.connect(DB_PATH)
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute("SELECT * FROM faq_dataset").fetchall()
-                conn.close()
+                if use_mongodb():
+                    from db.mongo import Repository
+                    rows = Repository("faq_dataset").find_all({}, limit=None)
+                else:
+                    with get_db_context() as conn:
+                        rows = conn.execute("SELECT * FROM faq_dataset").fetchall()
             except Exception as exc:
                 logger.error(f"Failed to load chunks: {exc}")
                 return
@@ -1187,16 +1189,26 @@ def _fetch_module_full_content(modules: tuple[str, ...], tenant_id: str | None =
     order. Fully dynamic — reads the database on every request."""
     marks = ",".join("?" * len(modules))
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
         resolved_tid = _resolve_tenant_id(tenant_id)
         raw_tid = str(tenant_id or resolved_tid)
-        rows = conn.execute(
-            f"SELECT content, content_type FROM faq_dataset "
-            f"WHERE module IN ({marks}) AND (tenant_id = ? OR tenant_id = ? OR strftime(tenant_id) = ?) ORDER BY page_number, id",
-            tuple(modules) + (resolved_tid, raw_tid, resolved_tid),
-        ).fetchall()
-        conn.close()
+        if use_mongodb():
+            from db.mongo import Repository
+            from db.search import _mongo_tenant_filter, _tenant_ids
+            effective_tid = tenant_id or resolved_tid
+            t_id_str, t_slug = _tenant_ids(effective_tid)
+            filters = {"module": {"$in": list(modules)}}
+            filters.update(_mongo_tenant_filter(t_id_str, t_slug, effective_tid))
+            rows = Repository("faq_dataset").find_all(
+                filters, sort=[("page_number", 1), ("id", 1)], limit=None,
+            )
+        else:
+            with get_db_context() as conn:
+                rows = conn.execute(
+                    f"SELECT content, content_type FROM faq_dataset "
+                    f"WHERE module IN ({marks}) AND (tenant_id = ? OR tenant_id = ? OR strftime(tenant_id) = ?) "
+                    f"ORDER BY page_number, id",
+                    tuple(modules) + (resolved_tid, raw_tid, resolved_tid),
+                ).fetchall()
     except Exception as exc:
         logger.warning(f"Listing content fetch failed: {exc}")
         return None

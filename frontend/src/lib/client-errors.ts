@@ -36,9 +36,30 @@ export async function flushClientErrors(): Promise<void> {
       const event = pending[0]
       // Never attribute a queued event to someone who signed in afterwards.
       if (!getToken() || getToken() !== event.token) { pending.shift(); continue }
+      let username = ''
+      let sessionId = ''
+      try {
+        const decoded = atob(event.token)
+        const idx = decoded.indexOf(':')
+        if (idx > 0) {
+          username = decoded.slice(0, idx)
+          sessionId = decoded.slice(idx + 1)
+        }
+      } catch {
+        /* ignore decode errors; Basic header still sent */
+      }
       const response = await fetch('/api/client-errors', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Basic ${event.token}` },
-        body: JSON.stringify(event.payload),
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(username ? { username } : {}),
+          ...(sessionId ? { session_id: sessionId } : {}),
+        },
+        body: JSON.stringify({
+          ...event.payload,
+          ...(username ? { username } : {}),
+          ...(sessionId ? { session_id: sessionId } : {}),
+        }),
       })
       if (response.status === 401) { pending.shift(); continue }
       // Drop rejected events, but retry transient backend failures later.

@@ -86,6 +86,7 @@ from routes.api_errors import router as api_errors_router
 from services.handoff_timeout import handoff_timeout_monitor
 from core.jobs import lifespan
 from core.middleware import (
+    NormalizePathMiddleware,
     audit_mutations_middleware,
     admin_session_auth_middleware,
     audit_request_context,
@@ -155,7 +156,14 @@ app.add_middleware(
         if origin.strip()
     ],
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Accept-Language", "X-Requested-With"],
+    allow_headers=[
+        "Content-Type",
+        "Accept",
+        "Accept-Language",
+        "X-Requested-With",
+        "username",
+        "session_id",
+    ],
     allow_credentials=True,
 )
 
@@ -172,6 +180,9 @@ app.add_middleware(
     x_content_type_options="nosniff",
     x_frame_options="DENY",
 )
+
+# Postman/clients sometimes paste a trailing space into the URL → 404.
+app.add_middleware(NormalizePathMiddleware)
 
 # SECURITY FIX: Enforce HTTPS redirect (in addition to FastAPI's https_redirect option)
 # This provides an additional layer of protection

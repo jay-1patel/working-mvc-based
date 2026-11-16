@@ -1,0 +1,284 @@
+[
+  {
+    "file": "01_auth_status.postman_collection.json",
+    "name": "Auth status",
+    "method": "GET",
+    "path": "/api/auth/status"
+  },
+  {
+    "file": "02_auth_login.postman_collection.json",
+    "name": "Auth login",
+    "method": "POST",
+    "path": "/api/auth/login"
+  },
+  {
+    "file": "03_auth_me.postman_collection.json",
+    "name": "Auth me",
+    "method": "GET",
+    "path": "/api/auth/me"
+  },
+  {
+    "file": "04_auth_admins.postman_collection.json",
+    "name": "Auth admins",
+    "method": "GET",
+    "path": "/api/auth/admins"
+  },
+  {
+    "file": "05_inbox.postman_collection.json",
+    "name": "Inbox queue",
+    "method": "POST",
+    "path": "/api/admin/tenants/inbox"
+  },
+  {
+    "file": "06_conversations_detail.postman_collection.json",
+    "name": "Conversation detail",
+    "method": "POST",
+    "path": "/api/admin/tenants/conversations/detail"
+  },
+  {
+    "file": "07_chat_history.postman_collection.json",
+    "name": "Chat history",
+    "method": "POST",
+    "path": "/api/admin/tenants/chat-history"
+  },
+  {
+    "file": "08_agents.postman_collection.json",
+    "name": "Agents list",
+    "method": "POST",
+    "path": "/api/admin/tenants/agents"
+  },
+  {
+    "file": "09_inbox_assign.postman_collection.json",
+    "name": "Inbox assign",
+    "method": "POST",
+    "path": "/api/admin/tenants/inbox/assign"
+  },
+  {
+    "file": "10_inbox_handover_bot.postman_collection.json",
+    "name": "Inbox handover bot",
+    "method": "POST",
+    "path": "/api/admin/tenants/inbox/handover"
+  },
+  {
+    "file": "11_inbox_handover_human.postman_collection.json",
+    "name": "Inbox handover human",
+    "method": "POST",
+    "path": "/api/admin/tenants/inbox/handover"
+  },
+  {
+    "file": "12_inbox_reply.postman_collection.json",
+    "name": "Inbox reply",
+    "method": "POST",
+    "path": "/api/admin/tenants/inbox/reply"
+  },
+  {
+    "file": "13_inbox_attach.postman_collection.json",
+    "name": "Inbox attach",
+    "method": "POST",
+    "path": "/api/admin/tenants/inbox/attach"
+  },
+  {
+    "file": "14_inbox_resolve.postman_collection.json",
+    "name": "Inbox resolve",
+    "method": "POST",
+    "path": "/api/admin/tenants/inbox/resolve"
+  },
+  {
+    "file": "15_customers.postman_collection.json",
+    "name": "Customers list",
+    "method": "POST",
+    "path": "/api/admin/tenants/customers"
+  },
+  {
+    "file": "16_customers_export.postman_collection.json",
+    "name": "Customers export",
+    "method": "POST",
+    "path": "/api/admin/tenants/customers/export"
+  },
+  {
+    "file": "17_complaints.postman_collection.json",
+    "name": "Complaints list",
+    "method": "POST",
+    "path": "/api/admin/tenants/complaints"
+  },
+  {
+    "file": "18_complaints_update.postman_collection.json",
+    "name": "Complaints update",
+    "method": "POST",
+    "path": "/api/admin/tenants/complaints/update"
+  },
+  {
+    "file": "19_complaints_reply.postman_collection.json",
+    "name": "Complaints reply",
+    "method": "POST",
+    "path": "/api/admin/tenants/complaints/reply"
+  },
+  {
+    "file": "20_complaints_delete.postman_collection.json",
+    "name": "Complaints delete",
+    "method": "POST",
+    "path": "/api/admin/tenants/complaints/delete"
+  },
+  {
+    "file": "21_resolved.postman_collection.json",
+    "name": "Resolved profile",
+    "method": "POST",
+    "path": "/api/admin/tenants/resolved"
+  },
+  {
+    "file": "22_crawl.postman_collection.json",
+    "name": "Crawl start",
+    "method": "POST",
+    "path": "/api/admin/tenants/crawl"
+  },
+  {
+    "file": "23_crawl_runs.postman_collection.json",
+    "name": "Crawl runs",
+    "method": "POST",
+    "path": "/api/admin/tenants/crawl-runs"
+  },
+  {
+    "file": "24_crawl_runs_staged.postman_collection.json",
+    "name": "Crawl staged",
+    "method": "POST",
+    "path": "/api/admin/tenants/crawl-runs/staged"
+  },
+  {
+    "file": "25_crawl_runs_export.postman_collection.json",
+    "name": "Crawl export",
+    "method": "POST",
+    "path": "/api/admin/tenants/crawl-runs/export"
+  },
+  {
+    "file": "26_crawl_runs_approve.postman_collection.json",
+    "name": "Crawl approve",
+    "method": "POST",
+    "path": "/api/admin/tenants/crawl-runs/approve"
+  },
+  {
+    "file": "27_crawl_runs_reject.postman_collection.json",
+    "name": "Crawl reject",
+    "method": "POST",
+    "path": "/api/admin/tenants/crawl-runs/reject"
+  },
+  {
+    "file": "28_files.postman_collection.json",
+    "name": "Files list",
+    "method": "POST",
+    "path": "/api/admin/tenants/files"
+  },
+  {
+    "file": "29_files_upload.postman_collection.json",
+    "name": "Files upload",
+    "method": "POST",
+    "path": "/api/admin/tenants/files/upload"
+  },
+  {
+    "file": "30_files_bifurcate.postman_collection.json",
+    "name": "Files bifurcate",
+    "method": "POST",
+    "path": "/api/admin/tenants/files/bifurcate-existing"
+  },
+  {
+    "file": "31_files_preview.postman_collection.json",
+    "name": "Files preview",
+    "method": "POST",
+    "path": "/api/admin/tenants/files/preview"
+  },
+  {
+    "file": "32_files_download.postman_collection.json",
+    "name": "Files download",
+    "method": "POST",
+    "path": "/api/admin/tenants/files/download"
+  },
+  {
+    "file": "33_files_delete.postman_collection.json",
+    "name": "Files delete",
+    "method": "POST",
+    "path": "/api/admin/tenants/files/delete"
+  },
+  {
+    "file": "34_knowledge_gaps.postman_collection.json",
+    "name": "Knowledge gaps",
+    "method": "POST",
+    "path": "/api/admin/tenants/knowledge-gaps"
+  },
+  {
+    "file": "35_knowledge_gaps_resolve.postman_collection.json",
+    "name": "Knowledge gaps resolve",
+    "method": "POST",
+    "path": "/api/admin/tenants/knowledge-gaps/resolve"
+  },
+  {
+    "file": "36_knowledge_gaps_create_faq.postman_collection.json",
+    "name": "Knowledge gaps create FAQ",
+    "method": "POST",
+    "path": "/api/admin/tenants/knowledge-gaps/create-faq"
+  },
+  {
+    "file": "37_onboarding_kits_list.postman_collection.json",
+    "name": "Onboarding kits list",
+    "method": "POST",
+    "path": "/api/admin/onboarding-kits/list"
+  },
+  {
+    "file": "38_dashboard_stats.postman_collection.json",
+    "name": "Dashboard stats",
+    "method": "GET",
+    "path": "/api/admin/dashboard/stats"
+  },
+  {
+    "file": "39_analytics_overview.postman_collection.json",
+    "name": "Analytics overview",
+    "method": "GET",
+    "path": "/api/admin/analytics/overview?days=7"
+  },
+  {
+    "file": "40_tenants_list.postman_collection.json",
+    "name": "Tenants list",
+    "method": "GET",
+    "path": "/api/admin/tenants"
+  },
+  {
+    "file": "41_tenant_detail.postman_collection.json",
+    "name": "Tenant detail",
+    "method": "GET",
+    "path": "/api/admin/tenants/{{tenant_id}}/detail"
+  },
+  {
+    "file": "42_tenant_orders.postman_collection.json",
+    "name": "Tenant orders",
+    "method": "GET",
+    "path": "/api/admin/tenants/{{tenant_id}}/orders"
+  },
+  {
+    "file": "43_tenant_orders_stats.postman_collection.json",
+    "name": "Tenant orders stats",
+    "method": "GET",
+    "path": "/api/admin/tenants/{{tenant_id}}/orders/stats"
+  },
+  {
+    "file": "44_callbacks.postman_collection.json",
+    "name": "Callbacks list",
+    "method": "GET",
+    "path": "/api/tenants/{{tenant_id}}/callbacks"
+  },
+  {
+    "file": "45_offerings.postman_collection.json",
+    "name": "Offerings list",
+    "method": "GET",
+    "path": "/api/admin/tenants/{{tenant_id}}/offerings"
+  },
+  {
+    "file": "46_errors.postman_collection.json",
+    "name": "API errors",
+    "method": "GET",
+    "path": "/api/admin/errors?limit=50&tenant_id={{tenant_id}}"
+  },
+  {
+    "file": "47_audit_history.postman_collection.json",
+    "name": "Audit history",
+    "method": "GET",
+    "path": "/api/admin/audit-history?limit=50"
+  }
+]

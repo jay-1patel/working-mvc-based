@@ -1,7 +1,7 @@
 """Customer directory data access — extracted from backend/database.py."""
-from datetime import datetime
+from datetime import datetime, timezone
 
-from .core import logger, get_db_context
+from .core import logger, get_db_context, use_mongodb
 
 
 def touch_customer(tenant_id, wa_id, name: str = "") -> None:
@@ -16,6 +16,38 @@ def touch_customer(tenant_id, wa_id, name: str = "") -> None:
         return
     now = datetime.utcnow().isoformat()
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            customers = Repository("customers")
+            row = customers.find_one({"tenant_id": tenant_id, "wa_id": wa_id})
+            if row is None:
+                lang = ""
+                try:
+                    state_row = Repository("user_states").find_one({"wa_id": wa_id})
+                    lang = (state_row.get("lang") if state_row else "") or ""
+                except Exception:
+                    logger.debug("CUSTOMER_LANG_LOOKUP_SKIPPED | wa=%s", wa_id, exc_info=True)
+                customers.insert({
+                    "tenant_id": tenant_id,
+                    "wa_id": wa_id,
+                    "name": (name or "").strip(),
+                    "phone": wa_id,
+                    "language": lang,
+                    "message_count": 1,
+                    "first_seen": now,
+                    "last_seen": now,
+                })
+            else:
+                new_name = (name or "").strip()
+                old_name = row.get("name") or ""
+                best = new_name if (new_name and (not old_name or old_name == wa_id)) else old_name
+                customers.inc(
+                    {"id": row["id"]},
+                    "message_count",
+                    1,
+                    extra={"name": best, "last_seen": now},
+                )
+            return
         with get_db_context() as conn:
             row = conn.execute(
                 "SELECT id, name FROM customers WHERE tenant_id = ? AND wa_id = ?",
@@ -66,6 +98,13 @@ def update_customer_profile(tenant_id, wa_id, **fields) -> None:
     if not updates:
         return
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            Repository("customers").update(
+                {"tenant_id": tenant_id, "wa_id": wa_id},
+                updates,
+            )
+            return
         with get_db_context() as conn:
             sets = ", ".join(f"{k} = ?" for k in updates)
             conn.execute(

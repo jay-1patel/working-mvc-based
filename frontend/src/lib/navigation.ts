@@ -2,7 +2,7 @@
  * The tenant sidebar, as data — remake edition.
  *
  * The remake groups the same screens by the job the admin is doing
- * (Today / Talk to customers / Your business data / Grow / Manage /
+ * (Dashboard / Talk to customers / Your business data / Grow / Manage /
  * Settings → Advanced) and renames them in plain words. Every item still
  * maps to the SAME route view it always did; only the label, the icon
  * and the grouping changed. Visibility is unchanged too: an item shows
@@ -10,7 +10,7 @@
  * exactly as before.
  *
  * Route mapping (view id → new label):
- *   overview          → Today                    records   → <Products|Services|…> & prices
+ *   overview          → Dashboard                records   → <Products|Services|…> & prices
  *   inbox             → Chats                    website-crawler → Website crawler
  *   chat-history      → Past chats               (was: Knowledge / Website knowledge / Files)
  *   complaints        → Help requests
@@ -68,7 +68,7 @@ export interface NavItem {
 }
 
 export type NavGroup =
-  | 'Today'
+  | 'Dashboard'
   | 'Talk to customers'
   | 'Your business data'
   | 'Grow'
@@ -76,7 +76,7 @@ export type NavGroup =
   | 'Settings → Advanced'
 
 export const NAV_GROUP_ORDER: NavGroup[] = [
-  'Today',
+  'Dashboard',
   'Talk to customers',
   'Your business data',
   'Grow',
@@ -149,7 +149,7 @@ export function buildTenantNav(opts: {
   const hideSuperAdminOnly = opts.isSuperAdmin === false
 
   const items: NavItem[] = [
-    { id: 'overview', label: 'Today', icon: LayoutGrid, group: 'Today' },
+    { id: 'overview', label: 'Dashboard', icon: LayoutGrid, group: 'Dashboard' },
 
     // Talk to customers
     {

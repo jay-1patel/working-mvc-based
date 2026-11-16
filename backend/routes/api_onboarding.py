@@ -1,7 +1,6 @@
 """Tenant API onboarding requests and superadmin review."""
 
 import re
-import sqlite3
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -9,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from database import get_db, get_db_context, record_admin_audit_event
+from db.core import unique_violation_error_types
 from routes.auth import get_current_admin, has_permission
 
 router = APIRouter(tags=["api-onboarding"])
@@ -160,9 +160,9 @@ def _create_request(body: OnboardingRequestCreate, current_admin: dict):
                     current_admin.get("username", ""),
                 ),
             )
-        except sqlite3.IntegrityError as exc:
+        except unique_violation_error_types() as exc:
             # Fallback if DB constraint fires
-            if "api_onboarding_requests" in str(exc):
+            if "api_onboarding_requests" in str(exc) or "duplicate key" in str(exc).lower():
                 raise HTTPException(status_code=409, detail=f"A request already exists for {body.provider}") from exc
             raise
         request_id = cursor.lastrowid

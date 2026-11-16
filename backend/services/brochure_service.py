@@ -474,28 +474,8 @@ class BrochureService:
             from backend.database import get_db_context
             return get_db_context()
         except ImportError:
-            try:
-                from database import get_db_context
-                return get_db_context()
-            except ImportError:
-                # Fallback to direct import
-                import sqlite3
-                from pathlib import Path
-                db_path = Path(__file__).parent.parent / "faq.db"
-                
-                def temp_db_context():
-                    conn = sqlite3.connect(str(db_path))
-                    conn.row_factory = sqlite3.Row
-                    try:
-                        yield conn
-                        conn.commit()
-                    except:
-                        conn.rollback()
-                        raise
-                    finally:
-                        conn.close()
-                
-                return temp_db_context()
+            from database import get_db_context
+            return get_db_context()
 
 
 # 🎯 Query categorization for better brochure matching

@@ -2,13 +2,30 @@
 import os
 import sqlite3
 
-from .core import logger, get_db_context, _ensure_columns
+from .core import logger, get_db_context, _ensure_columns, use_mongodb
 from .audit import _init_admin_audit_tables
 
 
 # ── Schema ───────────────────────────────────────────────────────────────
 
 def init_db():
+    if use_mongodb():
+        from .mongo import get_database, initialize_indexes, require_replica_set, REGISTRY
+        from datetime import datetime, timezone
+        database = get_database()
+        require_replica_set(database)
+        initialize_indexes(database)
+        database['_app_meta'].update_one(
+            {'_id': 'schema'},
+            {'$setOnInsert': {
+                'version': REGISTRY['version'],
+                'mode': 'fresh',
+                'created_at': datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+        logger.info("MongoDB schema indexes ready | collections=%s", len(REGISTRY['tables']))
+        return
     with get_db_context() as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")

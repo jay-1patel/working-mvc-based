@@ -1,0 +1,653 @@
+{
+  "info": {
+    "name": "Cars Admin APIs (session auth)",
+    "description": "Panel APIs using username + session_id headers (no Authorization). Tenant is derived from the cars admin session (tenant c).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:9000" },
+    { "key": "username", "value": "cars" },
+    { "key": "session_id", "value": "cars-static-session" },
+    { "key": "wa_id", "value": "919512777899" },
+    { "key": "ticket_id", "value": "TKT-DUMMY-001" },
+    { "key": "tenant_id", "value": "c" },
+    { "key": "run_id", "value": "1" },
+    { "key": "filename", "value": "sample.pdf" },
+    { "key": "gap_id", "value": "1" }
+  ],
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "0. Auth",
+      "item": [
+        {
+          "name": "GET status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/auth/status"
+          }
+        },
+        {
+          "name": "POST login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"session_id\": \"{{session_id}}\"\n}"
+            },
+            "url": "{{base_url}}/api/auth/login"
+          }
+        },
+        {
+          "name": "GET me",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/auth/me"
+          }
+        },
+        {
+          "name": "GET admins",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/auth/admins"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Flat POST — Inbox & Chat",
+      "item": [
+        {
+          "name": "POST inbox (open)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"include_resolved\": false\n}" },
+            "url": "{{base_url}}/api/admin/tenants/inbox"
+          }
+        },
+        {
+          "name": "POST inbox (include resolved)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"include_resolved\": true\n}" },
+            "url": "{{base_url}}/api/admin/tenants/inbox"
+          }
+        },
+        {
+          "name": "POST conversations/detail",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"limit\": 300\n}" },
+            "url": "{{base_url}}/api/admin/tenants/conversations/detail"
+          }
+        },
+        {
+          "name": "POST chat-history",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"days\": 30,\n  \"wa_id\": \"{{wa_id}}\",\n  \"limit\": 500\n}" },
+            "url": "{{base_url}}/api/admin/tenants/chat-history"
+          }
+        },
+        {
+          "name": "POST agents",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/api/admin/tenants/agents"
+          }
+        },
+        {
+          "name": "POST inbox/handover",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"mode\": \"human\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/inbox/handover"
+          }
+        },
+        {
+          "name": "POST inbox/assign",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"agent_id\": \"cars\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/inbox/assign"
+          }
+        },
+        {
+          "name": "POST inbox/reply",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"message\": \"Hello from Postman\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/inbox/reply"
+          }
+        },
+        {
+          "name": "POST inbox/resolve",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"reply\": true\n}" },
+            "url": "{{base_url}}/api/admin/tenants/inbox/resolve"
+          }
+        },
+        {
+          "name": "POST inbox/attach",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"note.txt\",\n  \"content\": \"SGVsbG8gUG9zdG1hbg==\",\n  \"media_type\": \"text/plain\"\n}"
+            },
+            "url": "{{base_url}}/api/admin/tenants/inbox/attach"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Flat POST — Customers & Complaints",
+      "item": [
+        {
+          "name": "POST customers",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"q\": \"\",\n  \"limit\": 200\n}" },
+            "url": "{{base_url}}/api/admin/tenants/customers"
+          }
+        },
+        {
+          "name": "POST customers/export",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"format\": \"csv\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/customers/export"
+          }
+        },
+        {
+          "name": "POST complaints",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": null,\n  \"limit\": 200\n}" },
+            "url": "{{base_url}}/api/admin/tenants/complaints"
+          }
+        },
+        {
+          "name": "POST complaints/update",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticket_id\": \"{{ticket_id}}\",\n  \"status\": \"in_progress\",\n  \"priority\": \"high\",\n  \"assigned_to\": \"cars\"\n}"
+            },
+            "url": "{{base_url}}/api/admin/tenants/complaints/update"
+          }
+        },
+        {
+          "name": "POST complaints/reply",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticket_id\": \"{{ticket_id}}\",\n  \"message\": \"We are checking this\",\n  \"status\": \"in_progress\"\n}"
+            },
+            "url": "{{base_url}}/api/admin/tenants/complaints/reply"
+          }
+        },
+        {
+          "name": "POST complaints/delete",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"ticket_id\": \"TKT-DUMMY-003\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/complaints/delete"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Flat POST — Resolved / Crawl / Files / Gaps / Kits",
+      "item": [
+        {
+          "name": "POST resolved",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/api/admin/tenants/resolved"
+          }
+        },
+        {
+          "name": "POST crawl-runs",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"limit\": 20\n}" },
+            "url": "{{base_url}}/api/admin/tenants/crawl-runs"
+          }
+        },
+        {
+          "name": "POST crawl",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com\",\n  \"max_depth\": 2\n}"
+            },
+            "url": "{{base_url}}/api/admin/tenants/crawl"
+          }
+        },
+        {
+          "name": "POST crawl-runs/staged",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"run_id\": {{run_id}}\n}" },
+            "url": "{{base_url}}/api/admin/tenants/crawl-runs/staged"
+          }
+        },
+        {
+          "name": "POST crawl-runs/export",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"run_id\": {{run_id}},\n  \"format\": \"json\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/crawl-runs/export"
+          }
+        },
+        {
+          "name": "POST crawl-runs/approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"run_id\": {{run_id}}\n}" },
+            "url": "{{base_url}}/api/admin/tenants/crawl-runs/approve"
+          }
+        },
+        {
+          "name": "POST crawl-runs/reject",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"run_id\": {{run_id}}\n}" },
+            "url": "{{base_url}}/api/admin/tenants/crawl-runs/reject"
+          }
+        },
+        {
+          "name": "POST files",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/api/admin/tenants/files"
+          }
+        },
+        {
+          "name": "POST files/upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"postman-note.txt\",\n  \"content\": \"SGVsbG8gZnJvbSBQb3N0bWFu\",\n  \"module\": \"faq\",\n  \"media_type\": \"text/plain\"\n}"
+            },
+            "url": "{{base_url}}/api/admin/tenants/files/upload"
+          }
+        },
+        {
+          "name": "POST files/bifurcate-existing",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filenames\": [\"{{filename}}\"],\n  \"auto_publish\": false\n}"
+            },
+            "url": "{{base_url}}/api/admin/tenants/files/bifurcate-existing"
+          }
+        },
+        {
+          "name": "POST files/preview",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"filename\": \"{{filename}}\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/files/preview"
+          }
+        },
+        {
+          "name": "POST files/download",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"filename\": \"{{filename}}\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/files/download"
+          }
+        },
+        {
+          "name": "POST files/delete",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"filename\": \"postman-note.txt\"\n}" },
+            "url": "{{base_url}}/api/admin/tenants/files/delete"
+          }
+        },
+        {
+          "name": "POST knowledge-gaps",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"resolved\": false,\n  \"limit\": 50\n}" },
+            "url": "{{base_url}}/api/admin/tenants/knowledge-gaps"
+          }
+        },
+        {
+          "name": "POST knowledge-gaps/resolve",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"gap_id\": {{gap_id}},\n  \"notes\": \"handled in Postman\"\n}"
+            },
+            "url": "{{base_url}}/api/admin/tenants/knowledge-gaps/resolve"
+          }
+        },
+        {
+          "name": "POST knowledge-gaps/create-faq",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"gap_id\": {{gap_id}},\n  \"question\": \"Dummy Q?\",\n  \"answer\": \"Dummy A\"\n}"
+            },
+            "url": "{{base_url}}/api/admin/tenants/knowledge-gaps/create-faq"
+          }
+        },
+        {
+          "name": "POST onboarding-kits/list",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/api/admin/onboarding-kits/list"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Dashboard / Tenants / Orders / Callbacks",
+      "item": [
+        {
+          "name": "GET dashboard/stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/dashboard/stats"
+          }
+        },
+        {
+          "name": "GET analytics/overview",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/analytics/overview?days=7"
+          }
+        },
+        {
+          "name": "GET tenants",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/tenants"
+          }
+        },
+        {
+          "name": "GET tenant detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/tenants/{{tenant_id}}/detail"
+          }
+        },
+        {
+          "name": "GET tenant orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/tenants/{{tenant_id}}/orders"
+          }
+        },
+        {
+          "name": "GET tenant orders/stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/tenants/{{tenant_id}}/orders/stats"
+          }
+        },
+        {
+          "name": "GET callbacks",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/tenants/{{tenant_id}}/callbacks"
+          }
+        },
+        {
+          "name": "GET offerings",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/tenants/{{tenant_id}}/offerings"
+          }
+        },
+        {
+          "name": "GET errors",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/errors?limit=50&tenant_id={{tenant_id}}"
+          }
+        },
+        {
+          "name": "GET audit-history",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "username", "value": "{{username}}" },
+              { "key": "session_id", "value": "{{session_id}}" }
+            ],
+            "url": "{{base_url}}/api/admin/audit-history?limit=50"
+          }
+        }
+      ]
+    }
+  ]
+}

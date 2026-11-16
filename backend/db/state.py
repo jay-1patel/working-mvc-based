@@ -1,10 +1,11 @@
 """User conversation state and human-handover flags data access — extracted from backend/database.py."""
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 from .core import (
-    logger, get_db_context,
-    _current_tenant, get_request_tenant
+    logger, get_db_context, use_mongodb,
+    _current_tenant, get_request_tenant, _loads_json
 )
 
 
@@ -13,15 +14,25 @@ def _resolve_tenant_id(wa_id: str, tenant_id: Optional[str] = None) -> str:
     if tid:
         return tid
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT tenant_id FROM user_states WHERE wa_id = ? "
-                "AND tenant_id IS NOT NULL AND TRIM(tenant_id) != '' "
-                "ORDER BY updated_at DESC LIMIT 1",
-                (wa_id,),
-            ).fetchone()
-            if row and row["tenant_id"]:
-                return str(row["tenant_id"])
+        if use_mongodb():
+            from .mongo import Repository
+            rows = Repository("user_states").find(
+                {"wa_id": wa_id, "tenant_id": {"$nin": [None, ""]}},
+                sort=[("updated_at", -1)],
+                limit=1,
+            )
+            if rows and rows[0].get("tenant_id"):
+                return str(rows[0]["tenant_id"])
+        else:
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT tenant_id FROM user_states WHERE wa_id = ? "
+                    "AND tenant_id IS NOT NULL AND TRIM(tenant_id) != '' "
+                    "ORDER BY updated_at DESC LIMIT 1",
+                    (wa_id,),
+                ).fetchone()
+                if row and row["tenant_id"]:
+                    return str(row["tenant_id"])
     except Exception:
         # deliberate: resolver chain — fall through to the next source.
         logger.debug("STATE_TENANT_RESOLVE_STEP_SKIPPED | source=user_states wa=%s", wa_id, exc_info=True)
@@ -35,6 +46,27 @@ def _resolve_tenant_id(wa_id: str, tenant_id: Optional[str] = None) -> str:
 
 def get_user_state(wa_id: str, tenant_id: Optional[str] = None) -> dict:
     tid = _resolve_tenant_id(wa_id, tenant_id)
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("user_states")
+        row = repo.find_one({"tenant_id": tid, "wa_id": wa_id})
+        if row is None:
+            row = repo.find_one({"wa_id": wa_id})
+        if row:
+            result = dict(row)
+            ctx = result.get("context_json")
+            if isinstance(ctx, dict):
+                result["context_json"] = ctx
+            else:
+                result["context_json"] = _loads_json(ctx, {})
+            return result
+        return {
+            "wa_id": wa_id,
+            "tenant_id": tid,
+            "state": "MAIN_MENU",
+            "context_json": {},
+            "lang": "en",
+        }
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT * FROM user_states WHERE tenant_id = ? AND wa_id = ?",
@@ -70,6 +102,19 @@ def set_user_state(
     tenant_id: Optional[str] = None,
 ) -> bool:
     tid = _resolve_tenant_id(wa_id, tenant_id)
+    if use_mongodb():
+        from .mongo import Repository
+        payload = {
+            "tenant_id": tid,
+            "wa_id": wa_id,
+            "state": state,
+            "context_json": context or {},
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if lang:
+            payload["lang"] = lang
+        Repository("user_states").upsert({"tenant_id": tid, "wa_id": wa_id}, payload)
+        return True
     with get_db_context() as conn:
         context_json = json.dumps(context or {})
         if lang:
@@ -121,6 +166,18 @@ def set_human_handover(wa_id: str, active: bool, tenant_id: Optional[str] = None
     """
     tid = _resolve_tenant_id(wa_id, tenant_id)
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            now = datetime.now(timezone.utc)
+            payload = {
+                "tenant_id": tid,
+                "wa_id": wa_id,
+                "human_handover": 1 if active else 0,
+                "updated_at": now,
+                "handover_resolved_at": None if active else now,
+            }
+            Repository("user_states").upsert({"tenant_id": tid, "wa_id": wa_id}, payload)
+            return True
         with get_db_context() as conn:
             if active:
                 conn.execute(
@@ -158,6 +215,19 @@ def reopen_conversation_on_inbound(wa_id: str, tenant_id: Optional[str] = None) 
     """
     tid = _resolve_tenant_id(wa_id, tenant_id)
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            repo = Repository("user_states")
+            now = datetime.now(timezone.utc)
+            repo.update_many(
+                {"tenant_id": tid, "wa_id": wa_id, "handover_resolved_at": {"$ne": None}},
+                {"handover_resolved_at": None, "updated_at": now},
+            )
+            repo.update_many(
+                {"wa_id": wa_id, "handover_resolved_at": {"$ne": None}},
+                {"handover_resolved_at": None, "updated_at": now},
+            )
+            return True
         with get_db_context() as conn:
             conn.execute(
                 "UPDATE user_states SET handover_resolved_at = NULL, updated_at = CURRENT_TIMESTAMP "

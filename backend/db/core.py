@@ -165,8 +165,21 @@ def _facade_ref(name, default=None):
     return default
 
 
+def use_mongodb() -> bool:
+    """True when the process is configured for the native MongoDB backend."""
+    return os.environ.get("DATABASE_BACKEND", "sqlite").strip().lower() == "mongodb"
+
+
+def unique_violation_error_types():
+    """Exception types raised on unique-index conflicts for the active backend."""
+    if use_mongodb():
+        from pymongo.errors import DuplicateKeyError
+        return (DuplicateKeyError,)
+    return (sqlite3.IntegrityError,)
+
+
 def get_db():
-    if os.environ.get("DATABASE_BACKEND", "sqlite").strip().lower() == "mongodb":
+    if use_mongodb():
         raise RuntimeError(
             "SQL connection requested in MongoDB mode; this caller must use a native MongoDB repository"
         )

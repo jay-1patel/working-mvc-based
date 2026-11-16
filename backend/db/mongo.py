@@ -195,3 +195,60 @@ class Repository:
         if self.table == 'tenants' and 'mobile_number' in changes and '_unique_mobile_number' not in values:
             update['$unset'] = {'_unique_mobile_number': ''}
         return self.collection.update_one(filters, update, session=session).modified_count
+
+    def update_many(self, filters, changes, session=None):
+        values = encode_row(self.table, changes)
+        update = {'$set': values}
+        if self.table == 'tenants' and 'mobile_number' in changes and '_unique_mobile_number' not in values:
+            update['$unset'] = {'_unique_mobile_number': ''}
+        return self.collection.update_many(filters or {}, update, session=session).modified_count
+
+    def upsert(self, filters, values, session=None):
+        """Insert or replace by primary/unique filters. Preserves existing `id` when present."""
+        existing = self.collection.find_one(filters or {}, session=session)
+        payload = copy.deepcopy(values)
+        if existing is not None:
+            primary = schema(self.table)['primary_key']
+            if 'id' in existing and 'id' not in payload and primary == ['id']:
+                payload['id'] = existing['id']
+            # Keep counter-stable public ids; replace other fields.
+            encoded = encode_row(self.table, payload)
+            unset = {}
+            if self.table == 'tenants' and 'mobile_number' in payload and '_unique_mobile_number' not in encoded:
+                unset['_unique_mobile_number'] = ''
+            update = {'$set': encoded}
+            if unset:
+                update['$unset'] = unset
+            self.collection.update_one({'_id': existing['_id']}, update, session=session)
+            merged = dict(existing)
+            merged.update(encoded)
+            for key in unset:
+                merged.pop(key, None)
+            return public_row(self.table, merged)
+        return self.insert(payload, session=session)
+
+    def delete_one(self, filters, session=None):
+        return self.collection.delete_one(filters or {}, session=session).deleted_count
+
+    def delete_many(self, filters, session=None):
+        return self.collection.delete_many(filters or {}, session=session).deleted_count
+
+    def count(self, filters=None, session=None):
+        return self.collection.count_documents(filters or {}, session=session)
+
+    def find_all(self, filters=None, *, sort=None, limit=None, offset=0, session=None):
+        """Like find(), but allows uncapped reads for admin/export paths."""
+        cursor = self.collection.find(filters or {}, session=session)
+        if sort:
+            cursor = cursor.sort(sort)
+        if offset:
+            cursor = cursor.skip(max(0, offset))
+        if limit is not None:
+            cursor = cursor.limit(max(0, limit))
+        return [public_row(self.table, row) for row in cursor]
+
+    def inc(self, filters, field, amount=1, session=None, extra=None):
+        update = {'$inc': {field: amount}}
+        if extra:
+            update['$set'] = encode_row(self.table, extra)
+        return self.collection.update_one(filters, update, session=session).modified_count

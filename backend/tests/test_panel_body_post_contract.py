@@ -68,8 +68,24 @@ class PanelBodyPostContractTests(unittest.TestCase):
         self.assertTrue(all(method == "POST" for method, _ in registrations))
         self.assertFalse([item for item, count in Counter(registrations).items() if count > 1])
 
-    def test_every_tenant_post_uses_body_tenant_context(self):
+    def test_every_tenant_post_uses_session_tenant_context(self):
         self.assertEqual(BODY_TENANT_POST_PATHS, EXPECTED - {"/api/admin/onboarding-kits/list"})
+
+    def test_flat_request_models_have_no_tenant_id(self):
+        models = (
+            conversations.ConversationDetailRequest(wa_id="w"),
+            conversations.InboxListRequest(),
+            conversations.InboxResolveRequest(wa_id="w"),
+            tenant_operations.CustomersListRequest(),
+            tenant_operations.CustomersExportRequest(),
+            crawl.CrawlExportRequest(run_id=1),
+            tenant_files.FilesBifurcateRequest(),
+            tenant_files.KnowledgeGapsRequest(),
+            tenants.ResolvedProfileRequest(),
+        )
+        for model in models:
+            data = model.model_dump() if hasattr(model, "model_dump") else model.dict()
+            self.assertNotIn("tenant_id", data)
 
     def test_read_posts_are_not_classified_as_mutations(self):
         for path in READ_ONLY_POST_PATHS:
@@ -78,16 +94,16 @@ class PanelBodyPostContractTests(unittest.TestCase):
         self.assertTrue(is_tenant_data_write("POST", "/api/admin/tenants/files/delete"))
 
     def test_documented_defaults(self):
-        self.assertEqual(conversations.ConversationDetailRequest(tenant_id="t", wa_id="w").limit, 300)
-        self.assertFalse(conversations.InboxListRequest(tenant_id="t").include_resolved)
-        self.assertTrue(conversations.InboxResolveRequest(tenant_id="t", wa_id="w").reply)
-        self.assertEqual(tenant_operations.CustomersListRequest(tenant_id="t").q, "")
-        self.assertEqual(tenant_operations.CustomersListRequest(tenant_id="t").limit, 200)
-        self.assertEqual(tenant_operations.CustomersExportRequest(tenant_id="t").format, "csv")
-        self.assertEqual(crawl.CrawlExportRequest(tenant_id="t", run_id=1).format, "json")
-        self.assertFalse(tenant_files.FilesBifurcateRequest(tenant_id="t").auto_publish)
-        self.assertFalse(tenant_files.KnowledgeGapsRequest(tenant_id="t").resolved)
-        self.assertEqual(tenant_files.KnowledgeGapsRequest(tenant_id="t").limit, 50)
+        self.assertEqual(conversations.ConversationDetailRequest(wa_id="w").limit, 300)
+        self.assertFalse(conversations.InboxListRequest().include_resolved)
+        self.assertTrue(conversations.InboxResolveRequest(wa_id="w").reply)
+        self.assertEqual(tenant_operations.CustomersListRequest().q, "")
+        self.assertEqual(tenant_operations.CustomersListRequest().limit, 200)
+        self.assertEqual(tenant_operations.CustomersExportRequest().format, "csv")
+        self.assertEqual(crawl.CrawlExportRequest(run_id=1).format, "json")
+        self.assertFalse(tenant_files.FilesBifurcateRequest().auto_publish)
+        self.assertFalse(tenant_files.KnowledgeGapsRequest().resolved)
+        self.assertEqual(tenant_files.KnowledgeGapsRequest().limit, 50)
         kit_body = onboarding_kits.OnboardingKitsListRequest()
         self.assertEqual(kit_body.model_dump() if hasattr(kit_body, "model_dump") else kit_body.dict(), {})
 

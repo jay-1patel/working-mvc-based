@@ -7,7 +7,17 @@
  * rather than relying on a bare `<a href>` (which would be unauthenticated).
  */
 
-import { api, getToken, ApiError, apiCallStart, apiUrl, logApiCall, logApiError } from './api'
+import {
+  api,
+  authHeaders,
+  getSessionId,
+  getUsername,
+  ApiError,
+  apiCallStart,
+  apiUrl,
+  logApiCall,
+  logApiError,
+} from './api'
 
 const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -381,7 +391,6 @@ export const uploadsApi = {
   list: (tenantId: string, opts: { module?: string; search?: string } = {}, signal?: AbortSignal) => {
     return api
       .post<{ files: AdminFile[] }>('/api/admin/tenants/files', {
-        tenant_id: tenantId,
         module: opts.module,
         search: opts.search,
       }, { signal })
@@ -393,14 +402,14 @@ export const uploadsApi = {
     const content = await readAsBase64(file)
     return api.post<{ status: string; filename: string; chunks: number; size: number; file_url: string }>(
       '/api/admin/tenants/files/upload',
-      { tenant_id: tenantId, filename: file.name, content, module, media_type: file.type || undefined },
+      { filename: file.name, content, module, media_type: file.type || undefined },
     )
   },
 
   remove: (tenantId: string, filename: string) =>
     api.post<{ status: string; deleted_faq: number; deleted_kb: number }>(
       '/api/admin/tenants/files/delete',
-      { tenant_id: tenantId, filename },
+      { filename },
     ),
 
   autoBifurcate: async (tenantId: string, files: File[], autoPublish = false) => {
@@ -419,15 +428,13 @@ export const uploadsApi = {
 
   bifurcateExisting: (tenantId: string, filenames?: string[]) =>
     api.post<BifurcationResult>('/api/admin/tenants/files/bifurcate-existing', {
-      tenant_id: tenantId,
       filenames,
       // Stage offerings for review — wrong PDFs must not go live automatically.
       auto_publish: false,
     }),
 
-  /** Fetch the raw file with the bearer token; caller revokes the object URL. */
+  /** Fetch the raw file with the session credential; caller revokes the object URL. */
   blob: async (tenantId: string, filename: string, download = false): Promise<Blob> => {
-    const token = getToken()
     const path = `/api/admin/tenants/files/${download ? 'download' : 'preview'}`
     const startedAt = apiCallStart()
     let res: Response
@@ -435,10 +442,14 @@ export const uploadsApi = {
       res = await fetch(apiUrl(path), {
         method: 'POST',
         headers: {
-          ...(token ? { Authorization: `Basic ${token}` } : {}),
+          ...authHeaders(),
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ tenant_id: tenantId, filename }),
+        body: JSON.stringify({
+          filename,
+          ...(getUsername() ? { username: getUsername() } : {}),
+          ...(getSessionId() ? { session_id: getSessionId() } : {}),
+        }),
       })
     } catch (err) {
       logApiError('POST', path, 0, (err as Error)?.message || 'Network error', startedAt)
@@ -457,20 +468,20 @@ export const knowledgeGapsApi = {
   list: (tenantId: string, resolved = false, limit = 50, signal?: AbortSignal) =>
     api.post<KnowledgeGapsResponse>(
       '/api/admin/tenants/knowledge-gaps',
-      { tenant_id: tenantId, resolved, limit },
+      { resolved, limit },
       { signal },
     ),
 
   resolve: (tenantId: string, gapId: number, notes?: string) =>
     api.post<{ status: string; gap_id: number; resolved: boolean }>(
       '/api/admin/tenants/knowledge-gaps/resolve',
-      { tenant_id: tenantId, gap_id: gapId, notes },
+      { gap_id: gapId, notes },
     ),
 
   createFaq: (tenantId: string, gapId: number, question: string, answer: string) =>
     api.post<{ status: string; question: string; answer: string; tenant_id: string }>(
       '/api/admin/tenants/knowledge-gaps/create-faq',
-      { tenant_id: tenantId, gap_id: gapId, question, answer },
+      { gap_id: gapId, question, answer },
     ),
 }
 
@@ -511,9 +522,11 @@ export const onboardingKitsApi = {
 export async function uploadRecordImage(tenantId: string, file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file)
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  const token = getToken()
-  if (token) headers.Authorization = `Basic ${token}`
+  const username = getUsername()
+  const sessionId = getSessionId()
+  if (username) form.append('username', username)
+  if (sessionId) form.append('session_id', sessionId)
+  const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders() }
 
   const path = `${base(tenantId)}/files/image`
   const startedAt = apiCallStart()

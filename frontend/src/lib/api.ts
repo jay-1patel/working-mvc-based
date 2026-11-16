@@ -1,16 +1,20 @@
 /**
  * Single fetch wrapper for the whole app.
  *
- * The encoded admin session credential is kept in localStorage and attached
- * with HTTP Basic authentication. Every
- * non-2xx response is normalised into an `ApiError` carrying the server's
- * `detail`, so screens can surface backend validation text (publish failures,
- * permission refusals) instead of a generic "something went wrong".
+ * After login, every API call passes the live admin session_id as:
+ *   - Authorization: Basic base64(username:session_id)
+ *   - X-Username / X-Session-Id headers
+ *   - session_id field on JSON request bodies
+ *
+ * Every non-2xx response is normalised into an `ApiError` carrying the
+ * server's `detail`, so screens can surface backend validation text.
  */
 
 import { captureClientError } from './client-errors'
 
 const TOKEN_KEY = 'tenant-console.token'
+const USERNAME_KEY = 'tenant-console.username'
+const SESSION_KEY = 'tenant-console.session_id'
 const TENANT_KEY = 'tenant-console.tenant'
 
 /**
@@ -94,13 +98,83 @@ export function getToken(): string | null {
   }
 }
 
-export function setToken(token: string | null) {
+export function getUsername(): string | null {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token)
-    else localStorage.removeItem(TOKEN_KEY)
+    return localStorage.getItem(USERNAME_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function getSessionId(): string | null {
+  try {
+    return localStorage.getItem(SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+/** Persist username + session_id and the Basic token derived from them. */
+export function setCredentials(username: string, sessionId: string) {
+  const user = username.trim()
+  const session = sessionId.trim()
+  const token = btoa(`${user}:${session}`)
+  try {
+    localStorage.setItem(TOKEN_KEY, token)
+    localStorage.setItem(USERNAME_KEY, user)
+    localStorage.setItem(SESSION_KEY, session)
   } catch {
     /* private mode — the session simply does not persist */
   }
+}
+
+export function setToken(token: string | null) {
+  try {
+    if (!token) {
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USERNAME_KEY)
+      localStorage.removeItem(SESSION_KEY)
+      return
+    }
+    localStorage.setItem(TOKEN_KEY, token)
+    try {
+      const decoded = atob(token)
+      const idx = decoded.indexOf(':')
+      if (idx > 0) {
+        localStorage.setItem(USERNAME_KEY, decoded.slice(0, idx))
+        localStorage.setItem(SESSION_KEY, decoded.slice(idx + 1))
+      }
+    } catch {
+      /* keep whatever username/session keys already exist */
+    }
+  } catch {
+    /* private mode — the session simply does not persist */
+  }
+}
+
+/** Auth headers — lowercase username + session_id (no Authorization). */
+export function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {}
+  const username = getUsername()
+  const sessionId = getSessionId()
+  if (username) headers.username = username
+  if (sessionId) headers.session_id = sessionId
+  return headers
+}
+
+/** Attach lowercase username + session_id on every JSON body. */
+function withSessionBody(body: unknown): unknown {
+  const username = getUsername()
+  const sessionId = getSessionId()
+  if ((!username && !sessionId) || body === undefined || body === null) return body
+  if (typeof body === 'object' && !Array.isArray(body)) {
+    return {
+      ...(body as Record<string, unknown>),
+      ...(username ? { username } : {}),
+      ...(sessionId ? { session_id: sessionId } : {}),
+    }
+  }
+  return body
 }
 
 export function getActiveTenantId(): string | null {
@@ -188,10 +262,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
-  if (!anonymous) {
-    const token = getToken()
-    if (token) headers.Authorization = `Basic ${token}`
-  }
+  const payload = anonymous ? body : withSessionBody(body)
+  if (!anonymous) Object.assign(headers, authHeaders())
 
   let res: Response
   try {
@@ -199,7 +271,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       method,
       headers,
       signal,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: payload === undefined ? undefined : JSON.stringify(payload),
     })
   } catch (err) {
     if ((err as Error)?.name === 'AbortError') throw err
@@ -228,9 +300,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 /** Multipart upload: the browser sets the boundary Content-Type. */
 export async function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
   const startedAt = timerNow()
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  const token = getToken()
-  if (token) headers.Authorization = `Basic ${token}`
+  const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders() }
+  const username = getUsername()
+  const sessionId = getSessionId()
+  if (username && !form.has('username')) form.append('username', username)
+  if (sessionId && !form.has('session_id')) form.append('session_id', sessionId)
 
   let res: Response
   try {

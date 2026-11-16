@@ -7,7 +7,6 @@ import base64
 import hashlib
 from typing import Optional
 
-import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
@@ -363,21 +362,31 @@ def _admin_from_pair(username: str, session_id: str, request: Request | None = N
 
 
 def authenticate_basic_header(request: Request) -> dict:
-    """Authenticate an HTTP Basic header without accepting URL/body fallbacks."""
-    header = request.headers.get("authorization", "")
-    scheme, _, encoded = header.partition(" ")
-    if scheme.lower() != "basic" or not encoded:
-        raise HTTPException(
-            status_code=401, detail="Not authenticated", headers={"WWW-Authenticate": "Basic"}
-        )
-    try:
-        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
-        username, session_id = decoded.split(":", 1)
-    except (ValueError, UnicodeDecodeError):
-        raise HTTPException(
-            status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Basic"}
-        )
-    return _admin_from_pair(username, session_id, request)
+    """Authenticate with username + session_id only (no Authorization required).
+
+    Accepted sources, in order:
+      1. Headers ``username`` + ``session_id``
+      2. JSON/form body fields ``username`` + ``session_id`` (set by middleware)
+    """
+    cached = getattr(request.state, "current_admin", None)
+    if cached:
+        return cached
+
+    username = (
+        str(request.headers.get("username") or "").strip()
+        or str(getattr(request.state, "auth_username", "") or "").strip()
+    )
+    session_id = (
+        str(request.headers.get("session_id") or "").strip()
+        or str(getattr(request.state, "auth_session_id", "") or "").strip()
+    )
+    if username and session_id:
+        return _admin_from_pair(username, session_id, request)
+
+    raise HTTPException(
+        status_code=401,
+        detail="Not authenticated — send username and session_id (header or JSON body)",
+    )
 
 
 def _admin_count() -> int:
@@ -400,6 +409,28 @@ def scoped_tenant_id(admin: dict) -> str | None:
     if not own:
         raise HTTPException(status_code=403, detail="No tenant assigned")
     return own
+
+
+def session_tenant_id(admin: dict | None = None, request: Request | None = None) -> str:
+    """Tenant bound to the authenticated username/session_id — never from the body.
+
+    Flat panel APIs resolve the working tenant only from the admin row matched
+    by username + session_id. Callers must not send tenant_id in the JSON body.
+    """
+    if admin is None:
+        if request is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        cached = getattr(request.state, "current_admin", None)
+        admin = cached or get_current_admin(request, None)
+    tid = str((admin or {}).get("tenant_id") or "").strip()
+    if not tid:
+        raise HTTPException(
+            status_code=403,
+            detail="No tenant assigned to this session — use a username/session_id bound to a tenant",
+        )
+    if request is not None:
+        request.state.error_tenant_id = tid
+    return tid
 
 
 def get_current_admin(
@@ -482,8 +513,17 @@ def require_tenant_access():
             raise HTTPException(status_code=400, detail="tenant_id is required")
 
         raw = _raw_bearer(request, credentials)
-        if not raw and not credentials:
-            raise HTTPException(status_code=401, detail="Not authenticated")
+        # username + session_id may arrive as headers or JSON body (middleware).
+        if not raw and not credentials and not getattr(request.state, "current_admin", None):
+            header_user = str(request.headers.get("username") or "").strip()
+            header_session = str(request.headers.get("session_id") or "").strip()
+            if header_user and header_session:
+                request.state.current_admin = _admin_from_pair(header_user, header_session, request)
+            else:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Not authenticated — send username and session_id (header or JSON body)",
+                )
 
         principal = get_tenant_principal(request, credentials) if raw else None
         if principal is not None:
@@ -577,12 +617,9 @@ def authorize_tenant_access(
 
 class LoginRequest(BaseModel):
     username: str
-    # Password remains the browser login credential.  A successful password
-    # login creates (or reuses) the opaque session id used by HTTP Basic on
-    # subsequent API requests.  ``session_id`` also keeps direct API clients
-    # compatible with the session-id authentication flow.
-    password: Optional[str] = None
-    session_id: Optional[str] = None
+    # Login matches both columns in ``admins``: username AND session_id.
+    # Password is no longer accepted for console login.
+    session_id: str
 
 
 class CreateAdminRequest(BaseModel):
@@ -612,54 +649,35 @@ def auth_status():
 # SECURITY FIX: Rate limiting - 5 requests per minute for login attempts
 @limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
 async def admin_login(request: Request, body: LoginRequest):
-    """Exchange a password or session id for the browser's Basic credential."""
+    """Match username + session_id in the DB, then issue the Basic session token."""
+    username = str(body.username or "").strip()
+    supplied_session = str(body.session_id or "").strip()
     with get_db_context() as conn:
         admin = conn.execute(
-            "SELECT id, username, password_hash, session_id, role, permissions, tenant_id "
+            "SELECT id, username, session_id, role, permissions, tenant_id "
             "FROM admins WHERE username = ?",
-            (body.username,),
+            (username,),
         ).fetchone()
 
     stored = str(admin["session_id"] or "") if admin else ""
-    supplied_session = str(body.session_id or "")
     session_matches = bool(stored and supplied_session and hmac.compare_digest(stored, supplied_session))
-    password_matches = False
-    if admin and body.password:
-        try:
-            password_matches = bcrypt.checkpw(
-                body.password.encode("utf-8"), str(admin["password_hash"] or "").encode("utf-8")
-            )
-        except (ValueError, TypeError):
-            password_matches = False
 
-    if not admin or not (session_matches or password_matches):
+    if not admin or not session_matches:
         with get_db_context() as conn:
             record_admin_audit_event(
                 conn,
                 action="login",
-                actor={"username": body.username[:100], "role": admin["role"] if admin else None},
+                actor={"username": username[:100], "role": admin["role"] if admin else None},
                 outcome="failure",
                 resource_type="admin_session",
-                target_username=body.username[:100],
+                target_username=username[:100],
                 tenant_id=admin["tenant_id"] if admin else None,
                 details={"reason": "invalid_credentials"},
             )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Existing password-based accounts predate session ids.  Create the live
-    # credential only after their password has been verified.
-    if not stored:
-        stored = secrets.token_urlsafe(32)
-        with get_db_context() as conn:
-            conn.execute(
-                "UPDATE admins SET session_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (stored, admin["id"]),
-            )
-
     admin_dict = dict(admin)
-    admin_dict["session_id"] = stored
     admin_dict.pop("session_id", None)
-    admin_dict.pop("password_hash", None)
     with get_db_context() as conn:
         record_admin_audit_event(
             conn,
@@ -676,6 +694,7 @@ async def admin_login(request: Request, body: LoginRequest):
             f"{admin_dict['username']}:{stored}".encode("utf-8")
         ).decode("ascii"),
         "username": admin_dict["username"],
+        "session_id": stored,
         "role": admin_dict["role"],
         "permissions": _effective_permissions(admin_dict["role"], admin_dict["permissions"]),
         "tenant_id": admin_dict.get("tenant_id"),

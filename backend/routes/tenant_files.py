@@ -50,6 +50,7 @@ from routes.auth import (
     has_permission,
     require_tenant_access,
     security,
+    session_tenant_id,
 )
 
 logger = logging.getLogger("tenant_files")
@@ -58,13 +59,11 @@ flat_router = APIRouter(prefix="/api/admin/tenants", tags=["tenant-files"])
 
 
 class FilesListRequest(BaseModel):
-    tenant_id: str
     module: str | None = None
     search: str | None = None
 
 
 class FileUploadRequest(BaseModel):
-    tenant_id: str
     filename: str
     content: str
     module: str = "faq"
@@ -73,40 +72,33 @@ class FileUploadRequest(BaseModel):
 
 
 class FilesBifurcateRequest(BaseModel):
-    tenant_id: str
     filenames: list[str] | None = None
     auto_publish: bool = False
 
 
 class FilePreviewRequest(BaseModel):
-    tenant_id: str
     filename: str
 
 
 class FileDownloadRequest(BaseModel):
-    tenant_id: str
     filename: str
 
 
 class FileDeleteRequest(BaseModel):
-    tenant_id: str
     filename: str
 
 
 class KnowledgeGapsRequest(BaseModel):
-    tenant_id: str
     resolved: bool = False
     limit: int = 50
 
 
 class KnowledgeGapResolveRequest(BaseModel):
-    tenant_id: str
     gap_id: int
     notes: str | None = None
 
 
 class KnowledgeGapCreateFaqRequest(BaseModel):
-    tenant_id: str
     gap_id: int
     question: str
     answer: str
@@ -138,14 +130,15 @@ def _require(perm: str):
     return dependency
 
 
-def _flat_require(request: Request, tenant_id: str, credentials, perm: str) -> dict:
+def _flat_require(request: Request, credentials, perm: str) -> tuple[dict, str]:
+    tenant_id = session_tenant_id(request=request)
     principal = authorize_tenant_access(request, tenant_id, credentials)
     if principal.get("type") == "tenant":
-        return principal
+        return principal, tenant_id
     admin = get_current_admin(request, credentials)
     if not has_permission(admin, perm):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
-    return principal
+    return principal, tenant_id
 
 
 
@@ -211,8 +204,9 @@ def list_tenant_files(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, module, search = body.tenant_id, body.module, body.search
-    principal = _flat_require(request, tenant_id, credentials, "view_files")
+    tenant_id = session_tenant_id(request=request)
+    module, search = body.module, body.search
+    principal, tenant_id = _flat_require(request, credentials, "view_files")
     db_tenant_id = _resolve_tenant_db_id(tenant_id)
     files = list_admin_files(tenant_id=db_tenant_id)
     if module:
@@ -230,7 +224,8 @@ async def upload_tenant_file(
     background_tasks: BackgroundTasks,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, module, url, media_type = body.tenant_id, body.module, body.url, body.media_type
+    tenant_id = session_tenant_id(request=request)
+    module, url, media_type = body.module, body.url, body.media_type
     principal = authorize_tenant_access(request, tenant_id, credentials)
     uploader = _resolve_uploader(request, principal, credentials)
     return await run_upload(request, module, url, media_type, uploader, tenant_id=tenant_id, background_tasks=background_tasks)
@@ -312,7 +307,7 @@ async def auto_bifurcate_existing_files(
 ):
     """Run auto-bifurcation on files already uploaded to this tenant's library."""
     import base64
-    tenant_id = body.tenant_id
+    tenant_id = session_tenant_id(request=request)
     principal = authorize_tenant_access(request, tenant_id, credentials)
     uploader = _resolve_uploader(request, principal, credentials)
     target_filenames = body.filenames  # None means all files for tenant
@@ -377,8 +372,9 @@ def preview_tenant_file(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, filename = body.tenant_id, body.filename
-    principal = _flat_require(request, tenant_id, credentials, "view_files")
+    tenant_id = session_tenant_id(request=request)
+    filename = body.filename
+    principal, tenant_id = _flat_require(request, credentials, "view_files")
     # The metadata row is the tenancy check: a filename that exists on disk but
     # belongs to another tenant must not be readable through this path.
     if not get_admin_file(filename, tenant_id=tenant_id):
@@ -400,8 +396,9 @@ def download_tenant_file(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, filename = body.tenant_id, body.filename
-    principal = _flat_require(request, tenant_id, credentials, "view_files")
+    tenant_id = session_tenant_id(request=request)
+    filename = body.filename
+    principal, tenant_id = _flat_require(request, credentials, "view_files")
     if not get_admin_file(filename, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="File not found for this tenant")
     filepath = _find_uploaded_file(filename)
@@ -422,8 +419,9 @@ def delete_tenant_file(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    tenant_id, filename = body.tenant_id, body.filename
-    principal = _flat_require(request, tenant_id, credentials, "delete_files")
+    tenant_id = session_tenant_id(request=request)
+    filename = body.filename
+    principal, tenant_id = _flat_require(request, credentials, "delete_files")
     if not get_admin_file(filename, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="File not found for this tenant")
     actor = {
@@ -520,7 +518,8 @@ def get_tenant_knowledge_gaps(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Retrieve unanswered customer queries and knowledge gap analytics for this tenant."""
-    tenant_id, resolved, limit = body.tenant_id, body.resolved, body.limit
+    tenant_id = session_tenant_id(request=request)
+    resolved, limit = body.resolved, body.limit
     principal = authorize_tenant_access(request, tenant_id, credentials)
     gaps = list_unanswered_queries(tenant_id=tenant_id, resolved=resolved, limit=limit)
     summary = get_knowledge_gaps_summary(tenant_id=tenant_id)
@@ -534,7 +533,8 @@ async def resolve_tenant_knowledge_gap(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Mark a knowledge gap as resolved without creating a FAQ."""
-    tenant_id, gap_id = body.tenant_id, body.gap_id
+    tenant_id = session_tenant_id(request=request)
+    gap_id = body.gap_id
     principal = authorize_tenant_access(request, tenant_id, credentials)
     uploader = _resolve_uploader(request, principal, credentials)
     notes = body.notes or ""
@@ -556,7 +556,8 @@ async def create_faq_from_knowledge_gap(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """1-Click turn an unanswered customer query into an indexed FAQ entry."""
-    tenant_id, gap_id = body.tenant_id, body.gap_id
+    tenant_id = session_tenant_id(request=request)
+    gap_id = body.gap_id
     principal = authorize_tenant_access(request, tenant_id, credentials)
     uploader = _resolve_uploader(request, principal, credentials)
     question = body.question.strip()

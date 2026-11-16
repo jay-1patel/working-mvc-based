@@ -20,7 +20,6 @@ always approves what was reviewed, not what the draft looks like later.
 
 import json
 import logging
-import sqlite3
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -28,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from database import get_db, get_db_context, record_admin_audit_event
+from db.core import unique_violation_error_types
 from routes.auth import get_current_admin, has_permission
 
 logger = logging.getLogger("tenant-approvals")
@@ -329,8 +329,8 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
                     current_admin.get("username", ""),
                 ),
             )
-        except sqlite3.IntegrityError as exc:
-            if "tenant_change_requests" in str(exc):
+        except unique_violation_error_types() as exc:
+            if "tenant_change_requests" in str(exc) or "duplicate key" in str(exc).lower():
                 raise HTTPException(
                     status_code=409,
                     detail=f"A pending request already exists for tenant '{tenant_id}'",

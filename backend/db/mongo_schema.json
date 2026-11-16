@@ -642,6 +642,13 @@
           "integer": false,
           "required": false,
           "default": null
+        },
+        {
+          "name": "session_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
         }
       ],
       "primary_key": [
@@ -9068,6 +9075,13 @@
           "default": ""
         },
         {
+          "name": "company_name",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": ""
+        },
+        {
           "name": "webhook_secret",
           "kind": "scalar",
           "integer": false,
@@ -10092,6 +10106,76 @@
               }
             }
           }
+        }
+      ]
+    },
+    "tenant_kb": {
+      "columns": [
+        {"name": "id", "kind": "scalar", "integer": true, "required": false, "default": null},
+        {"name": "tenant_id", "kind": "scalar", "integer": false, "required": true, "default": null},
+        {"name": "industry", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "source_file", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "category", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "content_type", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "page_number", "kind": "scalar", "integer": true, "required": false, "default": null},
+        {"name": "content", "kind": "scalar", "integer": false, "required": true, "default": null},
+        {"name": "content_hash", "kind": "scalar", "integer": false, "required": true, "default": null},
+        {"name": "confidence", "kind": "scalar", "integer": true, "required": false, "default": null},
+        {"name": "method", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "created_at", "kind": "datetime", "integer": false, "required": false, "default": {"factory": "utcnow"}}
+      ],
+      "primary_key": ["id"],
+      "indexes": [
+        {
+          "keys": [["id", 1]],
+          "options": {
+            "name": "mongo_primary_key",
+            "unique": true,
+            "partialFilterExpression": {"id": {"$type": "number"}}
+          }
+        },
+        {
+          "keys": [["tenant_id", 1], ["content_hash", 1]],
+          "options": {"name": "uq_tenant_kb_content_hash", "unique": true}
+        },
+        {
+          "keys": [["tenant_id", 1], ["category", 1]],
+          "options": {"name": "idx_kb_tenant", "unique": false}
+        }
+      ]
+    },
+    "tenant_faq": {
+      "columns": [
+        {"name": "id", "kind": "scalar", "integer": true, "required": false, "default": null},
+        {"name": "tenant_id", "kind": "scalar", "integer": false, "required": true, "default": null},
+        {"name": "industry", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "source_file", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "category", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "content_type", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "page_number", "kind": "scalar", "integer": true, "required": false, "default": null},
+        {"name": "content", "kind": "scalar", "integer": false, "required": true, "default": null},
+        {"name": "content_hash", "kind": "scalar", "integer": false, "required": true, "default": null},
+        {"name": "confidence", "kind": "scalar", "integer": true, "required": false, "default": null},
+        {"name": "method", "kind": "scalar", "integer": false, "required": false, "default": null},
+        {"name": "created_at", "kind": "datetime", "integer": false, "required": false, "default": {"factory": "utcnow"}}
+      ],
+      "primary_key": ["id"],
+      "indexes": [
+        {
+          "keys": [["id", 1]],
+          "options": {
+            "name": "mongo_primary_key",
+            "unique": true,
+            "partialFilterExpression": {"id": {"$type": "number"}}
+          }
+        },
+        {
+          "keys": [["tenant_id", 1], ["content_hash", 1]],
+          "options": {"name": "uq_tenant_faq_content_hash", "unique": true}
+        },
+        {
+          "keys": [["tenant_id", 1], ["category", 1]],
+          "options": {"name": "idx_faq_tenant", "unique": false}
         }
       ]
     }

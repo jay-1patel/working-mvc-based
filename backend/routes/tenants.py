@@ -48,6 +48,7 @@ from routes.auth import (
     require_super_admin,
     require_tenant_access,
     security,
+    session_tenant_id,
 )
 from shared.tenancy import cache as tenancy_cache
 from shared.tenancy import loader as tenancy_loader
@@ -120,7 +121,7 @@ class TenantCreate(BaseModel):
 
 
 class ResolvedProfileRequest(BaseModel):
-    tenant_id: str
+    pass
 
 
 class PhoneBind(BaseModel):
@@ -554,7 +555,7 @@ def resolved_profile(
     This is the 'profile-derived smoke test' surface: menus, intents, features
     and flows here all come from data, not constants.
     """
-    tenant_id = body.tenant_id
+    tenant_id = session_tenant_id(request=request)
     principal = authorize_tenant_access(request, tenant_id, credentials)
     profile = tenancy_loader.get_tenant_profile(tenant_id)
     return {

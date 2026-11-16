@@ -36,7 +36,6 @@ export const attachmentsApi = {
     const content = await readAsBase64(file)
     const path = area === 'chat' ? `${base(tenantId)}/chat/attach` : '/api/admin/tenants/inbox/attach'
     return api.post<Attachment>(path, {
-      ...(area === 'inbox' ? { tenant_id: tenantId } : {}),
       filename: file.name,
       content,
       media_type: file.type || undefined,

@@ -7,7 +7,7 @@
  * one-file change.
  */
 
-import { api, apiCallStart, apiUrl, logApiCall, logApiError } from './api'
+import { api, apiCallStart, apiUrl, authHeaders, getSessionId, getUsername, logApiCall, logApiError } from './api'
 
 const tenantBase = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -44,7 +44,6 @@ export interface Customer {
  * blob download rather than the JSON api wrapper.
  */
 export async function downloadCustomerExport(tenantId: string, format: 'csv' | 'xlsx') {
-  const { getToken } = await import('./api')
   const path = '/api/admin/tenants/customers/export'
   const startedAt = apiCallStart()
   let res: Response
@@ -52,10 +51,14 @@ export async function downloadCustomerExport(tenantId: string, format: 'csv' | '
     res = await fetch(apiUrl(path), {
       method: 'POST',
       headers: {
-        Authorization: `Basic ${getToken() ?? ''}`,
+        ...authHeaders(),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ tenant_id: tenantId, format }),
+      body: JSON.stringify({
+        format,
+        ...(getUsername() ? { username: getUsername() } : {}),
+        ...(getSessionId() ? { session_id: getSessionId() } : {}),
+      }),
     })
   } catch (err) {
     logApiError('POST', path, 0, (err as Error)?.message || 'Network error', startedAt)
@@ -253,7 +256,6 @@ export const operationsApi = {
   /** One tenant's own customers only. */
   tenantCustomers: (tenantId: string, opts: { q?: string; limit?: number } = {}, signal?: AbortSignal) =>
     api.post<{ customers: Customer[]; count: number }>('/api/admin/tenants/customers', {
-      tenant_id: tenantId,
       q: opts.q ?? '',
       limit: opts.limit ?? 200,
     }, { signal }),

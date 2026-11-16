@@ -12,7 +12,6 @@ Uses the same DB schema as before: tenant_kb / tenant_faq in the app DB.
 import os
 import re
 import json
-import sqlite3
 import hashlib
 import logging
 from typing import List, Dict, Any, Optional, Tuple
@@ -286,6 +285,10 @@ CREATE INDEX IF NOT EXISTS idx_faq_tenant ON tenant_faq(tenant_id, category);
 
 
 def init_bifurcation_tables(db_path: str = DB_PATH) -> None:
+    from db.core import use_mongodb
+    if use_mongodb():
+        return
+    import sqlite3
     with sqlite3.connect(db_path, timeout=30.0) as conn:
         conn.executescript(_SCHEMA)
 
@@ -303,6 +306,38 @@ def save_bifurcated(
 ) -> Dict[str, int]:
     init_bifurcation_tables(db_path)
     counts = {"kb": 0, "faq": 0}
+    from db.core import use_mongodb, unique_violation_error_types
+
+    if use_mongodb():
+        from db.mongo import Repository
+        dup_types = unique_violation_error_types()
+        for store, table in (("kb", "tenant_kb"), ("faq", "tenant_faq")):
+            rows = result.get(store, [])
+            repo = Repository(table)
+            if replace_source:
+                for src in {r["source_file"] for r in rows if r.get("source_file")}:
+                    repo.delete_many({"tenant_id": tenant_id, "source_file": src})
+            for r in rows:
+                payload = {
+                    "tenant_id": tenant_id,
+                    "industry": industry or "generic",
+                    "source_file": r.get("source_file"),
+                    "category": r.get("category"),
+                    "content_type": r.get("content_type"),
+                    "page_number": r.get("page_number"),
+                    "content": r["content"],
+                    "content_hash": _hash(r["content"]),
+                    "confidence": r.get("confidence"),
+                    "method": r.get("method"),
+                }
+                try:
+                    repo.insert(payload)
+                    counts[store] += 1
+                except dup_types:
+                    continue
+        return counts
+
+    import sqlite3
     with sqlite3.connect(db_path, timeout=30.0) as conn:
         for store, table in (("kb", "tenant_kb"), ("faq", "tenant_faq")):
             rows = result.get(store, [])
@@ -382,6 +417,15 @@ def fetch_store(tenant_id: str, store: str, category: Optional[str] = None,
                 db_path: str = DB_PATH) -> List[Dict[str, Any]]:
     init_bifurcation_tables(db_path)
     table = "tenant_kb" if store == "kb" else "tenant_faq"
+    from db.core import use_mongodb
+    if use_mongodb():
+        from db.mongo import Repository
+        flt = {"tenant_id": tenant_id}
+        if category:
+            flt["category"] = category
+        return Repository(table).find_all(flt, limit=None)
+
+    import sqlite3
     sql = f"SELECT * FROM {table} WHERE tenant_id=?"
     params: List[Any] = [tenant_id]
     if category:

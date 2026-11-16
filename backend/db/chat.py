@@ -1,33 +1,56 @@
 """Chat history, embeddings and KB chunk storage data access — extracted from backend/database.py."""
-import os
 import json
 import re
-import sqlite3
-import logging
-import hashlib
-from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Optional
 
 from .core import (
-    DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
-    _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-    get_request_tenant
+    logger, get_db_context, use_mongodb, _current_tenant,
 )
-
 from .products import _resolve_tenant
+
+
+def _parse_history_ts(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
+    text = str(value).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+        try:
+            return datetime.strptime(text[:26].replace("Z", ""), fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).astimezone(timezone.utc)
+    except ValueError:
+        return None
 
 
 def save_chat(wa_id, sender_name, message, response, route="faq", tenant_id=None):
     tid = tenant_id or _current_tenant.get() or _resolve_tenant()
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     stored_message = f"[{route}] {message}"
-    with get_db_context() as conn:
-        conn.execute(
-            "INSERT INTO chat_history (wa_id, sender_name, message, response, route, tenant_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (wa_id, sender_name, stored_message, response, route, tid, created_at),
-        )
+    if use_mongodb():
+        from .mongo import Repository
+        Repository("chat_history").insert({
+            "wa_id": wa_id,
+            "sender_name": sender_name,
+            "message": stored_message,
+            "response": response,
+            "route": route,
+            "tenant_id": tid,
+            "created_at": created_at,
+        })
+    else:
+        with get_db_context() as conn:
+            conn.execute(
+                "INSERT INTO chat_history (wa_id, sender_name, message, response, route, tenant_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (wa_id, sender_name, stored_message, response, route, tid, created_at),
+            )
     # Mirror every exchange into a per-tenant, per-day JSON audit file,
     # alongside (never instead of) the DB row above.
     try:
@@ -47,27 +70,39 @@ def get_recent_history(
     tenant_id: Optional[str] = None,
 ):
     tid = tenant_id or _current_tenant.get() or _resolve_tenant()
-    with get_db_context() as conn:
+    if use_mongodb():
+        from .mongo import Repository
+        filters = {"wa_id": wa_id}
         if tid:
-            rows = conn.execute(
-                "SELECT message, response, created_at FROM chat_history "
-                "WHERE tenant_id = ? AND wa_id = ? ORDER BY created_at DESC LIMIT ?",
-                (tid, wa_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT message, response, created_at FROM chat_history "
-                "WHERE wa_id = ? ORDER BY created_at DESC LIMIT ?",
-                (wa_id, limit),
-            ).fetchall()
+            filters["tenant_id"] = tid
+        rows = Repository("chat_history").find(
+            filters, sort=[("created_at", -1)], limit=limit
+        )
+        rows = list(reversed(rows))
+    else:
+        with get_db_context() as conn:
+            if tid:
+                rows = conn.execute(
+                    "SELECT message, response, created_at FROM chat_history "
+                    "WHERE tenant_id = ? AND wa_id = ? ORDER BY created_at DESC LIMIT ?",
+                    (tid, wa_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT message, response, created_at FROM chat_history "
+                    "WHERE wa_id = ? ORDER BY created_at DESC LIMIT ?",
+                    (wa_id, limit),
+                ).fetchall()
+        if not rows:
+            return []
+        rows = list(reversed(rows))
     if not rows:
         return []
-    rows.reverse()
     last = rows[-1]
     try:
         now = datetime.now(timezone.utc)
-        last_time = datetime.strptime(last["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-        if (now - last_time).total_seconds() > ttl_minutes * 60:
+        last_time = _parse_history_ts(last["created_at"] if hasattr(last, "keys") else last.get("created_at"))
+        if last_time and (now - last_time).total_seconds() > ttl_minutes * 60:
             return []
     except Exception:
         # deliberate: an unparseable timestamp must not hide history —
@@ -75,14 +110,21 @@ def get_recent_history(
         logger.debug("HISTORY_TTL_CHECK_SKIPPED", exc_info=True)
     out = []
     for row in rows:
-        raw_user = row["message"] or ""
+        raw_user = (row["message"] if hasattr(row, "keys") else row.get("message")) or ""
         # Strip internal route prefixes like [send2], [webhook], [faq]
         clean_user = re.sub(r"^\[[\w\-/]+\]\s*", "", raw_user).strip()
-        out.append({"user": clean_user, "assistant": row["response"] or ""})
+        resp = row["response"] if hasattr(row, "keys") else row.get("response")
+        out.append({"user": clean_user, "assistant": resp or ""})
     return out
 
 
 def save_embeddings(embedding_data):
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("faq_dataset")
+        for faq_id, embedding_bytes in embedding_data:
+            repo.update({"id": faq_id}, {"embedding": embedding_bytes})
+        return
     with get_db_context() as conn:
         for faq_id, embedding_bytes in embedding_data:
             conn.execute(
@@ -96,6 +138,28 @@ def save_chunks(chunks, module="faq", media_url=None, media_type=None, tenant_id
     for each distinct source_file (+ tenant) before inserting — prevents duplicate
     vectors on re-upload.
     """
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("faq_dataset")
+        if replace_existing:
+            sources = {chunk.get("source_file") for chunk in chunks if chunk.get("source_file")}
+            for src in sources:
+                filters = {"source_file": src}
+                if tenant_id is not None:
+                    filters["tenant_id"] = tenant_id
+                repo.delete_many(filters)
+        for chunk in chunks:
+            repo.insert({
+                "source_file": chunk["source_file"],
+                "content_type": chunk["content_type"],
+                "content": chunk["content"],
+                "page_number": chunk["page_number"],
+                "module": module,
+                "media_url": media_url,
+                "media_type": media_type,
+                "tenant_id": tenant_id,
+            })
+        return
     with get_db_context() as conn:
         if replace_existing:
             sources = {chunk.get("source_file") for chunk in chunks if chunk.get("source_file")}
@@ -118,10 +182,35 @@ def save_knowledge_base_chunks(chunks, source_file, media_url=None, media_type=N
     """Insert KB rows. Defaults to replace_existing so re-uploads do not leave
     stale FAISS/SQL duplicates for the same source + tenant.
     """
-    from collections import defaultdict
     grouped = defaultdict(list)
     for chunk in chunks:
         grouped[chunk.get("source_file", source_file)].append(chunk)
+
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("knowledge_base")
+        for src, group in grouped.items():
+            if replace_existing:
+                filters = {"source": src}
+                if tenant_id is not None:
+                    filters["tenant_id"] = tenant_id
+                repo.delete_many(filters)
+            texts = [c.get("content", "") for c in group if c.get("content")]
+            full_text = "\n".join(texts)
+            repo.insert({
+                "title": src,
+                "category": "uploaded",
+                "content": full_text,
+                "tags": json.dumps([]),
+                "source": src,
+                "chunks_json": texts,
+                "embedding_blob": None,
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "media_url": media_url,
+                "media_type": media_type,
+                "tenant_id": tenant_id,
+            })
+        return
 
     with get_db_context() as conn:
         for src, group in grouped.items():
@@ -155,6 +244,19 @@ def save_knowledge_base_chunks(chunks, source_file, media_url=None, media_type=N
 
 
 def get_files_summary():
+    if use_mongodb():
+        from .mongo import get_database
+        pipeline = [
+            {"$group": {"_id": {"source_file": "$source_file", "module": "$module"}, "chunk_count": {"$sum": 1}}},
+            {"$project": {
+                "_id": 0,
+                "source_file": "$_id.source_file",
+                "module": "$_id.module",
+                "chunk_count": 1,
+            }},
+            {"$sort": {"source_file": 1}},
+        ]
+        return list(get_database()["faq_dataset"].aggregate(pipeline))
     with get_db_context() as conn:
         rows = conn.execute(
             "SELECT source_file, module, COUNT(*) as chunk_count FROM faq_dataset GROUP BY source_file ORDER BY source_file"
@@ -163,6 +265,12 @@ def get_files_summary():
 
 
 def delete_file_chunks(source_file, tenant_id=None):
+    if use_mongodb():
+        from .mongo import Repository
+        filters = {"source_file": source_file}
+        if tenant_id:
+            filters["tenant_id"] = tenant_id
+        return Repository("faq_dataset").delete_many(filters)
     with get_db_context() as conn:
         if tenant_id:
             result = conn.execute(
@@ -175,6 +283,12 @@ def delete_file_chunks(source_file, tenant_id=None):
 
 
 def delete_knowledge_base_file(source_file, tenant_id=None):
+    if use_mongodb():
+        from .mongo import Repository
+        filters = {"source": source_file}
+        if tenant_id:
+            filters["tenant_id"] = tenant_id
+        return Repository("knowledge_base").delete_many(filters)
     with get_db_context() as conn:
         if tenant_id:
             result = conn.execute(

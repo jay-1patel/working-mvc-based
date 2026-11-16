@@ -452,7 +452,7 @@ async def attach_inbox_file(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    """Host a file on Imghippo/catbox so an agent can send it as WhatsApp media."""
+    """Host a file on the public application domain for WhatsApp delivery."""
     from routes.admin import decode_attachment_body, store_chat_attachment
 
     principal, tenant_id = _flat_principal(request, credentials, "view_inbox")

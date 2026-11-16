@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
+from core.send2_auth import decode_send2_username
 
 from database import (
     count_admins,
@@ -618,8 +619,8 @@ def authorize_tenant_access(
 
 class LoginRequest(BaseModel):
     username: str
-    # Login matches both columns in ``admins``: username AND session_id.
-    # Password is no longer accepted for console login.
+    # Send2Digital supplies a Base64 username. Login decodes it, then matches
+    # the canonical username and session_id in ``admins``.
     session_id: str
 
 
@@ -650,10 +651,16 @@ def auth_status():
 # SECURITY FIX: Rate limiting - 5 requests per minute for login attempts
 @limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
 async def admin_login(request: Request, body: LoginRequest):
-    """Match username + session_id in the DB, then issue the Basic session token."""
-    username = str(body.username or "").strip()
+    """Authenticate a Base64 Send2Digital username plus its live session ID."""
+    encoded_username = str(body.username or "").strip()
+    try:
+        username = decode_send2_username(encoded_username)
+    except ValueError:
+        # Keep malformed input indistinguishable from an unknown account while
+        # still recording the failed attempt through the normal audit path.
+        username = ""
     supplied_session = str(body.session_id or "").strip()
-    admin = get_admin_by_username(username)
+    admin = get_admin_by_username(username) if username else None
 
     stored = str((admin or {}).get("session_id") or "")
     session_matches = bool(stored and supplied_session and hmac.compare_digest(stored, supplied_session))

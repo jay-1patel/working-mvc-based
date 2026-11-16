@@ -697,7 +697,7 @@ async def run_upload(
     ext = Path(filename).suffix.lower()
     image_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
     if ext in image_exts or is_image:
-        # Free hosts (img402/BasePic) + ImgHippo if it still has credits.
+        # Prefer our configured public domain; third-party hosts are fallbacks.
         try:
             from services.media_host import upload_public_image
         except ImportError:
@@ -709,8 +709,8 @@ async def run_upload(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Image upload failed. Free hosts (img402/BasePic) were unreachable "
-                    "and ImgHippo has no credits. Check network or PUBLIC_BASE_URL."
+                    "Image upload failed. Configure PUBLIC_BASE_URL or check the "
+                    "fallback media-host network access."
                 ),
             )
         effective_media_type = media_type or ext.lstrip(".")
@@ -936,30 +936,29 @@ async def _upload_to_catbox(filename: str, content: bytes, content_type: str = "
 
 
 @router.post("/upload/image")
-async def upload_image_to_imghippo(
+async def upload_public_image_file(
     file: UploadFile = File(...),
     current_admin: dict = Depends(get_current_admin),
 ):
-    if not IMGHIPPO_API_KEY:
-        raise HTTPException(status_code=503, detail="Image hosting is not configured")
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Only image files are allowed")
 
     contents = await file.read()
-    payload = aiohttp.FormData()
-    payload.add_field("file", contents, filename=file.filename or "image", content_type=file.content_type or "application/octet-stream")
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://api.imghippo.com/v1/upload",
-            data=payload,
-            headers={"X-API-Key": IMGHIPPO_API_KEY},
-        ) as resp:
-            data = await resp.json()
-            if not resp.ok or not data.get("success"):
-                raise HTTPException(status_code=400, detail=data.get("message", "Imghippo upload failed"))
-            url = data["data"]["url"]
-            return {"url": url, "media_type": file.content_type}
+    if not contents:
+        raise HTTPException(status_code=400, detail="The file is empty")
+    try:
+        from services.media_host import upload_public_image
+    except ImportError:
+        from backend.services.media_host import upload_public_image
+    url = await run_in_threadpool(
+        upload_public_image,
+        contents,
+        file.filename or "image.png",
+        file.content_type,
+    )
+    if not url:
+        raise HTTPException(status_code=503, detail="Public image hosting is not configured")
+    return {"url": url, "media_type": file.content_type}
 
 
 LOGOS_DIR = os.path.join(UPLOAD_DIR, "logos")
@@ -1033,9 +1032,10 @@ def decode_attachment_body(data: dict) -> tuple[str, bytes, str | None]:
 async def store_chat_attachment(filename: str, content: bytes, media_type: str | None = None) -> dict:
     """Save a chat/inbox attachment and return a public WhatsApp-ready URL.
 
-    Always keeps a local copy under ``chat_attachments``. Images are hosted on
-    Imghippo; other files (PDFs, docs) on catbox.moe so Meta/send2 can fetch
-    them. Falls back to the local ``/api/uploads/chat/...`` path if hosting fails.
+    Always keeps a local copy under ``chat_attachments``. When
+    ``PUBLIC_BASE_URL`` is configured, images and documents are served directly
+    from this backend. Third-party hosting is only a fallback when no public
+    application domain is configured.
     """
     ext = Path(filename).suffix.lower()
     is_image = (media_type or "").startswith("image/") or ext in _IMAGE_EXTS
@@ -1046,36 +1046,42 @@ async def store_chat_attachment(filename: str, content: bytes, media_type: str |
         handle.write(content)
 
     local_url = f"/api/uploads/chat/{stored}"
-    public_url = local_url
-    try:
-        if is_image and IMGHIPPO_API_KEY:
-            payload = aiohttp.FormData()
-            payload.add_field(
-                "file",
-                content,
-                filename=filename or stored,
-                content_type=media_type or "application/octet-stream",
-            )
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.imghippo.com/v1/upload",
-                    data=payload,
-                    headers={"X-API-Key": IMGHIPPO_API_KEY},
-                ) as resp:
-                    data = await resp.json()
-                    if resp.ok and data.get("success") and data.get("data", {}).get("url"):
-                        public_url = data["data"]["url"]
-                        logger.info(f"CHAT_ATTACH_IMGHIPPO | {filename} -> {public_url}")
-        if public_url == local_url:
-            public_url = await _upload_to_catbox(
-                filename or stored,
-                content,
-                media_type or "application/octet-stream",
-            )
-            logger.info(f"CHAT_ATTACH_CATBOX | {filename} -> {public_url}")
-    except Exception as e:
-        logger.error(f"Chat attachment public host failed for {filename}: {e}")
-        public_url = local_url
+    from routing.config import PUBLIC_BASE_URL
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    public_url = f"{base}{local_url}" if base else local_url
+
+    if base:
+        logger.info("CHAT_ATTACH_PUBLIC_BASE | %s -> %s", filename, public_url)
+    else:
+        try:
+            if is_image and IMGHIPPO_API_KEY:
+                payload = aiohttp.FormData()
+                payload.add_field(
+                    "file",
+                    content,
+                    filename=filename or stored,
+                    content_type=media_type or "application/octet-stream",
+                )
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        "https://api.imghippo.com/v1/upload",
+                        data=payload,
+                        headers={"X-API-Key": IMGHIPPO_API_KEY},
+                    ) as resp:
+                        data = await resp.json()
+                        if resp.ok and data.get("success") and data.get("data", {}).get("url"):
+                            public_url = data["data"]["url"]
+                            logger.info(f"CHAT_ATTACH_IMGHIPPO | {filename} -> {public_url}")
+            if public_url == local_url:
+                public_url = await _upload_to_catbox(
+                    filename or stored,
+                    content,
+                    media_type or "application/octet-stream",
+                )
+                logger.info(f"CHAT_ATTACH_CATBOX | {filename} -> {public_url}")
+        except Exception as e:
+            logger.error(f"Chat attachment public host failed for {filename}: {e}")
+            public_url = local_url
 
     return {
         "url": public_url,

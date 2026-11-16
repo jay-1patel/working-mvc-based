@@ -1,8 +1,8 @@
 /**
  * Chat attachments for the internal admin chat and the live inbox.
  *
- * Both upload a file to a tenant-scoped endpoint that hosts it publicly
- * (Imghippo for images, catbox.moe otherwise) and returns a descriptor.
+ * Both upload a file to a tenant-scoped endpoint that hosts it on the
+ * application's configured public domain and returns a descriptor.
  * Inbox replies send the descriptor as native WhatsApp image/document media.
  */
 

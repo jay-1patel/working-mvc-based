@@ -153,9 +153,13 @@ def _public_base_url() -> str:
 
 
 def _upload_dir() -> str:
-    """Absolute path to ``backend/uploaded_files``."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.abspath(os.path.join(here, "..", "uploaded_files"))
+    """Return the same upload root mounted by ``backend/main.py``."""
+    try:
+        from routing.config import UPLOAD_DIR
+        return os.path.abspath(UPLOAD_DIR)
+    except Exception:
+        here = os.path.dirname(os.path.abspath(__file__))
+        return os.path.abspath(os.path.join(here, "..", "uploaded_files"))
 
 
 def host_via_public_base(
@@ -210,10 +214,10 @@ def upload_public_media(
     ctype = _guess_content_type(name, content_type)
     if _is_image(name, ctype):
         for uploader in (
+            lambda: host_via_public_base(content, name, subdir=subdir or "product_images"),
             lambda: _upload_imghippo(content, name),
             lambda: _upload_img402(content, name, ctype),
             lambda: _upload_basepic(content, name, ctype),
-            lambda: host_via_public_base(content, name, subdir=subdir or "product_images"),
             lambda: _upload_catbox(content, name),
         ):
             url = uploader()

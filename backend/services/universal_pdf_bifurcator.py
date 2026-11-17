@@ -107,16 +107,21 @@ def _extract_page_assets(
 
             try:
                 try:
-                    from services.auto_bifurcator import _upload_image_to_imghippo
+                    from services.image_upload import _upload_to_imghippo as _upload_image_to_imghippo
                 except ImportError:
-                    from backend.services.auto_bifurcator import _upload_image_to_imghippo
+                    from backend.services.image_upload import _upload_to_imghippo as _upload_image_to_imghippo
                 img_url = _upload_image_to_imghippo(raw_bytes, img_filename)
                 if not img_url:
                     pil_img = Image.open(io.BytesIO(raw_bytes))
                     if pil_img.mode in ("RGBA", "P"):
                         pil_img = pil_img.convert("RGB")
                     pil_img.save(img_path, format="JPEG", quality=88)
-                    img_url = f"/uploaded_files/product_images/{img_filename}"
+                    rel = f"/uploaded_files/product_images/{img_filename}"
+                    try:
+                        from services.media_host import absolutize_upload_url
+                    except ImportError:
+                        from backend.services.media_host import absolutize_upload_url
+                    img_url = absolutize_upload_url(rel) or rel
                 page_images.append({
                     "url": img_url,
                     "width": w,
@@ -552,7 +557,12 @@ async def bifurcate_and_ingest_pdf(
     with open(brochure_path, "wb") as f:
         f.write(pdf_bytes)
 
-    brochure_url = f"/uploaded_files/brochures/{brochure_filename}"
+    brochure_rel = f"/uploaded_files/brochures/{brochure_filename}"
+    try:
+        from services.media_host import absolutize_upload_url
+    except ImportError:
+        from backend.services.media_host import absolutize_upload_url
+    brochure_url = absolutize_upload_url(brochure_rel) or brochure_rel
 
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")

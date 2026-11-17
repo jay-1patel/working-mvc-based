@@ -449,7 +449,12 @@ def download_and_store_image(
                 f.write(resp.content)
 
             logger.info("STORED_PRODUCT_IMAGE | tenant=%s | file=%s", tenant_id, filename)
-            return f"/uploaded_files/product_images/{filename}"
+            rel = f"/uploaded_files/product_images/{filename}"
+            try:
+                from services.media_host import absolutize_upload_url
+            except ImportError:
+                from backend.services.media_host import absolutize_upload_url
+            return absolutize_upload_url(rel) or rel
     except Exception as e:
         logger.debug("Failed downloading image %s: %s", image_url, e)
         return image_url

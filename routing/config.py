@@ -168,8 +168,7 @@ OTP_EXPIRY_MINUTES = _int_env("OTP_EXPIRY_MINUTES", 10)
 # Single source of truth for ALL runtime uploads (D5): the UPLOAD_DIR env
 # var wins; the repo tree is only the fallback default.
 UPLOAD_DIR = os.getenv("UPLOAD_DIR") or str(BACKEND_DIR / "uploaded_files")
-# No default. A committed live key was removed; set IMGHIPPO_API_KEY in the environment
-# if image hosting is used. Revoke any key that was previously shipped in this file.
+# Legacy setting retained for environment compatibility; local media hosting does not use it.
 IMGHIPPO_API_KEY = os.getenv("IMGHIPPO_API_KEY") or ""
 
 # ── Email / SMTP (for OTP delivery) ──────────────────────────────────────
@@ -184,7 +183,7 @@ SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "")
 SEND_MEDIA = os.getenv("SEND_MEDIA", "false").lower() == "true"
 CATALOG_DELIVERY_MODE = os.getenv("CATALOG_DELIVERY_MODE", "pdf").lower().strip()
 
-CATALOGUE_PDF_URL = os.getenv("CATALOGUE_PDF_URL", "https://files.catbox.moe/h2pw4m.pdf")
+CATALOGUE_PDF_URL = os.getenv("CATALOGUE_PDF_URL", "")
 CATALOGUE_PDF_FILENAME = os.getenv("CATALOGUE_PDF_FILENAME", "Product Brochure.pdf")
 
 CATALOGUE_BUTTON_ID = os.getenv("CATALOGUE_BUTTON_ID", "new_arrival")

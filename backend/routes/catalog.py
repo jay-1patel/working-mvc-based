@@ -3,7 +3,6 @@ import re
 import json
 import uuid
 import logging
-import aiohttp
 from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File, Form
 from routes.auth import get_current_admin, has_permission, require_permission
 from database import (
@@ -35,32 +34,15 @@ def _parse_json_list(value: str | None, default: list = None) -> list:
 
 
 def _upload_image_to_imghippo(contents: bytes, filename: str = "image") -> str:
-    """Upload image bytes to imghippo and return the public URL."""
-    imghippo_key = os.environ.get("IMGHIPPO_API_KEY")
-
-    async def _do():
-        payload = aiohttp.FormData()
-        payload.add_field("file", contents, filename=filename)
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://api.imghippo.com/v1/upload",
-                data=payload,
-                headers={"X-API-Key": imghippo_key},
-            ) as resp:
-                img_data = await resp.json()
-                if not resp.ok or not img_data.get("success"):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=img_data.get("message", "Imghippo upload failed"),
-                    )
-                return img_data["data"]["url"]
-
-    import asyncio
+    """Backward-compatible name: store a product image on this backend."""
     try:
-        loop = asyncio.get_running_loop()
-        return loop.run_until_complete(_do())
-    except RuntimeError:
-        return asyncio.run(_do())
+        from services.media_host import upload_public_image
+    except ImportError:
+        from backend.services.media_host import upload_public_image
+    url = upload_public_image(contents, filename)
+    if not url:
+        raise HTTPException(status_code=503, detail="Local image hosting is not configured")
+    return url
 
 
 # ── PRODUCTS ─────────────────────────────────────────────────────────────
@@ -363,7 +345,12 @@ async def add_new_arrival(
                     os.unlink(file_path)
                     raise HTTPException(status_code=413, detail="File too large. Max: 20MB")
                 f.write(chunk)
-        final_url = f"/uploaded_files/products/{stored_name}"
+        rel = f"/uploaded_files/products/{stored_name}"
+        try:
+            from services.media_host import absolutize_upload_url
+        except ImportError:
+            from backend.services.media_host import absolutize_upload_url
+        final_url = absolutize_upload_url(rel) or rel
         final_type = "image"
 
     product_id = save_product(

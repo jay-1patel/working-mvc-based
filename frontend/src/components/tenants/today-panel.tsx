@@ -75,9 +75,10 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
   )
   const errors = useAsync(
     (s) =>
-      api.get<{ count: number; errors: ErrorRow[] }>(
+      api.post<{ count: number; errors: ErrorRow[] }>(
         `/api/admin/errors?limit=100&tenant_id=${encodeURIComponent(tenantId)}`,
-        s,
+        undefined,
+        { signal: s },
       ),
     [tenantId],
   )

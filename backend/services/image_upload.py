@@ -1,4 +1,4 @@
-"""Public image hosting for WhatsApp media.
+"""Local image hosting for WhatsApp media.
 
 This helper used to live in `routes/chat.py`, which forced services
 (`services/auto_bifurcator.py`) to import from a route module — a
@@ -11,7 +11,7 @@ logger = logging.getLogger("image_upload")
 
 
 def _upload_to_imghippo(content: bytes, filename: str) -> str | None:
-    """Upload file for WhatsApp: free img402/BasePic (+ ImgHippo if credited)."""
+    """Backward-compatible name: store media on this backend."""
     try:
         from services.media_host import upload_public_media
     except ImportError:

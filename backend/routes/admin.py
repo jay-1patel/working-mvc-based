@@ -3,7 +3,6 @@ import json
 import base64
 import logging
 import uuid
-import aiohttp
 import asyncio
 from typing import List
 from pathlib import Path
@@ -95,20 +94,49 @@ def _guess_media_type(filename: str) -> str:
 
 # ── Dashboard stats (available to every authenticated admin) ─────────────
 
-@router.get("/dashboard/stats")
-def dashboard_stats(current_admin: dict = Depends(get_current_admin)):
-    """Overview stats for the dashboard. Requires only a valid admin token."""
-    files = list_admin_files()
+@router.post("/dashboard/overview")
+def dashboard_overview(
+    days: int = Query(7, ge=1, le=90),
+    limit: int = Query(8, ge=1, le=100),
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Return every dashboard metric in one tenant-scoped response."""
+    tenant_id = scoped_tenant_id(current_admin)
+    files = list_admin_files(tenant_id=tenant_id) if tenant_id else list_admin_files()
     kb_count = len([f for f in files if f.get("module") == "kb"])
     faq_count = len([f for f in files if f.get("module") == "faq"])
 
     try:
-        product_count = len(list_products(limit=10000))
+        if tenant_id:
+            product_count = len(list_products(limit=10000, tenant_id=tenant_id))
+        elif use_mongodb():
+            from db.mongo import Repository
+            product_count = Repository("products").count({"is_active": 1})
+        else:
+            with get_db_context() as conn:
+                product_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM products WHERE is_active = 1"
+                ).fetchone()["c"]
     except Exception:
         logger.exception("Failed to count products for dashboard")
         product_count = 0
 
-    return load_dashboard_stats(kb_count=kb_count, faq_count=faq_count, product_count=product_count)
+    stats = load_dashboard_stats(
+        kb_count=kb_count,
+        faq_count=faq_count,
+        product_count=product_count,
+        tenant_id=tenant_id,
+    )
+    overview = analytics_overview(days=days, tenant_id=tenant_id)
+    response_time = analytics_response_time(days=days, tenant_id=tenant_id)
+    questions = analytics_frequent_questions(days=days, limit=limit, tenant_id=tenant_id)
+    return {
+        **stats,
+        **overview,
+        "response_time": response_time["data"],
+        "frequent_questions": questions["questions"],
+        "total_unique_questions": questions["total_unique"],
+    }
 
 
 # ── Customers (aggregated from orders / complaints / chat_history) ────────
@@ -222,33 +250,6 @@ async def rebuild_index(background_tasks: bool = Query(False), payload: dict | N
 
 
 # ── Analytics endpoints ───────────────────────────────────────────────────
-
-@router.get("/analytics/response-time")
-def get_response_time_analytics(
-    days: int = Query(7, ge=1, le=90),
-    current_admin: dict = Depends(get_current_admin),
-):
-    return analytics_response_time(days=days, tenant_id=scoped_tenant_id(current_admin))
-
-
-@router.get("/analytics/frequent-questions")
-def get_frequent_questions(
-    days: int = Query(7, ge=1, le=90),
-    limit: int = Query(20, ge=1, le=100),
-    current_admin: dict = Depends(get_current_admin),
-):
-    return analytics_frequent_questions(
-        days=days, limit=limit, tenant_id=scoped_tenant_id(current_admin),
-    )
-
-
-@router.get("/analytics/overview")
-def get_analytics_overview(
-    days: int = Query(7, ge=1, le=90),
-    current_admin: dict = Depends(get_current_admin),
-):
-    return analytics_overview(days=days, tenant_id=scoped_tenant_id(current_admin))
-
 
 # ── Top questions ─────────────────────────────────────────────────────────
 
@@ -667,7 +668,25 @@ async def run_upload(
     if "application/json" in content_type:
         body = await request.json()
         filename = body.get("filename", "")
-        content = base64.b64decode(body.get("content", ""))
+        raw_b64 = body.get("content", "") or ""
+        if isinstance(raw_b64, str) and raw_b64.startswith("data:") and "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            content = base64.b64decode(raw_b64, validate=False)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid Base64 in 'content'. Encode the real file bytes "
+                    "(not the placeholder BASE64_FILE_CONTENT). "
+                    f"Decoder said: {exc}"
+                ),
+            ) from exc
+        if not content:
+            raise HTTPException(
+                status_code=400,
+                detail="Decoded file content is empty — check the Base64 payload.",
+            )
         if not url:
             url = body.get("url")
         if not media_type:
@@ -697,7 +716,7 @@ async def run_upload(
     ext = Path(filename).suffix.lower()
     image_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
     if ext in image_exts or is_image:
-        # Prefer our configured public domain; third-party hosts are fallbacks.
+        # Store images on this backend and return its configured public URL.
         try:
             from services.media_host import upload_public_image
         except ImportError:
@@ -709,8 +728,7 @@ async def run_upload(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Image upload failed. Configure PUBLIC_BASE_URL or check the "
-                    "fallback media-host network access."
+                    "Image upload failed. Configure PUBLIC_BASE_URL and verify UPLOAD_DIR."
                 ),
             )
         effective_media_type = media_type or ext.lstrip(".")
@@ -735,9 +753,7 @@ async def run_upload(
     if ext not in SUPPORTED:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
-    # Store on disk first. For PDFs prefer PUBLIC_BASE_URL (Cloudflare tunnel)
-    # so Meta/WhatsApp can fetch the file. Catbox often uploads OK but Meta
-    # cannot retrieve files.catbox.moe. Catalogue PDF text is intentionally
+    # Store on disk and expose PDFs through PUBLIC_BASE_URL. Catalogue PDF text is intentionally
     # NOT imported into products — "catalogue" requests send the PDF.
     module_dir = os.path.join(UPLOAD_DIR, module)
     os.makedirs(module_dir, exist_ok=True)
@@ -748,23 +764,14 @@ async def run_upload(
 
     local_rel = f"/uploaded_files/{module}/{filename}"
     tunnel_url = None
-    if ext == ".pdf" and module in ("faq", "catalogue", "new_arrival", "kb") and not url:
+    if not url:
         try:
-            from routing.config import PUBLIC_BASE_URL
-            base = (PUBLIC_BASE_URL or "").strip().rstrip("/")
-            if base:
-                tunnel_url = f"{base}{local_rel}"
-                logger.info(f"PDF_PUBLIC_BASE | {filename} -> {tunnel_url}")
-        except Exception as e:
-            logger.warning(f"PUBLIC_BASE_URL resolve failed for {filename}: {e}")
-            tunnel_url = None
-        if not tunnel_url:
-            try:
-                tunnel_url = await _upload_to_catbox(filename, content, media_type or "application/pdf")
-                logger.info(f"CATBOX_UPLOAD | {filename} -> {tunnel_url}")
-            except Exception as e:
-                logger.error(f"Catbox upload failed for {filename}: {e}")
-                tunnel_url = None
+            from services.media_host import absolutize_upload_url
+        except ImportError:
+            from backend.services.media_host import absolutize_upload_url
+        tunnel_url = absolutize_upload_url(local_rel)
+        if tunnel_url and tunnel_url != local_rel:
+            logger.info(f"PDF_PUBLIC_BASE | {filename} -> {tunnel_url}")
 
     effective_url = url or tunnel_url or local_rel
     effective_media_type = media_type or ext.lstrip(".")
@@ -917,22 +924,17 @@ def delete_product_api(
     return {"status": "ok"}
 
 
-from routing.config import IMGHIPPO_API_KEY
-CATBOX_API_URL = "https://catbox.moe/user/api.php"
-
-
 async def _upload_to_catbox(filename: str, content: bytes, content_type: str = "application/octet-stream") -> str:
-    """Upload raw bytes to catbox.moe and return the permanent public URL."""
-    payload = aiohttp.FormData()
-    payload.add_field("reqtype", "fileupload")
-    payload.add_field("fileToUpload", content, filename=filename, content_type=content_type)
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(CATBOX_API_URL, data=payload) as resp:
-            text = (await resp.text()).strip()
-            if not resp.ok or text.lower().startswith("error"):
-                raise HTTPException(status_code=400, detail=f"Catbox upload failed: {text}")
-            return text
+    """Legacy helper name: store bytes on this backend, never on Catbox."""
+    try:
+        from services.media_host import upload_public_media
+    except ImportError:
+        from backend.services.media_host import upload_public_media
+    subdir = "product_images" if content_type.startswith("image/") else "brochures"
+    url = await run_in_threadpool(upload_public_media, content, filename, content_type, subdir=subdir)
+    if not url:
+        raise HTTPException(status_code=503, detail="Local media hosting is not configured")
+    return url
 
 
 @router.post("/upload/image")
@@ -990,6 +992,7 @@ async def upload_logo(file: UploadFile = File(...)):
 
 @router.post("/upload/catbox")
 async def upload_to_catbox(file: UploadFile = File(...)):
+    """Backward-compatible endpoint that now stores files on this backend."""
     contents = await file.read()
     url = await _upload_to_catbox(
         file.filename or "file",
@@ -1032,10 +1035,7 @@ def decode_attachment_body(data: dict) -> tuple[str, bytes, str | None]:
 async def store_chat_attachment(filename: str, content: bytes, media_type: str | None = None) -> dict:
     """Save a chat/inbox attachment and return a public WhatsApp-ready URL.
 
-    Always keeps a local copy under ``chat_attachments``. When
-    ``PUBLIC_BASE_URL`` is configured, images and documents are served directly
-    from this backend. Third-party hosting is only a fallback when no public
-    application domain is configured.
+    Images and documents are always served directly from this backend.
     """
     ext = Path(filename).suffix.lower()
     is_image = (media_type or "").startswith("image/") or ext in _IMAGE_EXTS
@@ -1050,38 +1050,7 @@ async def store_chat_attachment(filename: str, content: bytes, media_type: str |
     base = (PUBLIC_BASE_URL or "").rstrip("/")
     public_url = f"{base}{local_url}" if base else local_url
 
-    if base:
-        logger.info("CHAT_ATTACH_PUBLIC_BASE | %s -> %s", filename, public_url)
-    else:
-        try:
-            if is_image and IMGHIPPO_API_KEY:
-                payload = aiohttp.FormData()
-                payload.add_field(
-                    "file",
-                    content,
-                    filename=filename or stored,
-                    content_type=media_type or "application/octet-stream",
-                )
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        "https://api.imghippo.com/v1/upload",
-                        data=payload,
-                        headers={"X-API-Key": IMGHIPPO_API_KEY},
-                    ) as resp:
-                        data = await resp.json()
-                        if resp.ok and data.get("success") and data.get("data", {}).get("url"):
-                            public_url = data["data"]["url"]
-                            logger.info(f"CHAT_ATTACH_IMGHIPPO | {filename} -> {public_url}")
-            if public_url == local_url:
-                public_url = await _upload_to_catbox(
-                    filename or stored,
-                    content,
-                    media_type or "application/octet-stream",
-                )
-                logger.info(f"CHAT_ATTACH_CATBOX | {filename} -> {public_url}")
-        except Exception as e:
-            logger.error(f"Chat attachment public host failed for {filename}: {e}")
-            public_url = local_url
+    logger.info("CHAT_ATTACH_LOCAL | %s -> %s", filename, public_url)
 
     return {
         "url": public_url,

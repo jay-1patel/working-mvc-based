@@ -8,7 +8,7 @@ should call :func:`report_error`. That:
 1. Emits ONE greppable log line:
    ``API_ERROR | provider=… | api=… | req=… | tenant=… | …``
 2. Persists a row in ``api_error_logs`` (created lazily; readable via
-   ``GET /api/admin/errors``).
+   ``POST /api/admin/errors``).
 3. Optionally alerts — **OFF by default**. Alerting only happens when
    ``ERROR_ALERTS_ENABLED=1`` AND ``ALERT_WEBHOOK_URL`` is set; even then it is
    rate-limited so a stuck poller cannot spam. No WhatsApp sending here.

@@ -16,12 +16,16 @@ def _tenant_match(row: dict, tenant_id: Optional[str]) -> bool:
     return str(row.get("tenant_id") or "") == str(tenant_id)
 
 
-def dashboard_stats(*, kb_count: int, faq_count: int, product_count: int) -> dict:
+def dashboard_stats(
+    *, kb_count: int, faq_count: int, product_count: int,
+    tenant_id: Optional[str],
+) -> dict:
     if use_mongodb():
         from .mongo import Repository
 
+        tenant_filter = {"tenant_id": tenant_id} if tenant_id else {}
         chats = [
-            r for r in Repository("chat_history").find_all({})
+            r for r in Repository("chat_history").find_all(tenant_filter)
             if _row_in_window(r.get("created_at"), 7)
         ]
         grouped: Counter[str] = Counter()
@@ -35,13 +39,13 @@ def dashboard_stats(*, kb_count: int, faq_count: int, product_count: int) -> dic
         ]
         wa_sets = set()
         for table in ("orders", "complaints", "user_states"):
-            for row in Repository(table).find_all({}):
+            for row in Repository(table).find_all(tenant_filter):
                 wa = str(row.get("wa_id") or "").strip()
                 if wa:
                     wa_sets.add(wa)
         total_customers = len(wa_sets)
-        orders = Repository("orders").find_all({})
-        complaints = Repository("complaints").find_all({})
+        orders = Repository("orders").find_all(tenant_filter)
+        complaints = Repository("complaints").find_all(tenant_filter)
         total_orders = len(orders)
         orders_solved = sum(
             1 for r in orders if str(r.get("status") or "") in ("delivered", "completed")
@@ -53,38 +57,52 @@ def dashboard_stats(*, kb_count: int, faq_count: int, product_count: int) -> dic
     else:
         conn = get_db()
         try:
+            tenant_sql = " AND tenant_id = ?" if tenant_id else ""
+            tenant_params = [tenant_id] if tenant_id else []
             rows = conn.execute(
-                """SELECT message, COUNT(*) as count
+                f"""SELECT message, COUNT(*) as count
                    FROM chat_history
                    WHERE created_at >= DATE('now', '-7 days')
+                   {tenant_sql}
                    GROUP BY LOWER(message)
                    ORDER BY count DESC
                    LIMIT 7""",
+                tenant_params,
             ).fetchall()
             questions = [{"query": r["message"], "count": r["count"]} for r in rows]
             total_customers = (
                 conn.execute(
-                    """SELECT COUNT(*) AS c FROM (
-                           SELECT wa_id FROM orders WHERE wa_id IS NOT NULL
+                    f"""SELECT COUNT(*) AS c FROM (
+                           SELECT wa_id FROM orders WHERE wa_id IS NOT NULL{tenant_sql}
                            UNION
-                           SELECT wa_id FROM complaints WHERE wa_id IS NOT NULL
+                           SELECT wa_id FROM complaints WHERE wa_id IS NOT NULL{tenant_sql}
                            UNION
-                           SELECT wa_id FROM user_states WHERE wa_id IS NOT NULL
-                       )"""
+                           SELECT wa_id FROM user_states WHERE wa_id IS NOT NULL{tenant_sql}
+                       )""",
+                    tenant_params * 3,
                 ).fetchone()["c"]
                 or 0
             )
-            total_orders = conn.execute("SELECT COUNT(*) AS c FROM orders").fetchone()["c"] or 0
+            where_tenant = " WHERE tenant_id = ?" if tenant_id else ""
+            total_orders = conn.execute(
+                f"SELECT COUNT(*) AS c FROM orders{where_tenant}", tenant_params,
+            ).fetchone()["c"] or 0
             orders_solved = (
                 conn.execute(
-                    "SELECT COUNT(*) AS c FROM orders WHERE status IN ('delivered','completed')"
+                    f"""SELECT COUNT(*) AS c FROM orders
+                        WHERE status IN ('delivered','completed'){tenant_sql}""",
+                    tenant_params,
                 ).fetchone()["c"]
                 or 0
             )
-            total_complaints = conn.execute("SELECT COUNT(*) AS c FROM complaints").fetchone()["c"] or 0
+            total_complaints = conn.execute(
+                f"SELECT COUNT(*) AS c FROM complaints{where_tenant}", tenant_params,
+            ).fetchone()["c"] or 0
             complaints_solved = (
                 conn.execute(
-                    "SELECT COUNT(*) AS c FROM complaints WHERE status = 'resolved'"
+                    f"""SELECT COUNT(*) AS c FROM complaints
+                        WHERE status = 'resolved'{tenant_sql}""",
+                    tenant_params,
                 ).fetchone()["c"]
                 or 0
             )

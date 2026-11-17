@@ -15,7 +15,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# ---- ML models (6.4 GB of sentence-transformers weights) ----
+# ---- ML models ----
 backend/models/
 
 # ---- Runtime data / databases ----
@@ -24,6 +24,7 @@ backend/models/
 *.sqlite3
 FAQ.DB
 backend/uploaded_files/
+backups/
 
 # ---- Frontend ----
 frontend/node_modules/
@@ -45,17 +46,20 @@ scratchpad/
 *.stdout
 *.stderr
 
-# ---- Per-tenant chat-history JSON logs ----
+# ---- Per-tenant exports ----
 exports/
 
-# ---- Ad-hoc local test payloads (contain hardcoded credentials) ----
+# ---- Ad-hoc local test payloads ----
 payload.json
 incoming_payload.json
 body.json
 
-# ---- One-off debug/inspection scripts (untracked 2026-10; keep local) ----
+# ---- One-off debug/inspection files ----
 scratch/
 backend/scratch/
+Screenshot *.png
+image.png
+lsof
 
 # ---- IDE / OS / editor ----
 .DS_Store
@@ -63,19 +67,15 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-# Added by cleanup script
+
+# ---- Local toolchains and temporary data ----
+.tools/
 uploads/tmp/
 chroma_db_temp/
-
 *.db-shm
 *.db-wal
 
-# ---- Local toolchains / DB data (never push; GitHub 100MB limit) ----
-.tools/
-
-# ---- Runtime uploads outside backend/ (added in local mvc completion, 2026-11-06) ----
-# Runtime user uploads belong in external storage (see UPLOAD_DIR in routing/.env.example);
-# these patterns cover stray in-repo upload locations so originals are never committed.
+# ---- Runtime uploads outside backend ----
 backend/backend/uploaded_files/
 backend/extracted/
 extracted/

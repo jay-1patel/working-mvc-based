@@ -220,7 +220,7 @@ class ApiErrorsRouteTests(unittest.TestCase):
         app = FastAPI()
         app.include_router(router)
         client = TestClient(app, raise_server_exceptions=False)
-        res = client.get("/api/admin/errors")
+        res = client.post("/api/admin/errors")
         self.assertEqual(res.status_code, 401)
 
 

@@ -6,7 +6,7 @@ import { testState } from '../fixture-server'
 
 describe('searchable error trace log', () => {
   it('searches by request ID and expands stack details', async () => {
-    testState.respond('GET /api/admin/errors', ({ url }) => ({ body: {
+    testState.respond('POST /api/admin/errors', ({ url }) => ({ body: {
       count: 1, total: 1, has_more: false,
       errors: [{ id: 1, api: 'POST /api/tenants/acme/upload', provider: 'api',
         message: url.searchParams.get('search') ? 'Matching request' : 'Upload failed',
@@ -26,7 +26,7 @@ describe('searchable error trace log', () => {
   })
 
   it('loads older records instead of stopping at the latest page', async () => {
-    testState.respond('GET /api/admin/errors', ({ url }) => ({ body: {
+    testState.respond('POST /api/admin/errors', ({ url }) => ({ body: {
       count: 1, total: 51, has_more: url.searchParams.get('offset') === '0',
       errors: [{ id: 1, message: url.searchParams.get('offset') === '50' ? 'Older failure' : 'Latest failure' }],
     } }))

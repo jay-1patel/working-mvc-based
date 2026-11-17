@@ -859,7 +859,7 @@ def _send2_response_ok(resp) -> bool:
 
 def resolve_public_media_url(media_url: str) -> Optional[str]:
     """
-    Turn any stored media path into a public HTTPS URL WhatsApp can fetch.
+    Turn any stored media path into a URL served by this backend.
 
     FIX: Uses native file extension checking instead of undefined variables.
     Handles all file types properly: images, PDFs, documents, etc.
@@ -867,8 +867,9 @@ def resolve_public_media_url(media_url: str) -> Optional[str]:
     Resolution order:
     1. Already public HTTPS URL → return as-is
     2. Cached host URL in database → use cached URL
-    3. Upload to external service (imghippo for images, catbox for others)
-    4. Construct using PUBLIC_BASE_URL as fallback
+    3. Map local files through PUBLIC_BASE_URL
+
+    No third-party media host is contacted.
 
     Args:
         media_url: Media URL or local path to resolve
@@ -883,7 +884,6 @@ def resolve_public_media_url(media_url: str) -> Optional[str]:
 
     from routing.config import UPLOAD_DIR
     import routing.config as config
-    import mimetypes
 
     local_path = None
     stored_name = None
@@ -917,35 +917,23 @@ def resolve_public_media_url(media_url: str) -> Optional[str]:
     if stored_name:
         pass  # media table removed; local path resolution handled below
 
-    # PDFs: prefer live PUBLIC_BASE_URL (Cloudflare tunnel). Catbox uploads
-    # often succeed but Meta cannot fetch files.catbox.moe.
-    # Images: try free hosts (img402/etc), then tunnel, then relative PUBLIC_BASE_URL.
+    # Existing files below UPLOAD_DIR are exposed by the backend static mount.
     if local_path and os.path.isfile(local_path):
-        file_ext = os.path.splitext(local_path)[1].lower()
-        is_image = file_ext in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg")
-        is_pdf = file_ext == ".pdf"
-        if is_pdf and config.PUBLIC_BASE_URL:
-            try:
-                from services.media_host import public_url_for_local_path
-            except ImportError:
-                try:
-                    from backend.services.media_host import public_url_for_local_path
-                except ImportError:
-                    public_url_for_local_path = None  # type: ignore
-            if public_url_for_local_path:
-                tunnel_url = public_url_for_local_path(local_path)
-                if tunnel_url:
-                    return tunnel_url
-        if is_image or is_pdf:
-            uploaded = _upload_image_file(local_path)
-            if uploaded:
-                return uploaded
+        try:
+            from services.media_host import public_url_for_local_path
+        except ImportError:
+            from backend.services.media_host import public_url_for_local_path
+        mapped_url = public_url_for_local_path(local_path)
+        if mapped_url:
+            return mapped_url
 
     if (
         media_url.startswith("/media/serve/")
         or media_url.startswith("/uploaded_files/")
         or media_url.startswith("/api/uploads/chat/")
         or media_url.startswith("/api/uploads/")
+        or media_url.startswith("/api/logos/")
+        or media_url.startswith("/crawl_images/")
     ) and config.PUBLIC_BASE_URL:
         base = config.PUBLIC_BASE_URL.rstrip("/")
         return f"{base}{media_url}"
@@ -954,7 +942,7 @@ def resolve_public_media_url(media_url: str) -> Optional[str]:
 
 
 def _upload_image_file(file_path: str) -> Optional[str]:
-    """Upload local file to a Meta-fetchable host. Returns URL or None."""
+    """Copy a local file into backend storage and return its backend URL."""
     try:
         with open(file_path, "rb") as f:
             file_bytes = f.read()
@@ -970,9 +958,9 @@ def _upload_image_file(file_path: str) -> Optional[str]:
             from services.media_host import upload_public_media, public_url_for_local_path
         except ImportError:
             from backend.services.media_host import upload_public_media, public_url_for_local_path
-        # Prefer mapping an already-local uploaded_files path through the tunnel.
+        # Prefer mapping a file already located below UPLOAD_DIR.
         mapped = public_url_for_local_path(file_path)
-        if mapped and ext == ".pdf":
+        if mapped:
             return mapped
         url = upload_public_media(file_bytes, name, subdir=subdir)
         if url:
@@ -980,24 +968,6 @@ def _upload_image_file(file_path: str) -> Optional[str]:
             return url
     except Exception as e:
         logger.error(f"upload_image: media_host failed: {e}")
-
-    # 4. data URL only useful if send2 accepts it (last resort, small files)
-    try:
-        file_size = os.path.getsize(file_path)
-        if file_size < 2 * 1024 * 1024:
-            with open(file_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            ext = os.path.splitext(file_path)[1].lower()
-            mime = {
-                "webp": "image/webp",
-                "jpg": "image/jpeg",
-                "jpeg": "image/jpeg",
-                "png": "image/png",
-                "gif": "image/gif",
-            }.get(ext, "image/jpeg")
-            return f"data:{mime};base64,{b64}"
-    except Exception as e:
-        logger.error(f"upload_image: base64 failed: {e}")
 
     return None
 

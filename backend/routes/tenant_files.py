@@ -460,9 +460,8 @@ async def upload_tenant_image(
 ):
     """Upload an image and return its public URL (tenant-scoped wrapper).
 
-    Used by the record form's Image column: the image is hosted externally
-    (imghippo) and the returned URL is what the record stores, so the bot can
-    send it to customers without the console having to serve files.
+    Used by the record form's Image column. The returned backend URL is what
+    the record stores.
     """
     try:
         from services.image_upload import _upload_to_imghippo
@@ -478,7 +477,7 @@ async def upload_tenant_image(
     if not url:
         raise HTTPException(
             status_code=502,
-            detail="Image hosting failed — check the imghippo API key.",
+            detail="Image hosting failed - check PUBLIC_BASE_URL and UPLOAD_DIR.",
         )
     try:
         from database import record_admin_audit_event

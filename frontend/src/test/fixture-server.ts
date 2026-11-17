@@ -75,8 +75,9 @@ function routeDefault(
     return json({ status: 'password reset' })
 
   // ── dashboard / analytics (overview home) ───────────────────────────
-  if (path === '/api/admin/dashboard/stats')
+  if (path === '/api/admin/dashboard/overview')
     return json({
+      days: 7,
       kb_files: 2,
       faq_files: 1,
       products: 4,
@@ -86,10 +87,6 @@ function routeDefault(
       orders_solved: 3,
       total_complaints: 2,
       complaints_solved: 1,
-    })
-  if (path === '/api/admin/analytics/overview')
-    return json({
-      days: 7,
       total_messages: 40,
       unique_users: 8,
       avg_response_ms: 120,
@@ -98,21 +95,13 @@ function routeDefault(
         { route: 'kb', count: 12 },
         { route: 'agent', count: 8 },
       ],
-    })
-  if (path === '/api/admin/analytics/response-time')
-    return json({
-      days: 7,
-      data: [
+      response_time: [
         { date: '2026-11-09', avg_ms: 110, count: 4 },
         { date: '2026-11-10', avg_ms: 130, count: 6 },
         { date: '2026-11-11', avg_ms: 100, count: 5 },
       ],
-    })
-  if (path === '/api/admin/analytics/frequent-questions')
-    return json({
-      days: 7,
-      total_unique: 1,
-      questions: [{ query: 'hours?', count: 3, last_asked: '2026-11-11T10:00:00Z' }],
+      total_unique_questions: 1,
+      frequent_questions: [{ query: 'hours?', count: 3, last_asked: '2026-11-11T10:00:00Z' }],
     })
   if (path === '/api/admin/onboarding-kits/list' && method === 'POST')
     return json({ templates: [] })

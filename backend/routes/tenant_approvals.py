@@ -117,17 +117,30 @@ def _enrich_with_tenant(rows) -> list:
     return out
 
 
+_AUTH_BODY_KEYS = frozenset({"username", "session_id"})
+
+
 async def _parse_body(request: Request, model):
+    """Validate JSON after dropping panel auth fields the frontend always sends.
+
+    ``frontend/src/lib/api.ts`` attaches ``username`` + ``session_id`` to every
+    JSON body. Models use ``extra="forbid"``, so those auth-only keys must be
+    stripped before Pydantic runs or every submit returns HTTP 422.
+    """
     try:
-        return model.model_validate(await request.json())
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
+    if isinstance(payload, dict):
+        payload = {k: v for k, v in payload.items() if k not in _AUTH_BODY_KEYS}
+    try:
+        return model.model_validate(payload)
     except ValidationError as exc:
         errors = [
             {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
             for error in exc.errors()
         ]
         raise HTTPException(status_code=422, detail=errors) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
 
 
 def _add_event(

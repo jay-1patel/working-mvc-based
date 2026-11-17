@@ -40,7 +40,7 @@ def _scoped_tenant_id(current_admin: dict, requested_tenant_id: Optional[str]) -
     raise HTTPException(status_code=403, detail="Admin access required")
 
 
-@router.get("/api/admin/errors")
+@router.post("/api/admin/errors")
 def list_api_errors(
     limit: int = Query(50, ge=1, le=500),
     provider: Optional[str] = Query(None, description="Filter e.g. api, send2, groq"),

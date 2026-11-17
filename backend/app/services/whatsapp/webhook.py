@@ -737,7 +737,7 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                         send_status = "sent_list_text_fallback"
                         logger.info(f"Fallback after list fail: numbered text to {wa_id}")
             elif media_url and media_type:
-                # Deliver attached FAQ/KB media when present (public Imghippo/catbox URLs).
+                # Deliver attached FAQ/KB media when present (backend PUBLIC_BASE_URL).
                 media_url = _resolve_public(media_url) or _resolve_media_url(media_url)
                 media_type = _normalize_msg_type(media_type)
                 send_whatsapp_message(wa_id, response_text)

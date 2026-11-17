@@ -75,9 +75,10 @@ export function ErrorsPanel() {
   const queryString = query.toString()
   const state = useAsync(
     (signal) =>
-      api.get<{ count: number; total?: number; has_more?: boolean; errors: ApiErrorRow[] }>(
+      api.post<{ count: number; total?: number; has_more?: boolean; errors: ApiErrorRow[] }>(
         `/api/admin/errors?${queryString}`,
-        signal,
+        undefined,
+        { signal },
       ),
     [queryString],
   )

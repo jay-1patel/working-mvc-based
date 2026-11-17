@@ -591,12 +591,18 @@ def normalize_reply_buttons(buttons):
 
 
 def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
-    """Send an interactive button message via send2.digital Quick Button API.
+    """Send an interactive button message via send2.digital.
+
+    Primary path is ``session-msg-send`` Cloud interactive (same as working
+    text / list menus). The legacy quick-button endpoint often returns bare
+    ``OK`` without delivering to WhatsApp, so it is only a fallback and bare
+    ``OK`` there is treated as failure (caller can fall back to plain text).
 
     `buttons` is a list of button objects in the send2.digital format, e.g.:
         [{"type": "reply", "reply": {"id": "check_moq", "title": "Check MOQ by product"}}]
     """
     username, password = get_tenant_send2_credentials(tenant_id)
+    clean_to = re.sub(r"[^\d]", "", str(to or "")).strip() or str(to)
     buttons = normalize_reply_buttons(buttons)
     if not buttons:
         logger.warning("No usable buttons for interactive message (missing id/title)")
@@ -625,18 +631,68 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
         send_whatsapp_message(to, text, tenant_id=tenant_id)
         body_to_send = "Please select an option below:"
     else:
-        body_to_send = _truncate_body(raw_text, limit=1020)
+        body_to_send = _truncate_body(raw_text, limit=1020) or " "
 
+    footer_text = str(footer or " ").strip()[:60] or " "
+
+    # Primary: session-msg-send Cloud interactive buttons (reliable delivery).
+    cloud_interactive = {
+        "type": "button",
+        "body": {"text": body_to_send},
+        "footer": {"text": footer_text},
+        "action": {"buttons": formatted_buttons},
+    }
+    cloud_payload = {
+        "user_name": username,
+        "password": password,
+        "contact_no": clean_to,
+        "message_type": "interactive",
+        "interactive": cloud_interactive,
+        "messaging_product": "whatsapp",
+    }
+    try:
+        logger.info(
+            "INTERACTIVE_CLOUD_REQUEST | to=%s | buttons=%d",
+            clean_to, len(formatted_buttons),
+        )
+        with httpx.Client(trust_env=False, timeout=30) as client:
+            resp = client.post(SEND2_SESSION_SEND_URL, json=cloud_payload)
+        logger.info(
+            "INTERACTIVE_CLOUD_RESPONSE | to=%s | status=%s | body=%s",
+            clean_to, resp.status_code, (resp.text or "")[:300],
+        )
+        from routing.hookdeck import tee_outbound
+        tee_outbound(SEND2_SESSION_SEND_URL, cloud_payload, resp.status_code, resp.text, to=clean_to)
+        low = (resp.text or "").lower()
+        if (
+            _send2_response_ok(resp.status_code, resp.text)
+            and "invalid parameter" not in low
+            and "interactive payload is required" not in low
+            and "unexpected server error" not in low
+        ):
+            return True
+        logger.warning(
+            "INTERACTIVE_CLOUD_FALLBACK | to=%s | trying legacy quick-button",
+            clean_to,
+        )
+    except Exception as e:
+        logger.warning(
+            "INTERACTIVE_CLOUD_FAILED | to=%s | error=%s | trying legacy quick-button",
+            clean_to, e,
+        )
+
+    # Fallback: Quick Button endpoint. Bare "OK" is unreliable — require an
+    # explicit success phrase (same policy as list_messages).
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise
     # send2.digital rejects the whole request with {"error":"INVALID PARAMETER"}.
     payload = {
         "username": username,
         "password": password,
-        "number": to,
+        "number": clean_to,
         "headertype": "text",
         "headertext": " ",
         "bodytext": body_to_send,
-        "footertext": str(footer or " ")[:60],
+        "footertext": footer_text,
         "total_buttons": len(formatted_buttons),
         "buttons": formatted_buttons,
     }
@@ -646,10 +702,24 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
             json=payload,
             timeout=30,
         )
-        logger.info(f"Interactive reply sent to {to}, status={resp.status_code}, body={resp.text[:300]}")
+        logger.info(
+            "Interactive reply sent to %s, status=%s, body=%s",
+            clean_to, resp.status_code, (resp.text or "")[:300],
+        )
         from routing.hookdeck import tee_outbound
-        tee_outbound(SEND2_QUICK_BUTTON_URL, payload, resp.status_code, resp.text, to=to)
-        return _send2_response_ok(resp.status_code, resp.text)
+        tee_outbound(SEND2_QUICK_BUTTON_URL, payload, resp.status_code, resp.text, to=clean_to)
+        body = (resp.text or "").strip().lower()
+        if resp.status_code == 200 and (
+            "message sent successfully" in body
+            or '"success":true' in body
+            or '"success": true' in body
+        ):
+            return True
+        logger.error(
+            "INTERACTIVE_QUICKBTN_UNRELIABLE_OK | to=%s | status=%s | body=%s",
+            clean_to, resp.status_code, (resp.text or "")[:200],
+        )
+        return False
     except Exception as e:
         logger.error(f"send2.digital interactive send failed: {e}")
         return False

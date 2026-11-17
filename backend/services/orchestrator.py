@@ -207,9 +207,9 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
     # so it reappears in the live inbox instead of staying hidden forever.
     try:
         from database import reopen_conversation_on_inbound
-        reopen_conversation_on_inbound(wa_id)
+        reopen_conversation_on_inbound(wa_id, effective_tenant)
     except Exception as exc:
-        logger.debug(f"Could not reopen conversation for {wa_id}: {exc}")
+        logger.warning("Could not reopen conversation for %s: %s", wa_id, exc)
 
     # 1b. Check Tenant Profile Intents, Flows, and Services
     try:

@@ -205,6 +205,8 @@ def require_super_admin_permission(perm: str):
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 READ_ONLY_POST_PATHS = frozenset({
+    "/api/admin/dashboard/overview",
+    "/api/admin/errors",
     "/api/admin/tenants/conversations/detail",
     "/api/admin/tenants/chat-history",
     "/api/admin/tenants/inbox",

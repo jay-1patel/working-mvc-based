@@ -27,12 +27,14 @@ class DashboardOverviewTests(unittest.TestCase):
     @patch.object(admin_routes, "analytics_response_time")
     @patch.object(admin_routes, "analytics_overview")
     @patch.object(admin_routes, "load_dashboard_stats")
+    @patch.object(admin_routes, "use_mongodb", return_value=False)
     @patch.object(admin_routes, "list_products")
     @patch.object(admin_routes, "list_admin_files")
     def test_tenant_admin_receives_one_merged_tenant_scoped_response(
         self,
         list_files,
         list_products,
+        _use_mongodb,
         load_stats,
         analytics_overview,
         response_time,

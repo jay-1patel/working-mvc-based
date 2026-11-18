@@ -24,8 +24,14 @@ def dashboard_stats(
         from .mongo import Repository
 
         tenant_filter = {"tenant_id": tenant_id} if tenant_id else {}
+        # Cap the scan — never pull the whole chat history into memory.
         chats = [
-            r for r in Repository("chat_history").find_all(tenant_filter)
+            r
+            for r in Repository("chat_history").find_all(
+                tenant_filter,
+                sort=[("created_at", -1), ("id", -1)],
+                limit=2000,
+            )
             if _row_in_window(r.get("created_at"), 7)
         ]
         grouped: Counter[str] = Counter()
@@ -39,20 +45,19 @@ def dashboard_stats(
         ]
         wa_sets = set()
         for table in ("orders", "complaints", "user_states"):
-            for row in Repository(table).find_all(tenant_filter):
+            for row in Repository(table).find_all(tenant_filter, limit=5000):
                 wa = str(row.get("wa_id") or "").strip()
                 if wa:
                     wa_sets.add(wa)
         total_customers = len(wa_sets)
-        orders = Repository("orders").find_all(tenant_filter)
-        complaints = Repository("complaints").find_all(tenant_filter)
-        total_orders = len(orders)
-        orders_solved = sum(
-            1 for r in orders if str(r.get("status") or "") in ("delivered", "completed")
+        # Prefer indexed counts over loading every order/complaint document.
+        total_orders = Repository("orders").count(tenant_filter or None)
+        orders_solved = Repository("orders").count(
+            {**tenant_filter, "status": {"$in": ["delivered", "completed"]}}
         )
-        total_complaints = len(complaints)
-        complaints_solved = sum(
-            1 for r in complaints if str(r.get("status") or "") == "resolved"
+        total_complaints = Repository("complaints").count(tenant_filter or None)
+        complaints_solved = Repository("complaints").count(
+            {**tenant_filter, "status": "resolved"}
         )
     else:
         conn = get_db()
@@ -193,11 +198,13 @@ def _chat_rows(days: int, tenant_id: Optional[str]) -> list[dict]:
     if use_mongodb():
         from .mongo import Repository
 
-        rows = Repository("chat_history").find_all({})
-        rows = [r for r in rows if _row_in_window(r.get("created_at"), days)]
-        if tenant_id:
-            rows = [r for r in rows if _tenant_match(r, tenant_id)]
-        return rows
+        flt = {"tenant_id": tenant_id} if tenant_id else {}
+        rows = Repository("chat_history").find_all(
+            flt,
+            sort=[("created_at", -1), ("id", -1)],
+            limit=2000,
+        )
+        return [r for r in rows if _row_in_window(r.get("created_at"), days)]
     conn = get_db()
     try:
         sql = "SELECT * FROM chat_history WHERE created_at >= DATE('now', ?)"
@@ -214,11 +221,13 @@ def _webhook_rows(days: int, tenant_id: Optional[str]) -> list[dict]:
     if use_mongodb():
         from .mongo import Repository
 
-        rows = Repository("webhook_logs").find_all({})
-        rows = [r for r in rows if _row_in_window(r.get("created_at"), days)]
-        if tenant_id:
-            rows = [r for r in rows if _tenant_match(r, tenant_id)]
-        return rows
+        flt = {"tenant_id": tenant_id} if tenant_id else {}
+        rows = Repository("webhook_logs").find_all(
+            flt,
+            sort=[("created_at", -1), ("id", -1)],
+            limit=2000,
+        )
+        return [r for r in rows if _row_in_window(r.get("created_at"), days)]
     conn = get_db()
     try:
         sql = (

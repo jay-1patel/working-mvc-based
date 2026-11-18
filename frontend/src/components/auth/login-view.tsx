@@ -57,6 +57,7 @@ export function LoginView() {
             autoComplete="username"
             autoFocus
             required
+            hint={needsSetup ? undefined : 'Plain username, e.g. test_support_ (backend encodes it).'}
           />
           {needsSetup ? (
             <FieldInput
@@ -75,7 +76,7 @@ export function LoginView() {
               value={sessionId}
               onChange={(e) => setSessionId(e.target.value)}
               autoComplete="current-password"
-              hint="Use the session_id stored for this admin in the database."
+              hint="Use the live session_id for this admin from the database."
               required
             />
           )}

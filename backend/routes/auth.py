@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
-from core.send2_auth import decode_send2_username
+from core.send2_auth import admin_username_candidates, normalize_login_username
 
 from database import (
     count_admins,
@@ -343,9 +343,22 @@ def ensure_super_admin_view_only(admin: dict | None, method: str, path: str) -> 
 
 # ---------- helpers ----------
 
+def _resolve_admin_row(username: str) -> dict | None:
+    """Find an admin by plain or Base64 Send2 username."""
+    try:
+        candidates = admin_username_candidates(username)
+    except ValueError:
+        return None
+    for candidate in candidates:
+        row = get_admin_by_username(candidate)
+        if row:
+            return row
+    return None
+
+
 def _admin_from_pair(username: str, session_id: str, request: Request | None = None) -> dict:
     """Authenticate one live username/session-id pair from the database."""
-    row = get_admin_by_username(username)
+    row = _resolve_admin_row(username)
     stored = str(row["session_id"] or "") if row else ""
     supplied = str(session_id or "")
     if not row or not stored or not hmac.compare_digest(stored, supplied):
@@ -356,6 +369,13 @@ def _admin_from_pair(username: str, session_id: str, request: Request | None = N
         )
     result = dict(row)
     result.pop("session_id", None)
+    # Prefer the plain decoded username for session identity when the DB
+    # row still stores the Send2 Base64 form.
+    try:
+        result["username"] = normalize_login_username(result.get("username") or username)
+    except ValueError:
+        result["username"] = str(result.get("username") or username).strip()
+    result["role"] = result.get("role") or "sub_admin"
     result["permissions"] = _effective_permissions(result.get("role"), result.get("permissions"))
     if request is not None:
         request.state.current_admin = result
@@ -620,9 +640,9 @@ def authorize_tenant_access(
 # ---------- request schemas ----------
 
 class LoginRequest(BaseModel):
+    # Plain Send2 / local username (e.g. ``test_support_``). Backend encodes
+    # and matches against ``admins.username`` (plain or Base64) + session_id.
     username: str
-    # Send2Digital supplies a Base64 username. Login decodes it, then matches
-    # the canonical username and session_id in ``admins``.
     session_id: str
 
 
@@ -653,16 +673,20 @@ def auth_status():
 # SECURITY FIX: Rate limiting - 5 requests per minute for login attempts
 @limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
 async def admin_login(request: Request, body: LoginRequest):
-    """Authenticate a Base64 Send2Digital username plus its live session ID."""
-    encoded_username = str(body.username or "").strip()
+    """Authenticate a plain username plus its live session ID.
+
+    Callers pass the decoded Send2 name (``test_support_``). The backend
+    Base64-encodes it and matches ``admins.username`` (encoded or plain)
+    together with ``session_id``.
+    """
     try:
-        username = decode_send2_username(encoded_username)
+        username = normalize_login_username(body.username)
     except ValueError:
         # Keep malformed input indistinguishable from an unknown account while
         # still recording the failed attempt through the normal audit path.
         username = ""
     supplied_session = str(body.session_id or "").strip()
-    admin = get_admin_by_username(username) if username else None
+    admin = _resolve_admin_row(username) if username else None
 
     stored = str((admin or {}).get("session_id") or "")
     session_matches = bool(stored and supplied_session and hmac.compare_digest(stored, supplied_session))
@@ -686,6 +710,13 @@ async def admin_login(request: Request, body: LoginRequest):
 
     admin_dict = dict(admin)
     admin_dict.pop("session_id", None)
+    # Always expose the plain username to the client / session store.
+    admin_dict["username"] = username
+    # Send2-synced rows sometimes omit role; default safely so login never 500s.
+    role = admin_dict.get("role") or "sub_admin"
+    admin_dict["role"] = role
+    permissions = _effective_permissions(role, admin_dict.get("permissions"))
+    admin_dict["permissions"] = permissions
     success_audit = dict(
         action="login",
         actor={**admin_dict, "username": admin_dict["username"][:100]},
@@ -706,8 +737,8 @@ async def admin_login(request: Request, body: LoginRequest):
         ).decode("ascii"),
         "username": admin_dict["username"],
         "session_id": stored,
-        "role": admin_dict["role"],
-        "permissions": _effective_permissions(admin_dict["role"], admin_dict["permissions"]),
+        "role": role,
+        "permissions": permissions,
         "tenant_id": admin_dict.get("tenant_id"),
     }
 

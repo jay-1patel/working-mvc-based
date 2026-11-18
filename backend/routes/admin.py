@@ -94,42 +94,116 @@ def _guess_media_type(filename: str) -> str:
 
 # ── Dashboard stats (available to every authenticated admin) ─────────────
 
+def _mongo_network_error(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    text = str(exc).lower()
+    return name in {
+        "NetworkTimeout",
+        "ServerSelectionTimeoutError",
+        "AutoReconnect",
+        "ConnectionFailure",
+        "NetworkTimeoutError",
+    } or "timed out" in text or "10054" in text or "forcibly closed" in text
+
+
+def _reset_mongo_client() -> None:
+    try:
+        from db.mongo import close_client
+        close_client()
+    except Exception:
+        logger.debug("mongo client reset skipped", exc_info=True)
+
+
 @router.post("/dashboard/overview")
 def dashboard_overview(
     days: int = Query(7, ge=1, le=90),
     limit: int = Query(8, ge=1, le=100),
     current_admin: dict = Depends(get_current_admin),
 ):
-    """Return every dashboard metric in one tenant-scoped response."""
+    """Return every dashboard metric in one tenant-scoped response.
+
+    Mongo network blips must not 500 the whole Today page — each section is
+    isolated and missing pieces degrade to empty defaults.
+    """
     tenant_id = scoped_tenant_id(current_admin)
-    files = list_admin_files(tenant_id=tenant_id) if tenant_id else list_admin_files()
+
+    def _safe(label: str, fn, default):
+        try:
+            return fn()
+        except Exception as exc:
+            if _mongo_network_error(exc):
+                _reset_mongo_client()
+            logger.warning("DASHBOARD_SECTION_FAILED | section=%s | err=%s", label, exc)
+            return default
+
+    files = _safe(
+        "files",
+        lambda: list_admin_files(tenant_id=tenant_id) if tenant_id else list_admin_files(),
+        [],
+    )
     kb_count = len([f for f in files if f.get("module") == "kb"])
     faq_count = len([f for f in files if f.get("module") == "faq"])
 
-    try:
+    def _product_count() -> int:
         if tenant_id:
-            product_count = len(list_products(limit=10000, tenant_id=tenant_id))
-        elif use_mongodb():
+            if use_mongodb():
+                from db.mongo import Repository
+                return Repository("products").count(
+                    {"tenant_id": tenant_id, "is_active": 1}
+                )
+            return len(list_products(limit=10000, tenant_id=tenant_id))
+        if use_mongodb():
             from db.mongo import Repository
-            product_count = Repository("products").count({"is_active": 1})
-        else:
-            with get_db_context() as conn:
-                product_count = conn.execute(
-                    "SELECT COUNT(*) AS c FROM products WHERE is_active = 1"
-                ).fetchone()["c"]
-    except Exception:
-        logger.exception("Failed to count products for dashboard")
-        product_count = 0
+            return Repository("products").count({"is_active": 1})
+        with get_db_context() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) AS c FROM products WHERE is_active = 1"
+            ).fetchone()["c"]
 
-    stats = load_dashboard_stats(
-        kb_count=kb_count,
-        faq_count=faq_count,
-        product_count=product_count,
-        tenant_id=tenant_id,
+    product_count = _safe("products", _product_count, 0)
+
+    empty_stats = {
+        "kb_files": kb_count,
+        "faq_files": faq_count,
+        "products": product_count,
+        "top_questions": [],
+        "total_customers": 0,
+        "total_orders": 0,
+        "orders_solved": 0,
+        "total_complaints": 0,
+        "complaints_solved": 0,
+    }
+    stats = _safe(
+        "stats",
+        lambda: load_dashboard_stats(
+            kb_count=kb_count,
+            faq_count=faq_count,
+            product_count=product_count,
+            tenant_id=tenant_id,
+        ),
+        empty_stats,
     )
-    overview = analytics_overview(days=days, tenant_id=tenant_id)
-    response_time = analytics_response_time(days=days, tenant_id=tenant_id)
-    questions = analytics_frequent_questions(days=days, limit=limit, tenant_id=tenant_id)
+    overview = _safe(
+        "overview",
+        lambda: analytics_overview(days=days, tenant_id=tenant_id),
+        {
+            "days": days,
+            "total_messages": 0,
+            "unique_users": 0,
+            "avg_response_ms": 0,
+            "route_breakdown": [],
+        },
+    )
+    response_time = _safe(
+        "response_time",
+        lambda: analytics_response_time(days=days, tenant_id=tenant_id),
+        {"days": days, "data": []},
+    )
+    questions = _safe(
+        "frequent_questions",
+        lambda: analytics_frequent_questions(days=days, limit=limit, tenant_id=tenant_id),
+        {"days": days, "total_unique": 0, "questions": []},
+    )
     return {
         **stats,
         **overview,

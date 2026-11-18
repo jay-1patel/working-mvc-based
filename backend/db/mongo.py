@@ -33,8 +33,11 @@ def get_client():
             if not uri:
                 raise MongoConfigurationError('MONGODB_URI is required')
             try:
+                # Remote Mongo (e.g. 10.100.100.28) can be slow under load —
+                # keep socket timeout high enough for dashboard aggregations,
+                # and retry transient network blips.
                 _client = MongoClient(uri, appname='send2digital-ai-chatbot',
-                    serverSelectionTimeoutMS=5000, connectTimeoutMS=5000, socketTimeoutMS=15000,
+                    serverSelectionTimeoutMS=8000, connectTimeoutMS=8000, socketTimeoutMS=30000,
                     maxPoolSize=50, retryWrites=True, retryReads=True, tz_aware=True,
                     w='majority')
                 _client_pid = os.getpid()

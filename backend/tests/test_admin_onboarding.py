@@ -274,7 +274,7 @@ class AdminOnboardingTests(unittest.TestCase):
                 ],
             },
         }
-        saved = self.client.put(
+        saved = self.client.post(
             "/api/admin/tenants/leeway/profile",
             json={"snapshot": snapshot},
             headers=self.leeway_admin,

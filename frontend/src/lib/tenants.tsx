@@ -52,7 +52,7 @@ export const tenantsApi = {
     api.post<ResolvedProfile>('/api/admin/tenants/resolved', {}, { signal }),
 
   saveDraft: (id: string, snapshot: ProfileSnapshot) =>
-    api.put<{ ok: boolean; validation: string[] }>(
+    api.post<{ ok: boolean; validation: string[] }>(
       `/api/admin/tenants/${encodeURIComponent(id)}/profile`,
       { snapshot },
     ),

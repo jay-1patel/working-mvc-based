@@ -20,8 +20,8 @@ Frontend wrappers: `frontend/src/lib/tenants.ts` → `tenantsApi.saveDraft` / `t
 | Open page / reload | `GET /api/admin/tenants/{tenant_id}/detail` |
 | **Edit profile** | _(no API — unlocks the form)_ |
 | **Discard changes** | _(no API — reloads form from last detail)_ |
-| **Save draft** (super admin only in UI) | `PUT /api/admin/tenants/{tenant_id}/profile` |
-| **Save & publish** / **Submit for approval** | 1) `PUT .../profile` then 2) `POST .../publish` |
+| **Save draft** (super admin only in UI) | `POST /api/admin/tenants/{tenant_id}/profile` |
+| **Save & publish** / **Submit for approval** | 1) `POST .../profile` then 2) `POST .../publish` |
 | **Done editing** | _(no API)_ |
 
 For a tenant admin (`cars`), **Submit for approval** = save draft + publish.  
@@ -45,7 +45,7 @@ This is the API that **writes** profile changes. Body is `{ "snapshot": { ... } 
 Only send sections you changed; server deep-merges into the pending draft.
 
 ```bash
-curl --request PUT "http://10.100.100.43:9000/api/admin/tenants/c/profile" \
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/c/profile" \
   --header "username: cars" \
   --header "session_id: YOUR_SESSION_ID" \
   --header "Content-Type: application/json" \
@@ -144,7 +144,7 @@ $draft = @{
   }
 } | ConvertTo-Json -Depth 8 -Compress
 
-Invoke-RestMethod -Method Put -Headers $h -ContentType "application/json" `
+Invoke-RestMethod -Method Post -Headers $h -ContentType "application/json" `
   -Uri "$base/api/admin/tenants/$tid/profile" -Body $draft
 
 # 3) publish / queue approval

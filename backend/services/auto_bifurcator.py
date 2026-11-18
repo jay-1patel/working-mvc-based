@@ -836,7 +836,7 @@ class AutoBifurcator:
                 (getattr(_cfg, "BIFURCATE_OLLAMA_MODEL", None) if _cfg else None)
                 or os.getenv("BIFURCATE_OLLAMA_MODEL")
                 or (getattr(_cfg, "OLLAMA_MODEL", None) if _cfg else None)
-                or "qwen2.5:1.5b"
+                or "qwen3:8b"
             )
             num_gpu = int(
                 getattr(_cfg, "BIFURCATE_OLLAMA_NUM_GPU", None)
@@ -852,7 +852,7 @@ class AutoBifurcator:
         except Exception:
             ollama_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/chat")
             ollama_mdl = os.getenv("BIFURCATE_OLLAMA_MODEL") or os.getenv(
-                "OLLAMA_MODEL", "qwen2.5:1.5b"
+                "OLLAMA_MODEL", "qwen3:8b"
             )
             try:
                 num_gpu = int(os.getenv("BIFURCATE_OLLAMA_NUM_GPU") or os.getenv("OLLAMA_NUM_GPU") or "0")

@@ -141,7 +141,7 @@ function routeDefault(
     if (sub === '/phone-id' && method === 'POST') return json({ ok: true })
     if (sub === '/detail') return json(fixtures.layerDetail)
     if (sub === '/resolved') return json(fixtures.resolved)
-    if (sub === '/profile' && method === 'PUT') return json({ ok: true, validation: [] })
+    if (sub === '/profile' && method === 'POST') return json({ ok: true, validation: [] })
     if (sub === '/publish') return json({ ok: true, version: 3, active_intents: ['greeting'], visible_buttons: ['menu_help'] })
     if (sub === '/versions' && method === 'GET') return json(fixtures.versions)
     if (sub === '/versions' && method === 'POST') return json({ ok: true, version: 3, active: 3 })

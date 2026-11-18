@@ -179,8 +179,10 @@ ADMIN_RECOVERY_KEY=long-random
 
 ### Strongly recommended
 ```env
-PUBLIC_BASE_URL=https://your-public-https-host
-IMAGE_BASE_URL=https://your-public-https-host
+# Cloudflare tunnel (or other public HTTPS). PDFs + photos both use this.
+# When the URL changes, update only this line and restart.
+PUBLIC_BASE_URL=https://xxxx.trycloudflare.com
+IMAGE_BASE_URL=
 TESSERACT_CMD=/usr/bin/tesseract
 DEFAULT_TENANT_ID=your-live-tenant-slug
 CORS_ORIGINS=https://your-console-origin

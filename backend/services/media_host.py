@@ -1,4 +1,10 @@
-"""Store WhatsApp media on this backend and return its configured public URL."""
+"""Store WhatsApp media on this backend and return PUBLIC_BASE_URL links.
+
+PDFs and photos both use the same Cloudflare (or other public HTTPS) origin
+from ``routing/.env`` → ``PUBLIC_BASE_URL``. No third-party host is contacted.
+When that env value changes, restart the backend; outbound sends rebase
+``/uploaded_files/...`` paths onto the new origin automatically.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +14,18 @@ import re
 import uuid
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 logger = logging.getLogger("media_host")
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"}
+_REBASE_PREFIXES = (
+    "/uploaded_files/",
+    "/media/serve/",
+    "/api/uploads/",
+    "/api/logos/",
+    "/crawl_images/",
+)
 
 
 def _is_image(filename: str, content_type: str = "") -> bool:
@@ -20,12 +33,16 @@ def _is_image(filename: str, content_type: str = "") -> bool:
 
 
 def _public_base_url() -> str:
+    """Read the public origin from env (.env → PUBLIC_BASE_URL only)."""
+    live = (os.getenv("PUBLIC_BASE_URL") or os.getenv("IMAGE_BASE_URL") or "").strip().rstrip("/")
+    if live:
+        return live
     try:
         from routing.config import PUBLIC_BASE_URL
 
         return (PUBLIC_BASE_URL or "").strip().rstrip("/")
     except Exception:
-        return (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        return ""
 
 
 def _upload_dir() -> str:
@@ -52,12 +69,45 @@ def _public_upload_url(relative_path: str) -> Optional[str]:
     return f"{base}/uploaded_files/{encoded}"
 
 
+def rebase_public_url(path_or_url: str) -> Optional[str]:
+    """Map a media path/URL onto the current ``PUBLIC_BASE_URL``.
+
+    Absolute links that still point at an old LAN/tunnel host but keep a
+    backend media path (``/uploaded_files/...`` etc.) are rewritten so a
+    Cloudflare URL change in ``.env`` applies without re-uploading files.
+    """
+    if not path_or_url:
+        return None
+    value = str(path_or_url).strip()
+    base = _public_base_url()
+    if not base:
+        return value
+
+    if value.startswith(base + "/") or value == base:
+        return value
+
+    path = value
+    query = ""
+    if value.startswith(("http://", "https://")):
+        parsed = urlparse(value)
+        path = parsed.path or ""
+        query = f"?{parsed.query}" if parsed.query else ""
+    elif not value.startswith("/"):
+        mapped = public_url_for_local_path(value)
+        return mapped or value
+
+    for prefix in _REBASE_PREFIXES:
+        if path.startswith(prefix):
+            return f"{base}{path}{query}"
+    return value
+
+
 def host_via_public_base(content: bytes, filename: str, *, subdir: str = "media") -> Optional[str]:
     """Save bytes locally and return ``PUBLIC_BASE_URL/uploaded_files/...``."""
     if not content:
         return None
     if not _public_base_url():
-        logger.error("media_host: PUBLIC_BASE_URL is not configured")
+        logger.error("media_host: PUBLIC_BASE_URL is not configured in routing/.env")
         return None
 
     safe_dir = _safe_component(subdir, "media")
@@ -90,24 +140,12 @@ def public_url_for_local_path(local_path: str) -> Optional[str]:
 
 
 def absolutize_upload_url(path_or_url: str) -> Optional[str]:
-    """Turn ``/uploaded_files/...`` (or a bare relative path) into PUBLIC_BASE_URL."""
-    if not path_or_url:
-        return None
-    value = str(path_or_url).strip()
-    if value.startswith(("http://", "https://")):
-        return value
-    if value.startswith("/uploaded_files/"):
-        base = _public_base_url()
-        return f"{base}{value}" if base else value
-    if value.startswith("uploaded_files/"):
-        base = _public_base_url()
-        return f"{base}/{value}" if base else f"/{value}"
-    mapped = public_url_for_local_path(value)
-    return mapped or value
+    """Turn a local upload path (or old absolute media URL) into PUBLIC_BASE_URL."""
+    return rebase_public_url(path_or_url)
 
 
 def upload_public_media(content: bytes, filename: str, content_type: str = "", *, subdir: str = "media") -> Optional[str]:
-    """Store media locally; no external image or document host is contacted."""
+    """Store media locally; PDF and photo URLs both use PUBLIC_BASE_URL."""
     return host_via_public_base(content, filename or "upload.bin", subdir=subdir)
 
 

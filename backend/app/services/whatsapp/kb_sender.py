@@ -859,34 +859,30 @@ def _send2_response_ok(resp) -> bool:
 
 def resolve_public_media_url(media_url: str) -> Optional[str]:
     """
-    Turn any stored media path into a URL served by this backend.
+    Turn any stored media path into a URL under PUBLIC_BASE_URL (Cloudflare).
 
-    FIX: Uses native file extension checking instead of undefined variables.
-    Handles all file types properly: images, PDFs, documents, etc.
+    PDFs and photos use the same origin from ``routing/.env``. Absolute URLs
+    that still point at an old host but keep a backend media path are rebased
+    onto the current PUBLIC_BASE_URL.
 
     Resolution order:
-    1. Already public HTTPS URL → return as-is
-    2. Cached host URL in database → use cached URL
-    3. Map local files through PUBLIC_BASE_URL
+    1. Map local files under UPLOAD_DIR through PUBLIC_BASE_URL
+    2. Rebase /uploaded_files (and related) paths onto PUBLIC_BASE_URL
+    3. Leave unrelated external https URLs unchanged
 
     No third-party media host is contacted.
-
-    Args:
-        media_url: Media URL or local path to resolve
-
-    Returns:
-        Public HTTPS URL or None if resolution fails
     """
     if not media_url:
         return None
-    if media_url.startswith("https://") or media_url.startswith("http://"):
-        return media_url
+
+    try:
+        from services.media_host import public_url_for_local_path, rebase_public_url
+    except ImportError:
+        from backend.services.media_host import public_url_for_local_path, rebase_public_url
 
     from routing.config import UPLOAD_DIR
-    import routing.config as config
 
     local_path = None
-    stored_name = None
 
     if media_url.startswith("/media/serve/"):
         parts = media_url.split("/")
@@ -898,47 +894,29 @@ def resolve_public_media_url(media_url: str) -> Optional[str]:
         potential = os.path.join(UPLOAD_DIR, rel_sub)
         if os.path.isfile(potential):
             local_path = potential
-            stored_name = os.path.basename(potential)
     elif media_url.startswith("/api/uploads/chat/"):
-        # Inbox/admin chat attachments live under uploaded_files/chat_attachments/
         stored_name = media_url.rstrip("/").split("/")[-1]
         potential = os.path.join(UPLOAD_DIR, "chat_attachments", stored_name)
         if os.path.isfile(potential):
             local_path = potential
     elif os.path.isfile(media_url):
         local_path = media_url
-        stored_name = os.path.basename(media_url)
     else:
         potential = os.path.join(UPLOAD_DIR, media_url.lstrip("/\\"))
         if os.path.isfile(potential):
             local_path = potential
-            stored_name = os.path.basename(potential)
 
-    if stored_name:
-        pass  # media table removed; local path resolution handled below
-
-    # Existing files below UPLOAD_DIR are exposed by the backend static mount.
     if local_path and os.path.isfile(local_path):
-        try:
-            from services.media_host import public_url_for_local_path
-        except ImportError:
-            from backend.services.media_host import public_url_for_local_path
         mapped_url = public_url_for_local_path(local_path)
         if mapped_url:
             return mapped_url
 
-    if (
-        media_url.startswith("/media/serve/")
-        or media_url.startswith("/uploaded_files/")
-        or media_url.startswith("/api/uploads/chat/")
-        or media_url.startswith("/api/uploads/")
-        or media_url.startswith("/api/logos/")
-        or media_url.startswith("/crawl_images/")
-    ) and config.PUBLIC_BASE_URL:
-        base = config.PUBLIC_BASE_URL.rstrip("/")
-        return f"{base}{media_url}"
-
-    return None
+    rebased = rebase_public_url(media_url)
+    if rebased and rebased != media_url:
+        return rebased
+    if media_url.startswith(("http://", "https://")):
+        return media_url
+    return rebased
 
 
 def _upload_image_file(file_path: str) -> Optional[str]:

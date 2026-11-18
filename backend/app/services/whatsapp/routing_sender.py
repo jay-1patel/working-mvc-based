@@ -38,13 +38,24 @@ def _send2_response_ok(status_code: int, body_text: str | None) -> bool:
 
 
 def _resolve_media_url(media_url: str) -> str:
-    """Make a media URL absolute. send2.digital needs a public http(s) URL.
+    """Make a media URL absolute under PUBLIC_BASE_URL (Cloudflare from .env).
 
-    Relative server paths (e.g. ``/uploaded_files/x.pdf``) are prefixed with the
-    configured public base URL; otherwise a broken ``https:///...`` URL results.
+    Relative paths and old-host ``/uploaded_files/...`` links are rebased so
+    WhatsApp always fetches from the current ``routing/.env`` origin.
     """
     if not media_url:
         return media_url
+    try:
+        from services.media_host import rebase_public_url
+    except ImportError:
+        try:
+            from backend.services.media_host import rebase_public_url
+        except ImportError:
+            rebase_public_url = None  # type: ignore
+    if rebase_public_url:
+        rebased = rebase_public_url(media_url)
+        if rebased:
+            return rebased
     if media_url.startswith(("http://", "https://")):
         return media_url
     from routing.config import PUBLIC_BASE_URL

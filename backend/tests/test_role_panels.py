@@ -119,7 +119,7 @@ class RolePanelTests(unittest.TestCase):
         self.assertTrue(guard("POST", "/api/admin/tenants/acme/publish"))
         self.assertTrue(guard("POST", "/api/admin/tenants/acme/tokens"))
         self.assertTrue(guard("DELETE", "/api/admin/tenants/acme/files/faq.pdf"))
-        self.assertTrue(guard("PUT", "/api/admin/tenants/acme/profile"))
+        self.assertTrue(guard("POST", "/api/admin/tenants/acme/profile"))
         self.assertTrue(guard("POST", "/api/admin/files/upload"))
         # Reads are never writes.
         self.assertFalse(guard("GET", "/api/admin/tenants/acme/files"))
@@ -179,7 +179,7 @@ class RolePanelTests(unittest.TestCase):
 
     def test_super_admin_registration_with_website_still_works(self):
         # Regression (2026-11-11): the register wizard's super flow used to
-        # save the basics through PUT /{tenant}/profile after creating,
+        # save the basics through POST /{tenant}/profile after creating,
         # which the view-only guard correctly refuses — registration itself
         # failed. The basics (incl. website) now travel with the create
         # call; the profile endpoint must stay refused for super admins.
@@ -196,7 +196,7 @@ class RolePanelTests(unittest.TestCase):
             headers=self.root,
         )
         self.assertEqual(created.status_code, 200, created.text)
-        draft = self.client.put(
+        draft = self.client.post(
             "/api/admin/tenants/leeway/profile",
             json={"snapshot": {"brand": {"name": "Leeway"}}},
             headers=self.root,
@@ -233,7 +233,7 @@ class RolePanelTests(unittest.TestCase):
     # ── tenant admin still works ───────────────────────────────────────
 
     def test_tenant_admin_write_still_works(self):
-        saved = self.client.put(
+        saved = self.client.post(
             "/api/admin/tenants/acme/profile",
             json={"snapshot": {"brand": {"name": "Acme Ltd"}}},
             headers=self.acme_admin,

@@ -264,7 +264,7 @@ class TenantApprovalTests(unittest.TestCase):
         )
         # Saving a broken draft is allowed; the problem comes back as a
         # validation warning.
-        res = self.client.put(
+        res = self.client.post(
             "/api/admin/tenants/acme/profile",
             json={"snapshot": {"brand": {"website": "not a url"}}},
             headers=admin,
@@ -275,7 +275,7 @@ class TenantApprovalTests(unittest.TestCase):
         res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
         self.assertEqual(res.status_code, 422)
         # Fix the contact details and the publish queues for approval.
-        res = self.client.put(
+        res = self.client.post(
             "/api/admin/tenants/acme/profile",
             json={
                 "snapshot": {
@@ -482,7 +482,7 @@ class TenantApprovalTests(unittest.TestCase):
             headers=admin,
         )
         self.assertEqual(bound.status_code, 200)
-        saved = self.client.put(
+        saved = self.client.post(
             "/api/admin/tenants/acme/profile",
             json={"snapshot": snapshot},
             headers=admin,

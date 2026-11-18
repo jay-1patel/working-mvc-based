@@ -4210,7 +4210,7 @@ cURL template:
     -H "Accept: application/json" \
     -H "Authorization: Bearer <admin-jwt>"
 
-[169] PUT /api/admin/tenants/{tenant_id}/profile
+[169] POST /api/admin/tenants/{tenant_id}/profile
 --------------------------------------------------------------------------------
 Name: Save Profile Draft
 Description: Save the working copy. Does not affect the live bot. The draft is validated immediately so the editor can show errors before anyone presses publish. The draft accumulates: this merges the snapshot over the existing draft instead of replacing it, so partial saves from different screens (the profile editor, the info-page panels) keep each other's pending changes. Tombstones survive the merge — deleting a default menu option is a marker only the publish-time live merge may consume.
@@ -4232,7 +4232,7 @@ Responses:
       - detail: array<object> [optional]
         Items: object
 cURL template:
-  curl -X PUT "https://<your-api-domain>/api/admin/tenants/{tenant_id}/profile" \
+  curl -X POST "https://<your-api-domain>/api/admin/tenants/{tenant_id}/profile" \
     -H "Accept: application/json" \
     -H "Authorization: Bearer <admin-jwt>" \
     -H "Content-Type: application/json" \

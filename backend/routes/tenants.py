@@ -6,7 +6,7 @@ versioned and rollbackable:
     GET  /api/admin/tenants
     POST /api/admin/tenants
     GET  /api/admin/tenants/{tenant_id}/detail     -> layers + effective profile
-    PUT  /api/admin/tenants/{tenant_id}/profile     -> save draft (merged over the pending draft)
+    POST /api/admin/tenants/{tenant_id}/profile     -> save draft (merged over the pending draft)
     PUT  /api/admin/tenants/{tenant_id}/intents/{name} -> save one info-page intent into the draft
     POST /api/admin/tenants/{tenant_id}/publish     -> validate + version + go live
     POST /api/admin/tenants/{tenant_id}/rollback    -> re-point at a prior version
@@ -658,7 +658,7 @@ def get_version(
 
 # ── profile: write ────────────────────────────────────────────────────────
 
-@router.put("/{tenant_id}/profile")
+@router.post("/{tenant_id}/profile")
 def save_profile_draft(    tenant_id: str,
     body: ProfileDraft,
     principal: dict = Depends(require_tenant_access()),

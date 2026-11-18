@@ -280,8 +280,8 @@ async def tenant_chat_websocket(
     if payload.get("sub") != username:
         await websocket.close(code=4001)
         return
-    from database import get_admin_by_username
-    admin = get_admin_by_username(username)
+    from routes.auth import _public_username, _resolve_admin_row
+    admin = _resolve_admin_row(username)
     if not admin:
         await websocket.close(code=4001)
         return
@@ -291,7 +291,8 @@ async def tenant_chat_websocket(
         await websocket.close(code=4003)
         return
 
-    raw_username = f"{username}:{conn_id}"
+    plain_username = _public_username(username)
+    raw_username = f"{plain_username}:{conn_id}"
     await manager.connect(websocket, tenant_id, raw_username, already_accepted=True)
     try:
         await websocket.send_json({"type": "auth_ok"})

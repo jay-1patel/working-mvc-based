@@ -19,7 +19,6 @@ from database import (
     get_admin_by_username,
     get_db_context,
     record_admin_audit_event,
-    get_admin_record,
     list_admin_records,
     count_admins_by_role,
     count_tenant_admins,
@@ -223,6 +222,7 @@ READ_ONLY_POST_PATHS = frozenset({
     "/api/admin/tenants/files/download",
     "/api/admin/tenants/knowledge-gaps",
     "/api/admin/onboarding-kits/list",
+    "/api/auth/admins",
 })
 
 BODY_TENANT_POST_PATHS = frozenset({
@@ -260,8 +260,19 @@ BODY_TENANT_POST_PATHS = frozenset({
 })
 
 
+# Path-param read POSTs that are not flat panel routes but must stay
+# view-only for super admins (profile page load).
+READ_ONLY_POST_PATH_PATTERNS = (
+    re.compile(r"^/api/admin/tenants/[^/]+/detail$"),
+)
+
+
 def is_read_only_post(method: str, path: str) -> bool:
-    return (method or "").upper() == "POST" and (path or "") in READ_ONLY_POST_PATHS
+    if (method or "").upper() != "POST":
+        return False
+    if (path or "") in READ_ONLY_POST_PATHS:
+        return True
+    return any(pattern.match(path or "") for pattern in READ_ONLY_POST_PATH_PATTERNS)
 
 SUPER_ADMIN_ALLOWED_WRITE_PATTERNS = (
     re.compile(r"^/api/auth(?:/.*)?$"),  # people management, own password, OTP
@@ -343,8 +354,24 @@ def ensure_super_admin_view_only(admin: dict | None, method: str, path: str) -> 
 
 # ---------- helpers ----------
 
+def _public_username(username: str | None) -> str:
+    """Return the plain username clients send/receive (login-page form).
+
+    DB rows may still store the Send2 Base64 form; API responses and session
+    identity always use the decoded plain name.
+    """
+    try:
+        return normalize_login_username(username or "")
+    except ValueError:
+        return str(username or "").strip()
+
+
 def _resolve_admin_row(username: str) -> dict | None:
-    """Find an admin by plain or Base64 Send2 username."""
+    """Find an admin by plain or Base64 Send2 username.
+
+    Callers send the simple plain name (e.g. ``test_support_``). We Base64-encode
+    it and also try the plain form so both Send2-synced and local rows match.
+    """
     try:
         candidates = admin_username_candidates(username)
     except ValueError:
@@ -356,8 +383,19 @@ def _resolve_admin_row(username: str) -> dict | None:
     return None
 
 
+def _stored_username(row: dict | None, fallback: str = "") -> str:
+    """Exact ``admins.username`` key for DB writes (may be Base64)."""
+    if row and row.get("username") is not None:
+        return str(row["username"])
+    return str(fallback or "")
+
+
 def _admin_from_pair(username: str, session_id: str, request: Request | None = None) -> dict:
-    """Authenticate one live username/session-id pair from the database."""
+    """Authenticate one live username/session-id pair from the database.
+
+    Accepts the same plain username format as ``/api/auth/login``: encode for
+    DB lookup, then expose the plain name on the returned principal.
+    """
     row = _resolve_admin_row(username)
     stored = str(row["session_id"] or "") if row else ""
     supplied = str(session_id or "")
@@ -371,10 +409,7 @@ def _admin_from_pair(username: str, session_id: str, request: Request | None = N
     result.pop("session_id", None)
     # Prefer the plain decoded username for session identity when the DB
     # row still stores the Send2 Base64 form.
-    try:
-        result["username"] = normalize_login_username(result.get("username") or username)
-    except ValueError:
-        result["username"] = str(result.get("username") or username).strip()
+    result["username"] = _public_username(result.get("username") or username)
     result["role"] = result.get("role") or "sub_admin"
     result["permissions"] = _effective_permissions(result.get("role"), result.get("permissions"))
     if request is not None:
@@ -393,6 +428,9 @@ def authenticate_basic_header(request: Request) -> dict:
     Accepted sources, in order:
       1. Headers ``username`` + ``session_id``
       2. JSON/form body fields ``username`` + ``session_id`` (set by middleware)
+
+    ``username`` may be the plain Send2/local name (preferred) or legacy Base64;
+    lookup matches login (encode + check DB).
     """
     cached = getattr(request.state, "current_admin", None)
     if cached:
@@ -843,13 +881,22 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
 
 
 def _admin_target(username: str, current_admin: dict) -> dict | None:
-    """Resolve an admin target without exposing other tenants' accounts."""
+    """Resolve an admin target without exposing other tenants' accounts.
+
+    Path/body usernames arrive in plain form (same as login); match encoded or
+    plain ``admins.username`` rows, then enforce tenant scope.
+    """
+    row = _resolve_admin_row(username)
+    if not row:
+        return None
     if current_admin.get("role") == "super_admin":
-        return get_admin_record(username)
+        return row
     tenant_id = str(current_admin.get("tenant_id") or "").strip()
     if not tenant_id:
         return None
-    return get_admin_record(username, tenant_id=tenant_id)
+    if str(row.get("tenant_id") or "").strip() != tenant_id:
+        return None
+    return row
 
 
 def _admin_write_scope(current_admin: dict) -> tuple[str, list]:
@@ -880,13 +927,8 @@ def _ensure_super_not_touching_tenant_account(current_admin: dict, target: dict)
         )
 
 
-@router.get("/admins")
-def list_admins(current_admin: dict = Depends(require_permission("manage_admins"))):
-    """List the caller's tenant admins; super admins retain the global roster.
-
-    Super admins see every account. Tenant admins see only ``admin`` and
-    ``sub_admin`` accounts in their tenant — never ``super_admin`` rows.
-    """
+def _list_admins_payload(current_admin: dict) -> dict:
+    """Build the admin roster payload (plain usernames)."""
     if current_admin.get("role") == "super_admin":
         records = list_admin_records()
     else:
@@ -899,7 +941,7 @@ def list_admins(current_admin: dict = Depends(require_permission("manage_admins"
     result = []
     for a in records:
         result.append({
-            "username": a["username"],
+            "username": _public_username(a.get("username")),
             "email": a.get("email"),
             "role": a["role"],
             "permissions": _effective_permissions(a["role"], a["permissions"]),
@@ -907,6 +949,19 @@ def list_admins(current_admin: dict = Depends(require_permission("manage_admins"
             "tenant_id": a.get("tenant_id"),
         })
     return {"admins": result}
+
+
+@router.api_route("/admins", methods=["GET", "POST"])
+def list_admins(current_admin: dict = Depends(require_permission("manage_admins"))):
+    """List the caller's tenant admins; super admins retain the global roster.
+
+    Super admins see every account. Tenant admins see only ``admin`` and
+    ``sub_admin`` accounts in their tenant — never ``super_admin`` rows.
+
+    Panel clients should use ``POST /api/auth/admins`` with plain
+    ``username`` + ``session_id`` (same as login). GET remains for older tools.
+    """
+    return _list_admins_payload(current_admin)
 
 
 @router.patch("/admins/{username}")
@@ -928,7 +983,9 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
         raise HTTPException(status_code=404, detail="Admin not found")
     _ensure_super_not_touching_tenant_account(current_admin, target)
 
-    is_self = username == current_admin["username"]
+    stored_username = _stored_username(target, username)
+    public_username = _public_username(stored_username)
+    is_self = public_username == _public_username(current_admin.get("username"))
 
     if is_self and (body.role is not None or body.permissions is not None):
         raise HTTPException(
@@ -965,7 +1022,7 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     tenant_id = body.tenant_id if current_admin.get("role") == "super_admin" else None
 
     after_tenant = tenant_id if tenant_id is not None else target.get("tenant_id")
-    if new_role == "admin" and after_tenant and count_tenant_admins(after_tenant, exclude_username=username):
+    if new_role == "admin" and after_tenant and count_tenant_admins(after_tenant, exclude_username=stored_username):
         raise HTTPException(status_code=409, detail="This company already has an admin")
 
     before = {
@@ -976,9 +1033,9 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     }
     email = body.email.strip() or None if body.email is not None else before["email"]
     after_tenant = tenant_id if tenant_id is not None else before["tenant_id"]
-    update_admin_record(username, role=new_role, permissions=permissions, tenant_id=tenant_id)
+    update_admin_record(stored_username, role=new_role, permissions=permissions, tenant_id=tenant_id)
     if body.email is not None:
-        update_admin_email(username, email)
+        update_admin_email(stored_username, email)
     changed_permissions = sorted(
         key for key in set(before["permissions"]) | set(permissions)
         if bool(before["permissions"].get(key)) != bool(permissions.get(key))
@@ -988,7 +1045,7 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
         actor=current_admin,
         resource_type="admin",
         resource_id=target.get("id"),
-        target_username=username,
+        target_username=public_username,
         tenant_id=after_tenant,
         details={
             "changed_fields": [
@@ -1014,8 +1071,8 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
         with get_db_context() as conn:
             record_admin_audit_event(conn, **audit_kwargs)
 
-    logger.info(f"Admin updated by {current_admin['username']}: {username} ({new_role})")
-    return {"status": "ok", "username": username, "role": new_role, "permissions": permissions}
+    logger.info(f"Admin updated by {current_admin['username']}: {public_username} ({new_role})")
+    return {"status": "ok", "username": public_username, "role": new_role, "permissions": permissions}
 
 
 @router.delete("/admins/{username}")
@@ -1024,7 +1081,7 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
     if not has_permission(current_admin, "manage_admins"):
         raise HTTPException(status_code=403, detail="You do not have permission to manage admins")
 
-    if username == current_admin["username"]:
+    if _public_username(username) == _public_username(current_admin.get("username")):
         raise HTTPException(status_code=400, detail="You cannot delete your own account")
 
     target = _admin_target(username, current_admin)
@@ -1035,42 +1092,52 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
     if target["role"] == "super_admin":
         raise HTTPException(status_code=403, detail="Super admin accounts cannot be deleted")
 
-    delete_admin(username)
+    stored_username = _stored_username(target, username)
+    public_username = _public_username(stored_username)
+    delete_admin(stored_username)
+    deleted_admin = dict(target)
+    deleted_admin["username"] = public_username
     audit_kwargs = dict(
         action="admin_deleted",
         actor=current_admin,
         resource_type="admin",
         resource_id=target.get("id"),
-        target_username=username,
+        target_username=public_username,
         tenant_id=target.get("tenant_id"),
-        details={"role": target.get("role"), "deleted_admin": dict(target)},
+        details={"role": target.get("role"), "deleted_admin": deleted_admin},
     )
     if use_mongodb():
         record_admin_audit_event(None, **audit_kwargs)
     else:
         with get_db_context() as conn:
             record_admin_audit_event(conn, **audit_kwargs)
-    logger.info(f"Admin deleted by {current_admin['username']}: {username}")
-    return {"status": "ok", "username": username}
+    logger.info(f"Admin deleted by {current_admin['username']}: {public_username}")
+    return {"status": "ok", "username": public_username}
 
 
 @router.post("/admins/{username}/regenerate-session")
 def regenerate_admin_session(username: str, current_admin: dict = Depends(get_current_admin)):
     """Replace a session id. Super admins may target anyone; others only self."""
-    if current_admin.get("role") != "super_admin" and username != current_admin.get("username"):
+    public_request = _public_username(username)
+    if (
+        current_admin.get("role") != "super_admin"
+        and public_request != _public_username(current_admin.get("username"))
+    ):
         raise HTTPException(status_code=403, detail="You may only regenerate your own session ID")
-    target = get_admin_record(username)
+    target = _resolve_admin_row(username)
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
+    stored_username = _stored_username(target, username)
+    public_username = _public_username(stored_username)
     session_id = secrets.token_urlsafe(32)
-    if not db_update_admin(username, session_id=session_id):
+    if not db_update_admin(stored_username, session_id=session_id):
         raise HTTPException(status_code=404, detail="Admin not found")
     audit_kwargs = dict(
         action="admin_session_regenerated",
         actor=current_admin,
         resource_type="admin",
         resource_id=target.get("id"),
-        target_username=username,
+        target_username=public_username,
         tenant_id=target.get("tenant_id"),
         details={"changed_fields": ["session_id"]},
     )
@@ -1079,8 +1146,8 @@ def regenerate_admin_session(username: str, current_admin: dict = Depends(get_cu
     else:
         with get_db_context() as conn:
             record_admin_audit_event(conn, **audit_kwargs)
-    logger.info("Admin session ID regenerated for %s by %s", username, current_admin["username"])
-    return {"status": "ok", "username": username, "session_id": session_id}
+    logger.info("Admin session ID regenerated for %s by %s", public_username, current_admin["username"])
+    return {"status": "ok", "username": public_username, "session_id": session_id}
 
 
 def _onboarding_approved(admin: dict) -> bool:
@@ -1092,18 +1159,26 @@ def _onboarding_approved(admin: dict) -> bool:
     """
     if admin.get("role") != "admin":
         return True
+    try:
+        names = admin_username_candidates(admin.get("username") or "")
+    except ValueError:
+        names = [str(admin.get("username") or "").strip()]
+        names = [n for n in names if n]
+    if not names:
+        return False
     if use_mongodb():
         from db.mongo import Repository
 
         row = Repository("tenant_change_requests").find_one(
-            {"requester_username": admin.get("username"), "status": "approved"}
+            {"requester_username": {"$in": names}, "status": "approved"}
         )
         return row is not None
+    placeholders = ",".join("?" for _ in names)
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT 1 FROM tenant_change_requests "
-            "WHERE requester_username = ? AND status = 'approved' LIMIT 1",
-            (admin.get("username"),),
+            f"WHERE requester_username IN ({placeholders}) AND status = 'approved' LIMIT 1",
+            names,
         ).fetchone()
     return row is not None
 
@@ -1112,7 +1187,7 @@ def _onboarding_approved(admin: dict) -> bool:
 def admin_me(current_admin: dict = Depends(get_current_admin)):
     """Return the currently authenticated admin."""
     return {
-        "username": current_admin["username"],
+        "username": _public_username(current_admin.get("username")),
         "role": current_admin["role"],
         "permissions": current_admin["permissions"],
         "tenant_id": current_admin.get("tenant_id"),

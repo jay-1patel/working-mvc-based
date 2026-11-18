@@ -139,7 +139,7 @@ function routeDefault(
     if (sub === '' && method === 'GET')
       return json({ count: fixtures.offerings.length, columns: fixtures.recordSchema.columns, offerings: fixtures.offerings })
     if (sub === '/phone-id' && method === 'POST') return json({ ok: true })
-    if (sub === '/detail') return json(fixtures.layerDetail)
+    if (sub === '/detail' && method === 'POST') return json(fixtures.layerDetail)
     if (sub === '/resolved') return json(fixtures.resolved)
     if (sub === '/profile' && method === 'POST') return json({ ok: true, validation: [] })
     if (sub === '/publish') return json({ ok: true, version: 3, active_intents: ['greeting'], visible_buttons: ['menu_help'] })

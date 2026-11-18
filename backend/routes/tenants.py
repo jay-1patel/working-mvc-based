@@ -5,14 +5,14 @@ versioned and rollbackable:
 
     GET  /api/admin/tenants
     POST /api/admin/tenants
-    GET  /api/admin/tenants/{tenant_id}/detail     -> layers + effective profile
+    POST /api/admin/tenants/{tenant_id}/detail     -> layers + effective profile
     POST /api/admin/tenants/{tenant_id}/profile     -> save draft (merged over the pending draft)
     PUT  /api/admin/tenants/{tenant_id}/intents/{name} -> save one info-page intent into the draft
     POST /api/admin/tenants/{tenant_id}/publish     -> validate + version + go live
     POST /api/admin/tenants/{tenant_id}/rollback    -> re-point at a prior version
     GET  /api/admin/tenants/{tenant_id}/versions
     POST /api/admin/tenants/{tenant_id}/tokens      -> mint a tenant-scoped token
-    GET  /api/admin/tenants/{tenant_id}/resolved    -> what the bot actually reads
+    POST /api/admin/tenants/resolved               -> what the bot actually reads
 
 ``/resolved`` is the smoke-test endpoint: it returns the merged, validated
 profile the bot will use right now, so the UI can diff it against the draft.
@@ -600,8 +600,16 @@ def resolved_profile(
     }
 
 
-@router.get("/{tenant_id}/detail")
-def tenant_detail(tenant_id: str, principal: dict = Depends(require_tenant_access())):
+class TenantDetailRequest(BaseModel):
+    pass
+
+
+@router.post("/{tenant_id}/detail")
+def tenant_detail(
+    tenant_id: str,
+    body: TenantDetailRequest,
+    principal: dict = Depends(require_tenant_access()),
+):
     """Layer-by-layer view for the profile editor: defaults, file, DB."""
     layers = tenancy_loader.describe_layers(tenant_id)
     effective = None

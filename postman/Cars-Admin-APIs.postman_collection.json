@@ -571,13 +571,15 @@
           }
         },
         {
-          "name": "GET tenant detail",
+          "name": "POST tenant detail",
           "request": {
-            "method": "GET",
+            "method": "POST",
             "header": [
               { "key": "username", "value": "{{username}}" },
-              { "key": "session_id", "value": "{{session_id}}" }
+              { "key": "session_id", "value": "{{session_id}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
+            "body": { "mode": "raw", "raw": "{}" },
             "url": "{{base_url}}/api/admin/tenants/{{tenant_id}}/detail"
           }
         },

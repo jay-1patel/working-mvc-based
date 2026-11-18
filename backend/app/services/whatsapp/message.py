@@ -740,7 +740,14 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             or flow_runner.flow_for_text(wa_id or "", user_text, tenant_id=tenant_id)
         )
         if flow_name:
-            outcome = flow_runner.start_flow(wa_id or "", flow_name, tenant_id=tenant_id)
+            seed = (
+                {"_trigger_text": user_text or interactive_id or ""}
+                if flow_name in ("book_callback", "callback_request")
+                else None
+            )
+            outcome = flow_runner.start_flow(
+                wa_id or "", flow_name, tenant_id=tenant_id, seed=seed,
+            )
             if outcome.get("handled") and outcome.get("messages"):
                 result["answer"] = flow_runner.messages_text(outcome["messages"])
                 result["query_type"] = "flow"
@@ -937,13 +944,13 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
                         elif isinstance(m, dict) and (m.get("text") or "").strip():
                             parts.append(m["text"].strip())
                     answer = "\n\n".join(parts) if parts else (
-                        "Sure — leave your details and we'll schedule a callback "
-                        "with a Google Meeting.Type exit to exit the flow"
+                        "Sure — I'll arrange a callback on this WhatsApp number. "
+                        "A couple of quick questions (type *exit* to cancel)."
                     )
                 except Exception:
                     answer = (
-                        "Sure — leave your details and we'll schedule a callback "
-                        "with a Google Meeting.Type exit to exit the flow"
+                        "Sure — I'll arrange a callback on this WhatsApp number. "
+                        "A couple of quick questions (type *exit* to cancel)."
                     )
             else:
                 answer = _support_details_text(wa_id or "", tenant_id)

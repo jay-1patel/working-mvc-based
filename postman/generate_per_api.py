@@ -363,9 +363,9 @@ APIS: list[tuple] = [
     (
         "41_tenant_detail",
         "Tenant detail",
-        "GET",
+        "POST",
         "/api/admin/tenants/{{tenant_id}}/detail",
-        None,
+        {},
         AUTH_HEADERS[1:],
     ),
     (

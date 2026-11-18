@@ -36,11 +36,10 @@ router = APIRouter(prefix="/api/admin/tenants", tags=["crawl"])
 
 class CrawlStartRequest(BaseModel):
     url: str = Field(..., min_length=1)
-    # No page-count limit (product decision 2026-11-11): omitted/None/0 =
-    # unlimited. An explicit positive value is still honoured for backward
-    # compatibility with callers that pass one.
+    # Legacy optional fields are accepted for old clients but full crawls
+    # intentionally ignore these caps in the pipeline.
     max_pages: Optional[int] = Field(default=None, ge=1)
-    max_depth: int = Field(default=4, ge=0, le=10)
+    max_depth: Optional[int] = Field(default=None, ge=0, le=100)
 
 
 class CrawlRunsRequest(BaseModel):
@@ -69,7 +68,7 @@ def _bg_run_crawl(
     url: str,
     run_id: int,
     max_pages: Optional[int],
-    max_depth: int,
+    max_depth: Optional[int],
     actor: dict,
 ) -> None:
     try:
@@ -228,6 +227,17 @@ def get_crawl_run_staged(
         raise HTTPException(status_code=404, detail="Crawl run not found")
     staged = get_crawl_staged(run_id, tenant_id=tenant_id)
     if not staged:
+        # A crawl is intentionally asynchronous. Return its live state/counts
+        # rather than a misleading hard 404 while the worker is still running.
+        if run.get("status") in ("queued", "running"):
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "tenant_id": tenant_id,
+                "status": run.get("status"),
+                "run": run,
+                "payload": None,
+            }
         raise HTTPException(status_code=404, detail="No staged payload for this run")
 
     payload = staged.get("payload") or {}

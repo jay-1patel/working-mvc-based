@@ -778,6 +778,41 @@ class UnlimitedCrawlTests(unittest.TestCase):
         errors = {item.get("error") for item in res["inventory"]}
         self.assertNotIn("not_fetched_max_pages", errors)
 
+    def test_default_has_no_total_timeout_or_depth_limit(self):
+        crawler = SiteCrawler(self.base, request_delay=0.0)
+        self.assertIsNone(crawler.max_depth)
+        self.assertIsNone(crawler.total_timeout)
+
+    def test_default_crawl_reaches_pages_deeper_than_four_links(self):
+        for depth in range(7):
+            next_link = (
+                f'<a href="/deep-{depth + 1}">next</a>'
+                if depth < 6 else ""
+            )
+            html = (
+                f"<html><body><h1>Deep page {depth}</h1>"
+                f"<p>{ARTICLE}</p>{next_link}</body></html>"
+            ).encode()
+            _FixtureHandler.pages[f"/deep-{depth}"] = ("text/html", html)
+
+        result = SiteCrawler(
+            f"{self.base}/deep-0", request_delay=0.0, respect_robots=False,
+        ).crawl()
+        urls = {page["url"].rstrip("/") for page in result["pages"]}
+        self.assertIn(f"{self.base}/deep-6", urls)
+
+    def test_progress_callback_reports_scraped_counts(self):
+        progress = []
+        crawler = SiteCrawler(
+            self.base,
+            request_delay=0.0,
+            progress_callback=lambda **counts: progress.append(counts),
+        )
+        result = crawler.crawl()
+        self.assertTrue(progress)
+        self.assertEqual(progress[-1]["pages_scraped"], BIG_SITE_PAGE_COUNT)
+        self.assertGreaterEqual(progress[-1]["pages_found"], result["pages_found"])
+
     def test_explicit_cap_still_honoured(self):
         # Backward compatibility: a caller that passes a cap still gets it.
         crawler = SiteCrawler(self.base, max_pages=10, request_delay=0.0)

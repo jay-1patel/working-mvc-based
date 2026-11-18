@@ -17,7 +17,7 @@ Frontend wrappers: `frontend/src/lib/tenants.ts` → `tenantsApi.saveDraft` / `t
 
 | UI button | API |
 | --- | --- |
-| Open page / reload | `GET /api/admin/tenants/{tenant_id}/detail` |
+| Open page / reload | `POST /api/admin/tenants/{tenant_id}/detail` |
 | **Edit profile** | _(no API — unlocks the form)_ |
 | **Discard changes** | _(no API — reloads form from last detail)_ |
 | **Save draft** (super admin only in UI) | `POST /api/admin/tenants/{tenant_id}/profile` |
@@ -32,9 +32,11 @@ Publish either goes live (menu-only change) or queues a change request for super
 ## 1. Load profile (page open)
 
 ```bash
-curl --request GET "http://10.100.100.43:9000/api/admin/tenants/c/detail" \
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/c/detail" \
   --header "username: cars" \
-  --header "session_id: YOUR_SESSION_ID"
+  --header "session_id: YOUR_SESSION_ID" \
+  --header "Content-Type: application/json" \
+  --data '{}'
 ```
 
 ---
@@ -129,7 +131,8 @@ $tid  = "c"
 $h = @{ username = $user; session_id = $sid }
 
 # 1) load
-Invoke-RestMethod -Headers $h "$base/api/admin/tenants/$tid/detail"
+Invoke-RestMethod -Method Post -Headers $h -ContentType "application/json" `
+  -Uri "$base/api/admin/tenants/$tid/detail" -Body '{}'
 
 # 2) save draft (example brand + features patch)
 $draft = @{

@@ -46,7 +46,11 @@ export const tenantsApi = {
     }),
 
   detail: (id: string, signal?: AbortSignal) =>
-    api.get<LayerDetail>(`/api/admin/tenants/${encodeURIComponent(id)}/detail`, signal),
+    api.post<LayerDetail>(
+      `/api/admin/tenants/${encodeURIComponent(id)}/detail`,
+      {},
+      { signal },
+    ),
 
   resolved: (id: string, signal?: AbortSignal) =>
     api.post<ResolvedProfile>('/api/admin/tenants/resolved', {}, { signal }),

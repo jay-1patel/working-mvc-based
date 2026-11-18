@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Tenant detail",
-    "description": "GET /api/admin/tenants/{{tenant_id}}/detail",
+    "description": "POST /api/admin/tenants/{{tenant_id}}/detail",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -50,7 +50,7 @@
     {
       "name": "Tenant detail",
       "request": {
-        "method": "GET",
+        "method": "POST",
         "header": [
           {
             "key": "username",
@@ -59,8 +59,16 @@
           {
             "key": "session_id",
             "value": "{{session_id}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
           }
         ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
         "url": "{{base_url}}/api/admin/tenants/{{tenant_id}}/detail"
       }
     }

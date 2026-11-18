@@ -123,6 +123,7 @@ class RolePanelTests(unittest.TestCase):
         self.assertTrue(guard("POST", "/api/admin/files/upload"))
         # Reads are never writes.
         self.assertFalse(guard("GET", "/api/admin/tenants/acme/files"))
+        self.assertFalse(guard("POST", "/api/admin/tenants/acme/detail"))
         # System powers a super admin keeps.
         self.assertFalse(guard("POST", "/api/admin/tenants"))
         self.assertFalse(guard("DELETE", "/api/admin/tenants/acme"))
@@ -163,7 +164,9 @@ class RolePanelTests(unittest.TestCase):
         self.assertEqual(res.status_code, 403, res.text)
 
     def test_super_admin_reads_and_system_powers_still_work(self):
-        detail = self.client.get("/api/admin/tenants/acme/detail", headers=self.root)
+        detail = self.client.post(
+            "/api/admin/tenants/acme/detail", json={}, headers=self.root
+        )
         self.assertEqual(detail.status_code, 200, detail.text)
         created = self.client.post(
             "/api/admin/tenants",

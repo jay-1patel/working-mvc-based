@@ -467,8 +467,14 @@ class CallbackService:
         additional_info: str = "",
         agent_name: str = "Leeway Softech Team",
         agent_id: str = "agent_default",
+        include_meet: bool = False,
     ) -> CallbackRequest:
-        """Create callback, generate Google Meeting, and persist to database."""
+        """Create a callback lead; optionally attach a Google Meet when requested.
+
+        Phone callbacks (automobile, banking, most verticals) pass
+        ``include_meet=False``. Video Meet is created only when the conversation
+        clearly asks for a virtual / video meeting.
+        """
         callback_id = self._generate_callback_id()
         start_iso, end_iso, display_str, s_utc, e_utc = parse_preferred_time_to_range(
             preferred_time=preferred_time,
@@ -476,19 +482,30 @@ class CallbackService:
             timezone_str=self.timezone,
         )
 
-        meet_res = google_meet_service.create_meeting_sync(
-            title=f"Meeting: {customer_name} - {purpose or 'Discussion'}",
-            description=f"Callback requested via WhatsApp by {customer_name} ({wa_id}).\nTopic: {purpose or 'Discussion'}\nPhone: {customer_phone or wa_id}",
-            start_time=start_iso,
-            end_time=end_iso,
-            attendees=[{"email": customer_email, "displayName": customer_name}] if customer_email else None,
-            timezone=self.timezone,
-            tenant_id=tenant_id,
-        )
-
-        meet_link = meet_res.get("meet_link")
-        event_id = meet_res.get("event_id")
-        calendar_add_url = meet_res.get("calendar_add_url", "")
+        meet_link = None
+        event_id = None
+        calendar_add_url = ""
+        if include_meet:
+            meet_res = google_meet_service.create_meeting_sync(
+                title=f"Meeting: {customer_name} - {purpose or 'Discussion'}",
+                description=(
+                    f"Callback requested via WhatsApp by {customer_name} ({wa_id}).\n"
+                    f"Topic: {purpose or 'Discussion'}\n"
+                    f"Phone: {customer_phone or wa_id}"
+                ),
+                start_time=start_iso,
+                end_time=end_iso,
+                attendees=(
+                    [{"email": customer_email, "displayName": customer_name}]
+                    if customer_email
+                    else None
+                ),
+                timezone=self.timezone,
+                tenant_id=tenant_id,
+            )
+            meet_link = meet_res.get("meet_link")
+            event_id = meet_res.get("event_id")
+            calendar_add_url = meet_res.get("calendar_add_url", "")
 
         cb = CallbackRequest(
             id=callback_id,
@@ -516,13 +533,17 @@ class CallbackService:
                 "display_time": display_str,
                 "created_via": "whatsapp_bot",
                 "oauth_connected": bool(meet_link),
+                "include_meet": bool(include_meet),
             },
             created_at=datetime.now(dt_timezone.utc).isoformat(),
             updated_at=datetime.now(dt_timezone.utc).isoformat(),
         )
 
         self.save_callback_to_db(cb)
-        logger.info(f"Callback {callback_id} created and scheduled with Google Meet: {meet_link}")
+        if meet_link:
+            logger.info("Callback %s created with Google Meet: %s", callback_id, meet_link)
+        else:
+            logger.info("Callback %s created as phone callback (no Meet)", callback_id)
         return cb
 
     def send_reminder_notifications(self, callback_request: CallbackRequest) -> bool:

@@ -405,7 +405,14 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
             or flow_runner.flow_for_text(wa_id, message, tenant_id=tenant_id)
         )
         if flow_name:
-            outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
+            seed = (
+                {"_trigger_text": message}
+                if flow_name in ("book_callback", "callback_request")
+                else None
+            )
+            outcome = flow_runner.start_flow(
+                wa_id, flow_name, tenant_id=tenant_id, seed=seed,
+            )
             if outcome.get("handled") and outcome.get("messages"):
                 from services.whatsapp_sender import send_button_message
                 for msg in outcome["messages"]:

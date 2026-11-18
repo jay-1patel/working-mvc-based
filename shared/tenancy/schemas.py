@@ -153,9 +153,17 @@ _PHONE_COUNTRY_CODES = frozenset((
     '60', '61', '62', '63', '64', '65', '66', '81', '82', '84', '86', '90',
     '91', '92', '93', '94', '95', '98', '1', '7',
 ))
-_URL_RE = re.compile(r"^(https?://)?([\w-]+\.)+[A-Za-z]{2,}(:\d+)?(/\S*)?$")
+# Host: domain (example.com) or IPv4 (10.100.100.43), optional port + path.
+_IPV4_HOST = r"(?:\d{1,3}\.){3}\d{1,3}"
+_DOMAIN_HOST = r"(?:[\w-]+\.)+[A-Za-z]{2,}"
+_URL_RE = re.compile(
+    rf"^(https?://)?({_DOMAIN_HOST}|{_IPV4_HOST})(:\d+)?(/\S*)?$"
+)
 # First URL-shaped token inside noisy text, e.g. "https://x.co (rates: https://y.co)".
-_URL_TOKEN_RE = re.compile(r"https?://[^\s()<>\",;]+|(?<![\w/.-])[\w-]+\.[A-Za-z]{2,}(?:/\S*)?", re.I)
+_URL_TOKEN_RE = re.compile(
+    rf"https?://[^\s()<>\",;]+|(?<![\w/.-])(?:{_DOMAIN_HOST}|{_IPV4_HOST})(?::\d+)?(?:/\S*)?",
+    re.I,
+)
 
 
 def _require_email(value: str, field: str) -> str:

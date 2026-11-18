@@ -41,8 +41,80 @@ CANCEL_WORDS = {
 }
 SKIP_WORDS = {"skip", "-", "na", "n/a", "none", "no email"}
 
+# Video Meet is opt-in: only when the customer clearly asks for a virtual meeting.
+_VIDEO_MEET_HINTS = (
+    "video call",
+    "video meeting",
+    "google meet",
+    "google meeting",
+    "meet link",
+    "zoom",
+    "teams meeting",
+    "ms teams",
+    "microsoft teams",
+    "virtual meeting",
+    "virtual call",
+    "screen share",
+    "screenshare",
+    "demo call",
+    "online meeting",
+    "video conference",
+)
+
 _STATUS_BOT = "bot"
 _STATUS_PAUSED = "paused"
+
+
+def wants_video_meeting(*parts: object) -> bool:
+    """True when free text clearly asks for a video / virtual meeting."""
+    blob = " ".join(str(p or "") for p in parts).lower()
+    if not blob.strip():
+        return False
+    return any(hint in blob for hint in _VIDEO_MEET_HINTS)
+
+
+def _soften_callback_copy(text: str) -> str:
+    """Strip legacy Google-Meet marketing from older published callback prompts."""
+    if not text:
+        return text
+    out = str(text)
+    replacements = (
+        (" with a Google Meeting", ""),
+        (" and Google Meeting", ""),
+        (" and a Google Meeting", ""),
+        ("Google Meet calendar invite", "updates"),
+        ("Callback & Google Meeting", "Callback"),
+        ("callback and Google Meeting have been scheduled", "callback has been scheduled"),
+        ("Your callback and Google Meeting have been scheduled", "Your callback has been scheduled"),
+    )
+    for old, new in replacements:
+        out = out.replace(old, new)
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
+def _known_callback_seed(tenant_id: str, wa_id: str) -> dict:
+    """Seed WhatsApp number as phone; reuse known customer name when present."""
+    seed = {"phone": str(wa_id or "").strip()}
+    if not tenant_id or not wa_id:
+        return seed
+    try:
+        row = None
+        if _use_mongodb():
+            from db.mongo import Repository
+            row = Repository("customers").find_one({"tenant_id": tenant_id, "wa_id": wa_id})
+        else:
+            with _db().get_db_context() as conn:
+                found = conn.execute(
+                    "SELECT name, phone FROM customers WHERE tenant_id = ? AND wa_id = ?",
+                    (tenant_id, wa_id),
+                ).fetchone()
+                row = dict(found) if found else None
+        name = str((row or {}).get("name") or "").strip()
+        if name and name != wa_id and not name.isdigit():
+            seed["name"] = name
+    except Exception:
+        logger.debug("CALLBACK_SEED_LOOKUP_FAILED | tenant=%s | wa=%s", tenant_id, wa_id, exc_info=True)
+    return {k: v for k, v in seed.items() if v}
 
 # Greetings are NOT topic-switch starters. Treating "hi" as a question used to
 # abort the form, send a "Got it…" transition, then still run the greeting
@@ -285,10 +357,17 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
         if t_id:
             collected["ticket_id"] = t_id
 
-    # Callback & Google Meeting auto-scheduling
+    # Callback: phone by default; Google Meet only when the customer asks for video.
     if flow_name in ("book_callback", "callback_request") or (lead_source or "").lower() in ("callback", "appointment"):
         try:
             from services.callback_service import callback_service
+            purpose = str(data.get("need") or data.get("purpose") or "Callback")
+            include_meet = wants_video_meeting(
+                purpose,
+                data.get("preferred_time"),
+                collected.get("_trigger_text"),
+                collected.get("want_video"),
+            )
             cb = callback_service.create_and_schedule_callback(
                 tenant_id=tenant_id,
                 wa_id=wa_id,
@@ -296,18 +375,22 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
                 customer_phone=str(data.get("phone") or wa_id),
                 customer_email=str(data.get("email") or ""),
                 preferred_time=str(data.get("preferred_time") or ""),
-                purpose=str(data.get("need") or data.get("purpose") or "Callback & Google Meeting"),
+                purpose=purpose,
                 callback_type="general",
+                include_meet=include_meet,
             )
             if cb:
                 collected["meet_link"] = cb.meet_link
                 collected["scheduled_time"] = cb.preferred_time
-                collected["calendar_add_url"] = cb.metadata.get("calendar_add_url", "")
+                collected["calendar_add_url"] = (cb.metadata or {}).get("calendar_add_url", "")
                 collected["callback_id"] = cb.id
-                logger.info("CALLBACK_SCHEDULED_WITH_MEET | tenant=%s | cb_id=%s | meet=%s",
-                            tenant_id, cb.id, cb.meet_link)
+                collected["include_meet"] = include_meet
+                logger.info(
+                    "CALLBACK_SCHEDULED | tenant=%s | cb_id=%s | meet=%s | include_meet=%s",
+                    tenant_id, cb.id, cb.meet_link, include_meet,
+                )
         except Exception as exc:
-            logger.error("Failed to auto-schedule callback meeting: %s", exc)
+            logger.error("Failed to auto-schedule callback: %s", exc)
     # Customer directory: fill in the profile fields the customer volunteered.
     try:
         update_customer_profile = _db().update_customer_profile
@@ -700,12 +783,22 @@ def start_flow(wa_id: str, flow_name: str, tenant_id=None, seed: dict = None) ->
     # start_flow wipes collected, so the seed is written afterwards.
     collected = {str(k): v for k, v in (seed or {}).items()
                  if v is not None and str(v).strip() != ""}
+    if flow.name in ("book_callback", "callback_request"):
+        for key, value in _known_callback_seed(profile.tenant_id, wa_id).items():
+            collected.setdefault(key, value)
+        # Remember the user phrase that opened the flow (for Meet detection).
+        trigger = str((seed or {}).get("_trigger_text") or (seed or {}).get("need") or "").strip()
+        if trigger:
+            collected["_trigger_text"] = trigger
     if collected:
         sm.merge_collected(wa_id, collected)
 
     messages = []
     if flow.start_message and flow.steps and flow.steps[0].type != "say":
-        messages.append(flow.start_message)
+        start_msg = flow.start_message
+        if flow.name in ("book_callback", "callback_request"):
+            start_msg = _soften_callback_copy(start_msg)
+        messages.append(start_msg)
 
     return _run_from(wa_id, profile, flow, flow.first_step_id(), collected, messages)
 
@@ -945,14 +1038,31 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
             break
 
         if step.type in ("ask", "choice", "confirm"):
-            if step.type == "ask" and step.prefill:
-                key = step.key or step.id
+            key = step.key or step.id
+            # Callback/help: never re-ask for the WhatsApp mobile we already have.
+            if (
+                step.type == "ask"
+                and key == "phone"
+                and flow.name in ("book_callback", "callback_request")
+            ):
+                if not str(collected.get("phone") or "").strip():
+                    collected["phone"] = str(wa_id or "").strip()
+                    sm.merge_collected(wa_id, {"phone": collected["phone"]})
+                logger.info(
+                    "FLOW_SKIP_WHATSAPP_PHONE | wa_id=%s | flow=%s | step=%s",
+                    wa_id, flow.name, step.id,
+                )
+                step_id = _next_after(step)
+                continue
+            if step.type == "ask" and (step.prefill or key == "phone"):
                 if str(collected.get(key) or "").strip():
                     logger.info("FLOW_PREFILL_SKIP | wa_id=%s | flow=%s | step=%s | key=%s",
                                 wa_id, flow.name, step.id, key)
                     step_id = _next_after(step)
                     continue
             prompt = step.prompt or step.message
+            if flow.name in ("book_callback", "callback_request") and isinstance(prompt, str):
+                prompt = _soften_callback_copy(prompt)
             if step.type == "choice" and prompt and step.options:
                 # Emit a tappable options message (the sender renders buttons as a
                 # WhatsApp list menu) so the customer picks instead of typing.
@@ -970,9 +1080,11 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
 
         if step.type == "say":
             text = step.prompt or step.message
+            if flow.name in ("book_callback", "callback_request") and isinstance(text, str):
+                text = _soften_callback_copy(text)
             if text:
                 messages.append(text)
-                if text == flow.success_message:
+                if text == flow.success_message or text == _soften_callback_copy(flow.success_message or ""):
                     emitted_done = True
 
         elif step.type in ("save_lead", "book_appointment", "create_ticket"):
@@ -1029,18 +1141,17 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
     elif flow.name in ("book_callback", "callback_request"):
         sched_time = collected.get("scheduled_time") or collected.get("preferred_time") or "Shortly"
         cust_name = collected.get("name") or "there"
-        topic = collected.get("need") or "Callback Discussion"
-        cal_url = collected.get("calendar_add_url")
+        topic = collected.get("need") or "Callback"
+        phone = collected.get("phone") or wa_id
 
         cb_lines = [
-            "📅 *Callback Request Confirmed!*",
+            "📞 *Callback Request Confirmed!*",
             f"👤 *Name:* {cust_name}",
+            f"📱 *We'll call:* {phone}",
             f"⏰ *Preferred Time:* {sched_time}",
             f"🎯 *Topic:* {topic}",
-            "\nOur team has received your request and will contact you at your preferred time to share the Google Meeting details.",
+            "\nOur team has received your request and will call you back on this number.",
         ]
-        if cal_url:
-            cb_lines.append(f"\n📅 *Add to Calendar:*\n{cal_url}")
         cb_confirmation = "\n".join(cb_lines)
         if messages and any(kw in message_to_text(messages[-1]).lower() for kw in ("done", "callback", "office", "soon", "team")):
             messages[-1] = cb_confirmation

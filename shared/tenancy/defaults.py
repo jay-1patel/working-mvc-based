@@ -1714,32 +1714,82 @@ DEFAULT_FLOWS: List[Dict[str, Any]] = [
         "name": "book_callback",
         "intent": "callback_request",
         "requires_feature": "callback",
-        "description": "Collect details and schedule a callback with a Google Meeting.",
-        "start_message": "Sure — leave your details and we'll schedule a callback with a Google Meeting.Type exit to exit the flow",
-        "success_message": "Done! Your callback and Google Meeting have been scheduled.",
+        "description": (
+            "Collect a short callback request. Uses the customer's WhatsApp number "
+            "as the contact phone. Creates a Google Meet only when they clearly "
+            "ask for a video / virtual meeting."
+        ),
+        "start_message": (
+            "Sure — I'll arrange a callback on this WhatsApp number. "
+            "A couple of quick questions (type *exit* to cancel)."
+        ),
+        "success_message": "Done! Our team will call you back shortly.",
         "steps": [
-            _say("intro", "Sure — leave your details and we'll schedule a callback with a Google Meeting.Type exit to exit the flow"),
-            _ask("ask_name", "name", "May I know your name?", validate="name:2",
-                 invalid="Could you share your name (at least 2 characters)?"),
-            _ask("ask_phone", "phone", "What's the best number to reach you on?",
-                 validate="phone:10",
-                 invalid="Please enter a valid 10-digit phone number. Please try again."),
-            _ask("ask_email", "email", "What is your email address for the Google Meet calendar invite? (Or type *skip*)",
-                 validate="email", optional=True,
-                 invalid="That email doesn't look right. Please try again or type *skip*."),
-            _ask("ask_time", "preferred_time", "When would you like to meet? (e.g., Tomorrow 4 PM, or type *skip*)",
-                 validate="min_len:2", optional=True, invalid="Any time works — please share a time or type *skip*."),
-            _ask("ask_need", "need", "What is the agenda or topic you'd like to discuss?", validate="min_len:3",
-                 invalid="A few more words will help us route this correctly."),
-            {"id": "save", "type": "save_lead",
-             "collect_keys": ["name", "phone", "email", "preferred_time", "need"],
-             "lead_source": "callback", "next": "notify"},
-            {"id": "notify", "type": "notify", "channels": [],
-             "subject": "New callback request", "next": "handoff"},
-            {"id": "handoff", "type": "handoff", "handoff_reason": "callback_request",
-             "escalate": True, "store_context": True, "next": "done"},
-            {"id": "done", "type": "say",
-             "prompt": "Done! Your callback and Google Meeting have been scheduled."},
+            _say(
+                "intro",
+                "Sure — I'll arrange a callback on this WhatsApp number. "
+                "A couple of quick questions (type *exit* to cancel).",
+            ),
+            # Name is skipped when already known from the customer profile.
+            _ask(
+                "ask_name",
+                "name",
+                "May I know your name?",
+                validate="name:2",
+                invalid="Could you share your name (at least 2 characters)?",
+                prefill=True,
+            ),
+            # Phone is seeded from wa_id at flow start — never re-asked.
+            _ask(
+                "ask_phone",
+                "phone",
+                "What's the best number to reach you on?",
+                validate="phone:10",
+                invalid="Please enter a valid 10-digit phone number. Please try again.",
+                prefill=True,
+            ),
+            _ask(
+                "ask_time",
+                "preferred_time",
+                "When should we call you? (e.g., Tomorrow 4 PM, or type *skip*)",
+                validate="min_len:2",
+                optional=True,
+                invalid="Any time works — please share a time or type *skip*.",
+            ),
+            _ask(
+                "ask_need",
+                "need",
+                "What can we help you with?",
+                validate="min_len:3",
+                invalid="A few more words will help us route this correctly.",
+            ),
+            {
+                "id": "save",
+                "type": "save_lead",
+                "collect_keys": ["name", "phone", "preferred_time", "need"],
+                "lead_source": "callback",
+                "next": "notify",
+            },
+            {
+                "id": "notify",
+                "type": "notify",
+                "channels": [],
+                "subject": "New callback request",
+                "next": "handoff",
+            },
+            {
+                "id": "handoff",
+                "type": "handoff",
+                "handoff_reason": "callback_request",
+                "escalate": True,
+                "store_context": True,
+                "next": "done",
+            },
+            {
+                "id": "done",
+                "type": "say",
+                "prompt": "Done! Our team will call you back shortly.",
+            },
         ],
     },
     {

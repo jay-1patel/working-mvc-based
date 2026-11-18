@@ -85,12 +85,11 @@ class EscalateShowsHiHintTest(unittest.TestCase):
         return outcome
 
     def test_book_callback_escalates_and_shows_hi_hint(self):
+        # Phone is taken from the WhatsApp number; email/Meet are not required.
         outcome = self._finish_flow(
             "book_callback",
             [
                 "Riya Shah",
-                "9876543210",
-                "skip",
                 "Tomorrow 4 PM",
                 "Need help with onboarding",
             ],

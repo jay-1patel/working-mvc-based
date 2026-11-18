@@ -242,7 +242,7 @@
   {
     "file": "41_tenant_detail.postman_collection.json",
     "name": "Tenant detail",
-    "method": "GET",
+    "method": "POST",
     "path": "/api/admin/tenants/{{tenant_id}}/detail"
   },
   {

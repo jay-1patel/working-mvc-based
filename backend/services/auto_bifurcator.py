@@ -321,7 +321,13 @@ def _attach_pdf_images_to_offerings(
                                 upload_err,
                             )
                             continue
-                        url = tenancy_schemas.extract_first_url(uploaded_url or "")
+                        # Hosting already returns a clean absolute URL (incl. LAN IPs).
+                        # extract_first_url is only for noisy LLM/kit text.
+                        raw_uploaded = str(uploaded_url or "").strip()
+                        if raw_uploaded.startswith(("http://", "https://")):
+                            url = raw_uploaded
+                        else:
+                            url = tenancy_schemas.extract_first_url(raw_uploaded)
                         if not url:
                             raise RuntimeError(
                                 f"Extracted PDF image {filename} has no public URL "

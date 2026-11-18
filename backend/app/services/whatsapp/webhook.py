@@ -493,7 +493,14 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 from backend.services import flow_runner
                 flow_name = flow_runner.flow_for_button(wa_id, pressed_id, tenant_id=tenant_id)
                 if flow_name:
-                    outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
+                    seed = (
+                        {"_trigger_text": pressed_id or user_text}
+                        if flow_name in ("book_callback", "callback_request")
+                        else None
+                    )
+                    outcome = flow_runner.start_flow(
+                        wa_id, flow_name, tenant_id=tenant_id, seed=seed,
+                    )
                     if outcome.get("handled") and outcome.get("messages"):
                         for msg in outcome["messages"]:
                             if config.SEND2_USERNAME and config.SEND2_PASSWORD:
@@ -592,7 +599,14 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 or flow_runner.flow_for_text(wa_id, user_text, tenant_id=tenant_id)
             )
             if flow_name:
-                outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
+                seed = (
+                    {"_trigger_text": user_text or pressed_id or button_id or ""}
+                    if flow_name in ("book_callback", "callback_request")
+                    else None
+                )
+                outcome = flow_runner.start_flow(
+                    wa_id, flow_name, tenant_id=tenant_id, seed=seed,
+                )
                 if outcome.get("handled") and outcome.get("messages"):
                     for msg in outcome["messages"]:
                         if config.SEND2_USERNAME and config.SEND2_PASSWORD:

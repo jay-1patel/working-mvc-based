@@ -65,7 +65,7 @@ def run_crawl_pipeline(
     run_id: int,
     trigger: str = "manual",
     max_pages: Optional[int] = None,
-    max_depth: int = 4,
+    max_depth: Optional[int] = None,
     actor: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """Execute a full crawl run and write results to staging only."""
@@ -92,11 +92,24 @@ def run_crawl_pipeline(
 
     update_crawl_run(run_id, status="running", mark_started=True)
 
+    def persist_progress(*, pages_found, pages_scraped):
+        """Persist counts for UI polling while the crawler is still running."""
+        update_crawl_run(
+            run_id,
+            status="running",
+            pages_found=int(pages_found or 0),
+            pages_scraped=int(pages_scraped or 0),
+        )
+
     try:
         crawler = SiteCrawler(
             base_url=url,
-            max_pages=max_pages,
-            max_depth=max_depth,
+            # Manual and scheduled knowledge crawls always consume the full
+            # discovered same-domain graph. Keep legacy arguments in the
+            # function signature for compatibility, but do not truncate runs.
+            max_pages=None,
+            max_depth=None,
+            progress_callback=persist_progress,
         )
         crawl_res = crawler.crawl()
 

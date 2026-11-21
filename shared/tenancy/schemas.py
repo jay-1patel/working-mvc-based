@@ -248,6 +248,18 @@ def _require_url(value: str, field: str) -> str:
     raise ValueError(f"{field} '{v}' is not a valid website URL")
 
 
+# Brochure may also be a media-host relative path or localhost (dev / LAN).
+_UPLOAD_PATH_RE = re.compile(r"^/uploaded_files/\S+$")
+_LOCALHOST_URL_RE = re.compile(r"^(https?://)?localhost(:\d+)?(/\S*)?$", re.I)
+
+
+def _require_brochure_url(value: str, field: str) -> str:
+    v = (value or "").strip()
+    if not v or _UPLOAD_PATH_RE.fullmatch(v) or _LOCALHOST_URL_RE.fullmatch(v):
+        return value
+    return _require_url(v, field)
+
+
 def missing_contact_fields(brand) -> List[str]:
     """Required contact fields every publishable profile must carry."""
     missing: List[str] = []
@@ -588,7 +600,7 @@ class Notifications(_Base):
     @field_validator("brochure_url")
     @classmethod
     def _check_brochure_url(cls, v):
-        return _require_url(v, "notifications.brochure_url")
+        return _require_brochure_url(v, "notifications.brochure_url")
 
     def active_channels(self, kind: str | None = None) -> List[NotificationChannel]:
         out = [c for c in self.channels if c.enabled and c.to]

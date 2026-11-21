@@ -146,11 +146,23 @@ def public_row(table, row):
 
 
 
+# Indexes removed from mongo_schema.json that must be dropped on existing DBs.
+_OBSOLETE_INDEXES = {
+    # Multiple company admins may share one tenant_id.
+    'admins': ('ux_admins_one_admin_per_tenant',),
+}
+
+
 def initialize_indexes(database):
     for table, definition in REGISTRY['tables'].items():
         if table not in database.list_collection_names():
             database.create_collection(table)
         collection = database[table]
+        for obsolete in _OBSOLETE_INDEXES.get(table, ()):
+            try:
+                collection.drop_index(obsolete)
+            except Exception:
+                pass
         seen = set()
         for index in definition['indexes']:
             signature = json.dumps({'keys':index['keys'], 'options':{

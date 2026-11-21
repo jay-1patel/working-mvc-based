@@ -379,6 +379,18 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
               value={form.notifications.supportEmail}
               onChange={(e) => patch({ notifications: { ...form.notifications, supportEmail: e.target.value } })}
             />
+            <FieldInput
+              label="Brochure URL"
+              disabled={!editing}
+              value={form.notifications.brochureUrl}
+              placeholder="https://example.com/brochure.pdf"
+              onChange={(e) =>
+                patch({ notifications: { ...form.notifications, brochureUrl: e.target.value } })
+              }
+            />
+            <p className="text-xs text-txfaint">
+              Optional. Public PDF link, IP/localhost media URL, or /uploaded_files/… path. Leave blank if unused.
+            </p>
           </div>
         </Panel>
       </div>

@@ -680,13 +680,11 @@
             ]
           ],
           "options": {
-            "name": "ux_admins_one_admin_per_tenant",
-            "unique": true,
+            "name": "ix_admins_tenant_id",
             "partialFilterExpression": {
               "tenant_id": {
                 "$type": "string"
-              },
-              "role": "admin"
+              }
             }
           }
         },

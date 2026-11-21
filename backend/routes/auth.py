@@ -10,18 +10,22 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
-from core.send2_auth import admin_username_candidates, normalize_login_username
+from core.send2_auth import (
+    admin_username_candidates,
+    decode_stored_username,
+    encode_send2_username,
+    normalize_login_username,
+)
 
 from database import (
     count_admins,
-    create_admin,
+    create_admin as db_create_admin,
     delete_admin,
     get_admin_by_username,
     get_db_context,
     record_admin_audit_event,
     list_admin_records,
     count_admins_by_role,
-    count_tenant_admins,
     update_admin as db_update_admin,
     update_admin_email,
     update_admin_record,
@@ -207,6 +211,7 @@ READ_ONLY_POST_PATHS = frozenset({
     "/api/admin/dashboard/overview",
     "/api/admin/errors",
     "/api/admin/tenants/conversations/detail",
+    "/api/admin/tenants/chat/thread",
     "/api/admin/tenants/chat-history",
     "/api/admin/tenants/inbox",
     "/api/admin/tenants/agents",
@@ -227,6 +232,7 @@ READ_ONLY_POST_PATHS = frozenset({
 
 BODY_TENANT_POST_PATHS = frozenset({
     "/api/admin/tenants/conversations/detail",
+    "/api/admin/tenants/chat/thread",
     "/api/admin/tenants/chat-history",
     "/api/admin/tenants/inbox",
     "/api/admin/tenants/inbox/handover",
@@ -357,20 +363,18 @@ def ensure_super_admin_view_only(admin: dict | None, method: str, path: str) -> 
 def _public_username(username: str | None) -> str:
     """Return the plain username clients send/receive (login-page form).
 
-    DB rows may still store the Send2 Base64 form; API responses and session
-    identity always use the decoded plain name.
+    DB rows store the Send2 Base64 form; API responses and session identity
+    always use the decoded plain name. Does not accept Base64 as a login input
+    path — use ``normalize_login_username`` for that.
     """
-    try:
-        return normalize_login_username(username or "")
-    except ValueError:
-        return str(username or "").strip()
+    return decode_stored_username(username)
 
 
 def _resolve_admin_row(username: str) -> dict | None:
-    """Find an admin by plain or Base64 Send2 username.
+    """Find an admin: plain input → Base64 → match ``admins.username``.
 
-    Callers send the simple plain name (e.g. ``test_support_``). We Base64-encode
-    it and also try the plain form so both Send2-synced and local rows match.
+    Callers must send the plain name (e.g. ``test_support_``). Base64 login
+    input is rejected. Lookup uses the encoded form only.
     """
     try:
         candidates = admin_username_candidates(username)
@@ -393,8 +397,8 @@ def _stored_username(row: dict | None, fallback: str = "") -> str:
 def _admin_from_pair(username: str, session_id: str, request: Request | None = None) -> dict:
     """Authenticate one live username/session-id pair from the database.
 
-    Accepts the same plain username format as ``/api/auth/login``: encode for
-    DB lookup, then expose the plain name on the returned principal.
+    Plain username only (same as ``/api/auth/login``): encode for DB lookup,
+    then expose the plain name on the returned principal. Base64 input fails.
     """
     row = _resolve_admin_row(username)
     stored = str(row["session_id"] or "") if row else ""
@@ -407,8 +411,7 @@ def _admin_from_pair(username: str, session_id: str, request: Request | None = N
         )
     result = dict(row)
     result.pop("session_id", None)
-    # Prefer the plain decoded username for session identity when the DB
-    # row still stores the Send2 Base64 form.
+    # DB stores Send2 Base64; session identity is always the plain name.
     result["username"] = _public_username(result.get("username") or username)
     result["role"] = result.get("role") or "sub_admin"
     result["permissions"] = _effective_permissions(result.get("role"), result.get("permissions"))
@@ -429,8 +432,8 @@ def authenticate_basic_header(request: Request) -> dict:
       1. Headers ``username`` + ``session_id``
       2. JSON/form body fields ``username`` + ``session_id`` (set by middleware)
 
-    ``username`` may be the plain Send2/local name (preferred) or legacy Base64;
-    lookup matches login (encode + check DB).
+    ``username`` must be the plain Send2/local name; lookup encodes it and
+    matches Base64 ``admins.username`` (same rule as login).
     """
     cached = getattr(request.state, "current_admin", None)
     if cached:
@@ -637,7 +640,7 @@ def require_tenant_access():
         # Enforce tenant scoping for non-super-admins
         role = admin.get("role")
         if role != "super_admin":
-            admin_tenant = admin.get("tenant_id")
+            admin_tenant = str(admin.get("tenant_id") or "").strip()
             if admin_tenant and admin_tenant != target:
                 raise HTTPException(
                     status_code=403, detail=f"Admin is scoped to tenant '{admin_tenant}'"
@@ -678,15 +681,17 @@ def authorize_tenant_access(
 # ---------- request schemas ----------
 
 class LoginRequest(BaseModel):
-    # Plain Send2 / local username (e.g. ``test_support_``). Backend encodes
-    # and matches against ``admins.username`` (plain or Base64) + session_id.
+    # Plain Send2 / local username only (e.g. ``test_support_``). Backend
+    # Base64-encodes it and matches ``admins.username`` (Base64) + session_id.
+    # Base64 input is rejected.
     username: str
     session_id: str
 
 
 class CreateAdminRequest(BaseModel):
     username: str
-    role: str = "sub_admin"
+    # Omitted → forced by creator role (super_admin→admin, admin→sub_admin).
+    role: Optional[str] = None
     permissions: Optional[dict] = None
     email: Optional[str] = None
     tenant_id: Optional[str] = None
@@ -713,15 +718,15 @@ def auth_status():
 async def admin_login(request: Request, body: LoginRequest):
     """Authenticate a plain username plus its live session ID.
 
-    Callers pass the decoded Send2 name (``test_support_``). The backend
-    Base64-encodes it and matches ``admins.username`` (encoded or plain)
-    together with ``session_id``.
+    Callers must pass the decoded Send2 name (``test_support_``). The backend
+    Base64-encodes it and matches ``admins.username`` (Base64 only) together
+    with ``session_id``. Pasting an already-encoded username fails.
     """
     try:
         username = normalize_login_username(body.username)
     except ValueError:
-        # Keep malformed input indistinguishable from an unknown account while
-        # still recording the failed attempt through the normal audit path.
+        # Keep Base64 / malformed input indistinguishable from an unknown
+        # account while still recording the failed attempt via audit.
         username = ""
     supplied_session = str(body.session_id or "").strip()
     admin = _resolve_admin_row(username) if username else None
@@ -795,25 +800,37 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
             detail="No admins exist yet. Use /api/auth/first-admin first.",
         )
 
-    # Normalize role
-    role = body.role or "sub_admin"
-    if role not in ("super_admin", "admin", "sub_admin"):
-        # Try to normalize
-        if role == "subadmin" or role == "sub-admin":
-            role = "sub_admin"
-        elif role == "superadmin" or role == "super-admin":
-            role = "super_admin"
-        else:
-            role = "sub_admin"
+    # Normalize an explicit role; omitted role is filled from the creator hierarchy.
+    role = (body.role or "").strip()
+    if role in ("subadmin", "sub-admin"):
+        role = "sub_admin"
+    elif role in ("superadmin", "super-admin"):
+        role = "super_admin"
 
     current_role = current_admin.get("role")
-    if role == "super_admin":
-        raise HTTPException(status_code=403, detail="There can be only one super admin")
-    if role == "admin" and current_role != "super_admin":
-        raise HTTPException(status_code=403, detail="Only a super admin can create a company admin")
-    # Hierarchy: superadmin creates company admins; only those admins create sub-admins.
-    if role == "sub_admin" and current_role != "admin":
-        raise HTTPException(status_code=403, detail="Only a company admin can create a sub admin")
+    # Hierarchy: superadmin creates company admins only; company admins create
+    # sub-admins only. Multiple company admins may share the same tenant_id.
+    if current_role == "super_admin":
+        if role == "sub_admin":
+            raise HTTPException(
+                status_code=403,
+                detail="A super admin can create company admins only",
+            )
+        if role == "super_admin":
+            raise HTTPException(status_code=403, detail="There can be only one super admin")
+        role = "admin"
+    elif current_role == "admin":
+        if role in ("admin", "super_admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="A company admin can create sub-admins only",
+            )
+        role = "sub_admin"
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Only a super admin or company admin can create accounts",
+        )
 
     # A new admin starts with every permission on (default_all=True); the
     # super admin can then edit the switches. Sub admins start with none.
@@ -833,15 +850,18 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
         # Only a super admin chooses the tenant; every other creator is
         # strictly scoped to their own tenant.
         tenant_id = current_admin.get("tenant_id")
-    # If super_admin creating super_admin, tenant_id is None
 
-    if role == "admin" and tenant_id and count_tenant_admins(tenant_id):
-        raise HTTPException(status_code=409, detail="This company already has an admin")
+    try:
+        plain_username = normalize_login_username(body.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc) or "Invalid username") from exc
 
     try:
         session_id = secrets.token_urlsafe(32)
-        admin_id = create_admin(
-            body.username,
+        # Store the Send2 Base64 form so login (plain → encode → lookup) matches.
+        stored_username = encode_send2_username(plain_username)
+        admin_id = db_create_admin(
+            stored_username,
             role=role,
             permissions=permissions,
             tenant_id=tenant_id,
@@ -853,12 +873,12 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
             actor=current_admin,
             resource_type="admin",
             resource_id=admin_id,
-            target_username=body.username,
+            target_username=plain_username,
             tenant_id=tenant_id,
             details={
                 "role": role,
                 "created_admin": {
-                    "username": body.username,
+                    "username": plain_username,
                     "role": role,
                     "permissions": permissions,
                     "email": email,
@@ -874,8 +894,8 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
     except Exception:
         raise HTTPException(status_code=409, detail="Username already taken")
 
-    logger.info(f"Admin created by {current_admin['username']}: {body.username} ({role})")
-    return {"status": "ok", "username": body.username, "session_id": session_id,
+    logger.info(f"Admin created by {current_admin['username']}: {plain_username} ({role})")
+    return {"status": "ok", "username": plain_username, "session_id": session_id,
             "role": role, "permissions": permissions, "email": email,
             "tenant_id": tenant_id, "created_by": current_admin["username"]}
 
@@ -1022,8 +1042,6 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     tenant_id = body.tenant_id if current_admin.get("role") == "super_admin" else None
 
     after_tenant = tenant_id if tenant_id is not None else target.get("tenant_id")
-    if new_role == "admin" and after_tenant and count_tenant_admins(after_tenant, exclude_username=stored_username):
-        raise HTTPException(status_code=409, detail="This company already has an admin")
 
     before = {
         "role": target.get("role"),
@@ -1159,11 +1177,17 @@ def _onboarding_approved(admin: dict) -> bool:
     """
     if admin.get("role") != "admin":
         return True
-    try:
-        names = admin_username_candidates(admin.get("username") or "")
-    except ValueError:
-        names = [str(admin.get("username") or "").strip()]
-        names = [n for n in names if n]
+    # Session principal is plain; requests may have been stored plain or Base64.
+    plain = _public_username(admin.get("username"))
+    names: list[str] = []
+    if plain:
+        names.append(plain)
+        try:
+            encoded = encode_send2_username(plain)
+            if encoded not in names:
+                names.append(encoded)
+        except ValueError:
+            pass
     if not names:
         return False
     if use_mongodb():

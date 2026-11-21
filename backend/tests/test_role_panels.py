@@ -366,6 +366,5 @@ class RolePanelTests(unittest.TestCase):
         self.assertEqual(edit.status_code, 403, edit.text)
         self.assertIn("view-only", edit.json()["detail"])
 
-
 if __name__ == "__main__":
     unittest.main()

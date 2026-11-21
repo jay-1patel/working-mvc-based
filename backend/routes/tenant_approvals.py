@@ -719,10 +719,9 @@ def _apply_request(row: dict) -> int:
 
 def _scope_requester_to_tenant(row: dict) -> None:
     """Approving a company's registration claims it for the admin who
-    submitted it: an unscoped admin becomes that tenant's admin, so the
-    console unlocks for them once the tenant is live. One admin per
-    company is respected."""
-    from database import get_admin_record, count_tenant_admins
+    submitted it: an unscoped admin becomes a tenant admin for that company.
+    Multiple company admins may share the same tenant_id."""
+    from database import get_admin_record
     username = str(row.get("requester_username") or "").strip()
     tenant_id = str(row.get("tenant_id") or "").strip()
     if not username or not tenant_id:
@@ -732,7 +731,6 @@ def _scope_requester_to_tenant(row: dict) -> None:
         not requester
         or requester.get("role") != "admin"
         or str(requester.get("tenant_id") or "").strip()
-        or count_tenant_admins(tenant_id)
     ):
         return
     update_admin_record(username, tenant_id=tenant_id)

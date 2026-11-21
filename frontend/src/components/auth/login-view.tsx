@@ -57,7 +57,7 @@ export function LoginView() {
             autoComplete="username"
             autoFocus
             required
-            hint={needsSetup ? undefined : 'Plain username, e.g. test_support_ (backend encodes it).'}
+            hint={needsSetup ? undefined : 'Plain username only, e.g. test_support_ (Base64 login is rejected).'}
           />
           {needsSetup ? (
             <FieldInput

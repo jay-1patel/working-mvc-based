@@ -323,6 +323,14 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         sm.set_tenant(wa_id, tenant_id)
     except Exception as exc:
         logger.debug(f"Could not stamp tenant {tenant_id} on {wa_id}: {exc}")
+    # Live Chats inbox hides rows with handover_resolved_at. Reopen here so
+    # greeting / intent / flow paths (which never hit the B2B orchestrator)
+    # still put the conversation back in the queue after a resolve.
+    try:
+        from database import reopen_conversation_on_inbound
+        reopen_conversation_on_inbound(wa_id, tenant_id)
+    except Exception as exc:
+        logger.warning("Could not reopen conversation for %s: %s", wa_id, exc)
     # Customer directory: everyone who messages gets a record — the first
     # message creates it, every later message refreshes it (never duplicates).
     try:

@@ -132,10 +132,14 @@ def conversation_detail(tenant_id: str, wa_id: str, limit: int = 300) -> dict:
         from .mongo import Repository
 
         legacy_wa = _state_wa_ids_mongo(tenant_id)
+        # find() defaults to limit=100 which silently truncates long threads and
+        # can drop the latest messages the Chats panel needs. Use find_all.
         rows = [
-            r for r in Repository("chat_history").find({"wa_id": wa_id}, sort=[("created_at", 1), ("id", 1)])
+            r for r in Repository("chat_history").find_all(
+                {"wa_id": wa_id}, sort=[("created_at", 1), ("id", 1)]
+            )
             if _chat_belongs_tenant(r, tenant_id, legacy_wa)
-        ][-limit:]
+        ][-max(1, int(limit or 300)):]
         owns = bool(rows)
         if not owns:
             return {"owned": False, "messages": []}

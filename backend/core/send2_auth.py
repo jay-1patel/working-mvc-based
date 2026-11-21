@@ -33,15 +33,37 @@ def decode_send2_username(encoded_username: str) -> str:
     return decoded
 
 
-def normalize_login_username(username: str) -> str:
-    """Accept a plain username, or legacy Base64, and return the plain form.
+def is_encoded_send2_username(username: str) -> bool:
+    """True when ``username`` is already the canonical Send2 Base64 form."""
+    try:
+        decode_send2_username(username)
+        return True
+    except ValueError:
+        return False
 
-    Login callers should send decoded names like ``test_support_``. If an
-    already-encoded Send2 value is supplied, decode it once for lookup.
+
+def normalize_login_username(username: str) -> str:
+    """Require a plain username for login / session auth.
+
+    Callers must send decoded names like ``test_support_``. Already-encoded
+    Send2 Base64 values are rejected so credentials cannot be pasted as Base64.
     """
     value = str(username or "").strip()
     if not value:
         raise ValueError("username is required")
+    if is_encoded_send2_username(value):
+        raise ValueError("username must be plain text, not Base64")
+    return value
+
+
+def decode_stored_username(username: str | None) -> str:
+    """Decode a DB ``admins.username`` value to the plain form for API/UI.
+
+    Stored rows are usually Base64; plain local rows pass through unchanged.
+    """
+    value = str(username or "").strip()
+    if not value:
+        return ""
     try:
         return decode_send2_username(value)
     except ValueError:
@@ -49,15 +71,10 @@ def normalize_login_username(username: str) -> str:
 
 
 def admin_username_candidates(username: str) -> list[str]:
-    """Ordered username keys to try against ``admins.username``.
+    """DB lookup keys for ``admins.username`` (Base64 only).
 
-    Send2 rows are often stored Base64-encoded; local admins keep the plain
-    name. Try encoded first, then plain, without duplicates.
+    Plain login input is encoded once; encoded login input is rejected by
+    ``normalize_login_username``.
     """
     plain = normalize_login_username(username)
-    encoded = encode_send2_username(plain)
-    out: list[str] = []
-    for candidate in (encoded, plain):
-        if candidate and candidate not in out:
-            out.append(candidate)
-    return out
+    return [encode_send2_username(plain)]

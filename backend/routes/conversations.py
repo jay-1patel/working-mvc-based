@@ -5,7 +5,7 @@ and global. This router is the tenant-owned path the console uses, so a tenant
 console sees only its own customers:
 
     GET    /api/admin/tenants/{tenant_id}/conversations
-    GET    /api/admin/tenants/{tenant_id}/conversations/{wa_id}
+    POST   /api/admin/tenants/{tenant_id}/conversations/{wa_id}
     GET    /api/admin/tenants/{tenant_id}/chat-history
     GET    /api/admin/tenants/{tenant_id}/inbox
     PUT    /api/admin/tenants/{tenant_id}/inbox/handover/{wa_id}
@@ -64,6 +64,11 @@ ALLOWED_PRIORITIES = {"low", "normal", "high", "urgent"}
 
 class ConversationDetailRequest(BaseModel):
     wa_id: str
+    limit: int = 300
+
+
+class ConversationThreadRequest(BaseModel):
+    """Body for tenant-scoped thread POST (wa_id is in the path)."""
     limit: int = 300
 
 
@@ -182,6 +187,26 @@ _TENANT_SCOPE = _tenant_scope("ch")
 
 # ── conversation threads ──────────────────────────────────────────────────
 
+def _format_thread_messages(rows: list) -> list:
+    messages = []
+    for item in rows:
+        raw = item.get("message") or ""
+        item["user_message"] = (
+            raw.split("] ", 1)[1] if raw.startswith("[") and "] " in raw else raw
+        )
+        messages.append(item)
+    return messages
+
+
+def _conversation_thread_payload(tenant_id: str, wa_id: str, limit: int) -> dict:
+    if limit > 1000:
+        raise HTTPException(status_code=422, detail="limit must be less than or equal to 1000")
+    detail = conversation_detail(tenant_id, wa_id, limit=limit)
+    if not detail.get("owned"):
+        raise HTTPException(status_code=404, detail="This conversation does not belong to this tenant")
+    return {"wa_id": wa_id, "messages": _format_thread_messages(detail["messages"])}
+
+
 @router.get("/conversations")
 def list_conversations(
     tenant_id: str,
@@ -207,25 +232,35 @@ def list_conversations(
     return {"conversations": conversations, "count": len(conversations)}
 
 
-@flat_router.post("/conversations/detail")
+@router.post("/conversations/{wa_id}")
+def get_conversation_for_tenant(
+    tenant_id: str,
+    wa_id: str,
+    body: Optional[ConversationThreadRequest] = None,
+    principal: dict = Depends(_require("view_inbox")),
+):
+    """Thread for the Chats panel — scoped by path tenant_id (POST)."""
+    limit = body.limit if body is not None else 300
+    return _conversation_thread_payload(tenant_id, wa_id, limit)
+
+
+@flat_router.post("/chat/thread")
+@flat_router.post("/conversations/detail")  # alias; prefer /chat/thread (no path-route collision)
 def get_conversation(
     body: ConversationDetailRequest,
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     wa_id, limit = body.wa_id, body.limit
-    principal, tenant_id = _flat_principal(request, credentials, "chat_history")
-    if limit > 1000:
-        raise HTTPException(status_code=422, detail="limit must be less than or equal to 1000")
-    detail = conversation_detail(tenant_id, wa_id, limit=limit)
-    if not detail.get("owned"):
-        raise HTTPException(status_code=404, detail="This conversation does not belong to this tenant")
-    messages = []
-    for item in detail["messages"]:
-        raw = item.get("message") or ""
-        item["user_message"] = raw.split("] ", 1)[1] if raw.startswith("[") and "] " in raw else raw
-        messages.append(item)
-    return {"wa_id": wa_id, "messages": messages}
+    # Chats uses view_inbox; Past chats uses chat_history. Accept either so the
+    # live thread does not 403 into an empty "No messages" state.
+    try:
+        principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    except HTTPException as inbox_exc:
+        if inbox_exc.status_code != 403:
+            raise
+        principal, tenant_id = _flat_principal(request, credentials, "chat_history")
+    return _conversation_thread_payload(tenant_id, wa_id, limit)
 
 
 @flat_router.post("/chat-history")

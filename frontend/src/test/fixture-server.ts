@@ -112,7 +112,10 @@ function routeDefault(
     return json({ ok: true, tenant: { ...fixtures.tenant, ...body } })
   if (method === 'POST') {
     if (path === '/api/admin/tenants/resolved') return json(fixtures.resolved)
-    if (path === '/api/admin/tenants/conversations/detail') return json({ wa_id: body?.wa_id, messages: fixtures.turns })
+    if (path === '/api/admin/tenants/chat/thread' || path === '/api/admin/tenants/conversations/detail')
+      return json({ wa_id: body?.wa_id, messages: fixtures.turns })
+    const threadMatch = path.match(/^\/api\/admin\/tenants\/([^/]+)\/conversations\/([^/?]+)/)
+    if (threadMatch) return json({ wa_id: decodeURIComponent(threadMatch[2]), messages: fixtures.turns })
     if (path === '/api/admin/tenants/chat-history') return json({ history: fixtures.turns })
     if (path === '/api/admin/tenants/inbox') return json({ queue: fixtures.inbox, count: fixtures.inbox.length, handoff_count: 1 })
     if (path === '/api/admin/tenants/agents') return json({ agents: fixtures.agents })

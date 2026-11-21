@@ -1,4 +1,4 @@
-"""Plain usernames must authenticate like login against Base64 Send2 DB rows."""
+"""Plain usernames must authenticate against Base64 Send2 DB rows only."""
 
 import unittest
 from unittest.mock import patch
@@ -31,7 +31,7 @@ class PlainUsernameSessionAuthTests(unittest.TestCase):
         self.assertEqual(admin["tenant_id"], "c")
         self.assertEqual(admin["role"], "admin")
 
-    def test_admin_from_pair_accepts_legacy_encoded_username(self):
+    def test_admin_from_pair_rejects_encoded_username(self):
         plain = "campaign"
         encoded = encode_send2_username(plain)
         session_id = "sess-1"
@@ -47,9 +47,9 @@ class PlainUsernameSessionAuthTests(unittest.TestCase):
                 "tenant_id": "acme",
             },
         ):
-            admin = auth_routes._admin_from_pair(encoded, session_id)
-
-        self.assertEqual(admin["username"], plain)
+            with self.assertRaises(auth_routes.HTTPException) as ctx:
+                auth_routes._admin_from_pair(encoded, session_id)
+        self.assertEqual(ctx.exception.status_code, 401)
 
     def test_admin_target_resolves_plain_path_username(self):
         plain = "cars"

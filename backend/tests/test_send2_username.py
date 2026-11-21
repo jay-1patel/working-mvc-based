@@ -5,6 +5,7 @@ from core.send2_auth import (
     admin_username_candidates,
     decode_send2_username,
     encode_send2_username,
+    is_encoded_send2_username,
     normalize_login_username,
 )
 
@@ -17,15 +18,22 @@ class Send2UsernameTests(unittest.TestCase):
         self.assertEqual(encode_send2_username("test_support_"), "dGVzdF9zdXBwb3J0Xw==")
         self.assertEqual(encode_send2_username("campaign"), "Y2FtcGFpZ24=")
 
-    def test_normalize_accepts_plain_or_encoded(self):
+    def test_normalize_accepts_plain_only(self):
         self.assertEqual(normalize_login_username("test_support_"), "test_support_")
-        self.assertEqual(normalize_login_username("dGVzdF9zdXBwb3J0Xw=="), "test_support_")
+        with self.assertRaises(ValueError):
+            normalize_login_username("dGVzdF9zdXBwb3J0Xw==")
 
-    def test_candidates_prefer_encoded_then_plain(self):
+    def test_is_encoded_detects_canonical_base64(self):
+        self.assertTrue(is_encoded_send2_username("dGVzdF9zdXBwb3J0Xw=="))
+        self.assertFalse(is_encoded_send2_username("test_support_"))
+
+    def test_candidates_encoded_only(self):
         self.assertEqual(
             admin_username_candidates("test_support_"),
-            ["dGVzdF9zdXBwb3J0Xw==", "test_support_"],
+            ["dGVzdF9zdXBwb3J0Xw=="],
         )
+        with self.assertRaises(ValueError):
+            admin_username_candidates("dGVzdF9zdXBwb3J0Xw==")
 
     def test_accepts_surrounding_transport_whitespace(self):
         self.assertEqual(decode_send2_username("  Y2FtcGFpZ24=  "), "campaign")

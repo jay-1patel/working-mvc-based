@@ -41,9 +41,12 @@ export const conversationsApi = {
       )
       .then((r) => r.conversations),
 
+  // Chats / Live inbox — flat session APIs (not path-tenant URLs).
+  // Use /chat/thread — /conversations/detail collides with
+  // POST /tenants/{tenant_id}/conversations/{wa_id} when ordered wrong.
   thread: (tenantId: string, waId: string, limit = 300, signal?: AbortSignal) =>
     api.post<{ wa_id: string; messages: ChatTurn[] }>(
-      '/api/admin/tenants/conversations/detail',
+      '/api/admin/tenants/chat/thread',
       { wa_id: waId, limit },
       { signal },
     ),

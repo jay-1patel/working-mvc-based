@@ -9,6 +9,7 @@ from routes.auth import BODY_TENANT_POST_PATHS, READ_ONLY_POST_PATHS, is_tenant_
 
 EXPECTED = {
     "/api/admin/tenants/conversations/detail",
+    "/api/admin/tenants/chat/thread",
     "/api/admin/tenants/chat-history",
     "/api/admin/tenants/inbox",
     "/api/admin/tenants/inbox/handover",

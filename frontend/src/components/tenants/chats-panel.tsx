@@ -324,6 +324,11 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
               </div>
 
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+                {thread.error && (
+                  <div className="mb-2">
+                    <ErrorBanner message={thread.error} />
+                  </div>
+                )}
                 {thread.loading ? (
                   <LoadingBlock label="Loading messages…" />
                 ) : (thread.data?.messages ?? []).length === 0 && failedHere.length === 0 ? (

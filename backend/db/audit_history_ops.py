@@ -189,13 +189,13 @@ def list_admin_audit_events(
 
 
 def admin_audit_statistics(**kwargs) -> dict:
+    category_map = kwargs.pop("category_map", None) or {}
     result = list_admin_audit_events(limit=100000, offset=0, **kwargs)
     events = result["events"]
     by_outcome = {"success": 0, "failure": 0}
     by_action: dict[str, int] = {}
     by_date: dict[str, int] = {}
     by_actor: dict[str, int] = {}
-    category_map = kwargs.get("category_map") or {}
     by_category: dict = {}
     for event in events:
         outcome = event.get("outcome")

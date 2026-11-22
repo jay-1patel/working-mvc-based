@@ -33,6 +33,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import database
+from core.send2_auth import encode_send2_username
 from services.site_crawler import (
     canonicalize_url,
     parse_sitemap_xml,
@@ -61,6 +62,15 @@ def _png_bytes(w: int, h: int, color=(40, 120, 200), noisy: bool = False) -> byt
     img.save(buf, format="PNG")
     return buf.getvalue()
 
+
+ARTICLE = (
+    "The blue widget is our most popular workshop tool. It is machined "
+    "from a single block of anodised aluminium and finished by hand. "
+    "Every widget passes a twelve point quality inspection before it "
+    "leaves the factory floor and ships to customers worldwide. "
+    "Workshops keep a spare on the bench because the handle stays cool "
+    "during long cuts and the blade holds an edge through a full shift."
+)
 
 PIXEL_PNG = _png_bytes(1, 1, (0, 0, 0))  # <2KB and <24px → skipped
 LOGO_PNG = _png_bytes(96, 96, (200, 40, 40), noisy=True)  # >2KB
@@ -450,6 +460,18 @@ class CrawlApiAndE2ETests(unittest.TestCase):
         tenancy_store.ensure_tenant(
             "crawl-b", slug="crawl-b", vertical="ecommerce", display_name="Crawl B"
         )
+        self.crawl_session = "crawl-a-session"
+        database.create_admin(
+            encode_send2_username("crawl-admin"),
+            role="admin",
+            permissions={"manage_operations": True},
+            tenant_id="crawl-a",
+            session_id=self.crawl_session,
+        )
+        self.crawl_headers = {
+            "username": "crawl-admin",
+            "session_id": self.crawl_session,
+        }
 
         from routes import crawl as crawl_routes
 
@@ -664,7 +686,11 @@ class CrawlApiAndE2ETests(unittest.TestCase):
         self.assertEqual(body["run"]["pages_found"], 6)
         self.assertEqual(body["staged_status"], "staged")
 
-        r2 = self.client.get(f"/api/admin/tenants/crawl-a/crawl-runs/{run['id']}/staged")
+        r2 = self.client.post(
+            "/api/admin/tenants/crawl-runs/staged",
+            json={"run_id": run["id"]},
+            headers=self.crawl_headers,
+        )
         self.assertEqual(r2.status_code, 200, r2.text)
         self.assertGreaterEqual(r2.json()["summary"]["offerings_count"], 1)
 
@@ -674,8 +700,9 @@ class CrawlApiAndE2ETests(unittest.TestCase):
 
         # POST crawl returns 202 with run id
         r4 = self.client.post(
-            "/api/admin/tenants/crawl-a/crawl",
+            "/api/admin/tenants/crawl",
             json={"url": self.base, "max_pages": 5},
+            headers=self.crawl_headers,
         )
         # May 202 or 409 if previous left a queued/running — finish any running first
         if r4.status_code == 409:
@@ -683,8 +710,9 @@ class CrawlApiAndE2ETests(unittest.TestCase):
             if running:
                 database.update_crawl_run(running["id"], status="done", mark_finished=True)
             r4 = self.client.post(
-                "/api/admin/tenants/crawl-a/crawl",
+                "/api/admin/tenants/crawl",
                 json={"url": self.base, "max_pages": 5},
+                headers=self.crawl_headers,
             )
         self.assertEqual(r4.status_code, 202, r4.text)
         self.assertIn("run_id", r4.json())
@@ -692,8 +720,9 @@ class CrawlApiAndE2ETests(unittest.TestCase):
         # 409 when already running
         database.update_crawl_run(r4.json()["run_id"], status="running", mark_started=True)
         r5 = self.client.post(
-            "/api/admin/tenants/crawl-a/crawl",
+            "/api/admin/tenants/crawl",
             json={"url": self.base},
+            headers=self.crawl_headers,
         )
         self.assertEqual(r5.status_code, 409)
 

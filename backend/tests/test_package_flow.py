@@ -314,24 +314,21 @@ class PackageBrowsingTests(unittest.TestCase):
         final = flow_runner.handle_reply(WA, "9876543210", tenant_id=TENANT)
         self.assertTrue(final.get("finished"))
 
-        with database.get_db_context() as conn:
-            lead = conn.execute(
-                "SELECT * FROM leads WHERE wa_id = ?", (WA,)
-            ).fetchone()
-            handoff = conn.execute(
-                "SELECT * FROM handoffs WHERE wa_id = ?", (WA,)
-            ).fetchone()
+        from db.mongo import Repository
+
+        lead = Repository("leads").find_one({"wa_id": WA})
+        handoff = Repository("handoffs").find_one({"wa_id": WA})
         self.assertIsNotNone(lead, "the booking must create a lead")
         self.assertEqual(lead["tenant_id"], TENANT)
-        self.assertEqual(lead["name"] if "name" in lead.keys() else lead["user_name"], "Aarav Sharma")
+        self.assertEqual(lead.get("user_name") or lead.get("name"), "Aarav Sharma")
         self.assertEqual(lead["phone"], "9876543210")
         self.assertEqual(lead["source"], "package_booking")
         self.assertEqual(lead["flow"], "book_package")
-        collected = json.loads(lead["collected"])
+        collected = lead.get("collected") or {}
+        if isinstance(collected, str):
+            collected = json.loads(collected)
         self.assertEqual(collected.get("package"), SHORT_NAME)
-        # service_required is a legacy column: it is only written when the
-        # deployment has it, so the durable record of the package is `collected`.
-        if "service_required" in lead.keys():
+        if lead.get("service_required"):
             self.assertEqual(lead["service_required"], SHORT_NAME)
 
         self.assertIsNotNone(handoff, "the booking must create a handoff")

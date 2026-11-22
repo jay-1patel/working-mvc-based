@@ -671,7 +671,7 @@ def approve_crawl_run(
             tenant_id=tenant_id,
             details={
                 "offerings_created": summary.get("offerings_created"),
-                "faqs_created": faqs_created,
+                "faqs_created": summary.get("faqs_created"),
                 "kb_chunks_published": len(chunk_articles),
                 "images_promoted": len(url_map),
                 "skipped_fields": skipped_fields,

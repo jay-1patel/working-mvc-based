@@ -1,4 +1,6 @@
 import json
+import hashlib
+import hmac
 import logging
 import os
 import time
@@ -304,9 +306,7 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
     # Active Test Tenant from the admin console wins for single-number testing.
     try:
         from shared.tenancy.resolver import resolve_effective_tenant_id
-        tenant_id = resolve_effective_tenant_id(
-            wa_id, tenant_id, allow_test_override=True
-        )
+        tenant_id = resolve_effective_tenant_id(wa_id, tenant_id, allow_test_override=True)
     except Exception as exc:
         logger.error("Could not resolve active tenant for %s; dropping message: %s", wa_id, exc)
         return
@@ -329,6 +329,8 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
     try:
         from database import reopen_conversation_on_inbound
         reopen_conversation_on_inbound(wa_id, tenant_id)
+        from services.inbox_events import publish_inbox_event
+        publish_inbox_event(tenant_id, wa_id, "inbound")
     except Exception as exc:
         logger.warning("Could not reopen conversation for %s: %s", wa_id, exc)
     # Customer directory: everyone who messages gets a record — the first
@@ -779,6 +781,15 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         logger.error(f"Webhook processing error: {e}", exc_info=True)
         response_time_ms = int((time.time() - start_time) * 1000)
         log_webhook("incoming", "/webhook", json.dumps({"message_id": msg_id, "error": str(e)}), 500, f"Error: {e}", response_time_ms=response_time_ms, wa_id=wa_id, tenant_id=tenant_id, message_id=msg_id)
+    finally:
+        # A second notification is emitted after bot/flow processing has
+        # completed, so the selected transcript also refreshes after the
+        # outbound response is persisted.
+        try:
+            from services.inbox_events import publish_inbox_event
+            publish_inbox_event(tenant_id, wa_id, "inbound_processed")
+        except Exception as exc:
+            logger.debug("Could not publish processed inbox event for %s: %s", wa_id, exc)
 
 
 @router.get("")
@@ -806,8 +817,19 @@ async def verify_webhook(
 async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
     raw_payload = body.decode("utf-8", errors="replace")
-    logger.info(f"Incoming webhook payload ({len(raw_payload)} bytes)")
-    log_webhook("incoming", "/webhook", raw_payload[:5000], None, "Raw payload")
+    app_secret = os.getenv("META_APP_SECRET") or os.getenv("WHATSAPP_APP_SECRET")
+    signature = request.headers.get("x-hub-signature-256", "")
+    if app_secret:
+        expected = "sha256=" + hmac.new(app_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        if not signature or not hmac.compare_digest(expected, signature):
+            logger.warning("Rejected WhatsApp webhook with invalid signature")
+            raise HTTPException(status_code=403, detail="Invalid webhook signature")
+    elif os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower() in {"prod", "production"}:
+        logger.error("META_APP_SECRET is required in production")
+        raise HTTPException(status_code=503, detail="Webhook signature verification is not configured")
+    else:
+        logger.warning("META_APP_SECRET is not configured; webhook signature verification is disabled")
+    logger.info("Incoming webhook payload (%s bytes)", len(raw_payload))
 
     try:
         payload = json.loads(body)

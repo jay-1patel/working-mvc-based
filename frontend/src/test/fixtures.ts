@@ -251,6 +251,7 @@ export const inbox: InboxItem[] = [
     bot_state: null,
     handover_mode: 'human',
     assigned_agent_id: null,
+    resolved: false,
   },
 ]
 

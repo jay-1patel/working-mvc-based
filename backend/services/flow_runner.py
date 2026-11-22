@@ -24,7 +24,7 @@ import logging
 import re
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # shared.tenancy lives at the repo root, not next to this file.
@@ -357,17 +357,24 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
         if t_id:
             collected["ticket_id"] = t_id
 
-    # Callback: phone by default; Google Meet only when the customer asks for video.
+    # Callback channel is tenant-authorized first; customer text is only an
+    # input to the deterministic policy resolver and cannot bypass permissions.
     if flow_name in ("book_callback", "callback_request") or (lead_source or "").lower() in ("callback", "appointment"):
         try:
             from services.callback_service import callback_service
+            from services.callback_policy import choose_callback_mode
+            if getattr(profile.callback_policy, "require_consent", True) and collected.get("consent") != "yes":
+                logger.info("CALLBACK_NOT_CREATED | tenant=%s | reason=consent_not_granted", tenant_id)
+                return lead_id
             purpose = str(data.get("need") or data.get("purpose") or "Callback")
-            include_meet = wants_video_meeting(
-                purpose,
-                data.get("preferred_time"),
-                collected.get("_trigger_text"),
-                collected.get("want_video"),
+            decision = choose_callback_mode(
+                tenant_id,
+                " ".join((purpose, str(data.get("preferred_time") or ""), str(collected.get("_trigger_text") or ""))),
             )
+            if decision.mode == "off":
+                logger.info("CALLBACK_NOT_CREATED | tenant=%s | reason=%s", tenant_id, decision.reason)
+                return lead_id
+            include_meet = decision.mode == "google_calendar"
             cb = callback_service.create_and_schedule_callback(
                 tenant_id=tenant_id,
                 wa_id=wa_id,
@@ -378,13 +385,22 @@ def _save_lead(tenant_id: str, wa_id: str, flow_name: str,
                 purpose=purpose,
                 callback_type="general",
                 include_meet=include_meet,
+                callback_mode=decision.mode,
+                booking_url=decision.booking_url,
+                metadata={
+                    "consent": data.get("consent"),
+                    "consent_at": data.get("consent_at"),
+                },
             )
             if cb:
                 collected["meet_link"] = cb.meet_link
                 collected["scheduled_time"] = cb.preferred_time
-                collected["calendar_add_url"] = (cb.metadata or {}).get("calendar_add_url", "")
+                collected["calendar_add_url"] = (cb.metadata or {}).get("calendar_add_url", "") or (cb.metadata or {}).get("booking_url", "")
                 collected["callback_id"] = cb.id
                 collected["include_meet"] = include_meet
+                collected["callback_mode"] = decision.mode
+                collected["callback_status"] = cb.status
+                collected["callback_error"] = (cb.metadata or {}).get("integration_error")
                 logger.info(
                     "CALLBACK_SCHEDULED | tenant=%s | cb_id=%s | meet=%s | include_meet=%s",
                     tenant_id, cb.id, cb.meet_link, include_meet,
@@ -916,6 +932,8 @@ def handle_reply(wa_id: str, text: str, tenant_id=None):
                           step.invalid_message or
                           f"Please reply *{step.yes_label}* or *{step.no_label}* (or type *cancel* to exit).")
         collected[step.key or step.id] = verdict
+        if (step.key or step.id) == "consent" and verdict == "yes":
+            collected["consent_at"] = datetime.now(timezone.utc).isoformat()
         sm.merge_collected(wa_id, {step.key or step.id: verdict})
         next_id = step.on.get(verdict) if step.on else None
         return _run_from(wa_id, profile, flow, next_id or step.next, collected, messages)
@@ -1144,13 +1162,23 @@ def _run_from(wa_id, profile, flow, step_id, collected, messages):
         topic = collected.get("need") or "Callback"
         phone = collected.get("phone") or wa_id
 
+        callback_status = collected.get("callback_status")
+        if callback_status == "integration_failed":
+            heading = "📞 *Callback Request Received*"
+            ending = "Our video/calendar integration is currently unavailable. Our team will follow up by phone if possible."
+        elif collected.get("callback_mode") == "booking_url" and collected.get("calendar_add_url"):
+            heading = "📅 *Continue Booking Online*"
+            ending = f"Please use this tenant-provided booking link:\n{collected['calendar_add_url']}"
+        else:
+            heading = "📞 *Callback Request Confirmed!*"
+            ending = "Our team has received your request and will call you back on this number."
         cb_lines = [
-            "📞 *Callback Request Confirmed!*",
+            heading,
             f"👤 *Name:* {cust_name}",
             f"📱 *We'll call:* {phone}",
             f"⏰ *Preferred Time:* {sched_time}",
             f"🎯 *Topic:* {topic}",
-            "\nOur team has received your request and will call you back on this number.",
+            f"\n{ending}",
         ]
         cb_confirmation = "\n".join(cb_lines)
         if messages and any(kw in message_to_text(messages[-1]).lower() for kw in ("done", "callback", "office", "soon", "team")):

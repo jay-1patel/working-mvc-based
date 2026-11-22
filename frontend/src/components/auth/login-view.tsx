@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth'
 import { ApiError } from '@/lib/api'
 import { FieldInput, Notice, PrimaryButton } from '@/components/remake/ui'
 import { PASSWORD_HINT, passwordError } from '@/lib/password'
+import { enableMockMode } from '@/lib/mock'
 
 export function LoginView() {
   const { needsSetup, login, setup } = useAuth()
@@ -108,6 +109,18 @@ export function LoginView() {
           <KeyRound className="h-3 w-3" />
           Sessions are stored locally in this browser only.
         </p>
+        {import.meta.env.DEV && !needsSetup && (
+          <button
+            type="button"
+            onClick={() => {
+              enableMockMode()
+              window.location.reload()
+            }}
+            className="mt-3 w-full text-center text-xs font-medium text-acc underline-offset-2 hover:underline"
+          >
+            Preview as simple admin
+          </button>
+        )}
       </div>
     </div>
     <footer className="send2-footer">Send2Digital <span aria-hidden="true">·</span> AI Chatbot</footer>

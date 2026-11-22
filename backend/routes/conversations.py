@@ -22,12 +22,16 @@ written before that column existed fall back to the tenant on their state row
 (`user_states.tenant_id`). Complaints carry tenant_id directly.
 """
 
+import asyncio
+import json
 import logging
+import queue as queue_module
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from database import assign_conversation as assign_inbox_conversation, set_human_handover
@@ -53,6 +57,7 @@ from routes.auth import (
     security,
     session_tenant_id,
 )
+from services.inbox_events import inbox_events
 
 logger = logging.getLogger("conversations")
 router = APIRouter(prefix="/api/admin/tenants/{tenant_id}", tags=["conversations"])
@@ -301,12 +306,64 @@ def inbox_queue(
             "bot_state": c.get("bot_state"),
             "handover_mode": c.get("handover_mode") or "bot",
             "assigned_agent_id": c.get("assigned_agent_id"),
+            "resolved": bool(c.get("resolved")),
         }
         for c in payload.get("conversations", [])
     ]
     queue.sort(key=lambda q: (q["handover_mode"] != "human", str(q.get("last_message_at") or "")))
     handoff = sum(1 for c in queue if c["handover_mode"] == "human")
     return {"queue": queue, "count": len(queue), "handoff_count": handoff}
+
+
+@flat_router.get("/inbox/events")
+async def inbox_events_stream(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Stream tenant-scoped inbox changes for the admin Chats panel."""
+    _principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    subscriber = inbox_events.subscribe(tenant_id)
+
+    async def events():
+        # The in-process hub is the fast path.  The database fingerprint is
+        # the cross-worker path, so an SSE connection still notices changes
+        # made by another worker even when no shared pub/sub service exists.
+        last_fingerprint = None
+
+        def inbox_fingerprint():
+            snapshot = tenant_inbox_queue(tenant_id, include_resolved=True)
+            return json.dumps(snapshot.get("conversations", []), sort_keys=True, default=str)
+
+        try:
+            yield "event: ready\ndata: {}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.to_thread(subscriber.get, True, 1)
+                    last_fingerprint = await asyncio.to_thread(inbox_fingerprint)
+                    yield f"event: inbox.updated\ndata: {json.dumps(event)}\n\n"
+                except queue_module.Empty:
+                    fingerprint = await asyncio.to_thread(inbox_fingerprint)
+                    if last_fingerprint is None:
+                        last_fingerprint = fingerprint
+                    elif fingerprint != last_fingerprint:
+                        last_fingerprint = fingerprint
+                        yield "event: inbox.updated\ndata: {\"wa_id\": null, \"reason\": \"cross_worker\"}\n\n"
+                    else:
+                        yield ": heartbeat\n\n"
+        finally:
+            inbox_events.unsubscribe(tenant_id, subscriber)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 class HandoverBody(BaseModel):
@@ -329,6 +386,8 @@ def set_handover(
     if body.mode not in ("bot", "human"):
         raise HTTPException(status_code=400, detail="mode must be 'bot' or 'human'")
     set_human_handover(wa_id, active=(body.mode == "human"))
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, wa_id, "handover")
     logger.info(f"INBOX_HANDOVER | tenant={tenant_id} | wa={wa_id} | mode={body.mode}")
     return {"status": "ok", "wa_id": wa_id, "mode": body.mode}
 
@@ -341,6 +400,8 @@ def assign_conversation(
 ):
     principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     assign_inbox_conversation(tenant_id, body.wa_id, body.agent_id)
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, body.wa_id, "assign")
     return {"status": "ok", "wa_id": body.wa_id, "agent_id": body.agent_id}
 
 
@@ -359,6 +420,8 @@ def resolve_handoff(
     wa_id, reply = body.wa_id, body.reply
     principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     set_human_handover(wa_id, active=False)
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, wa_id, "resolve")
     sent = False
     if reply:
         try:
@@ -477,6 +540,8 @@ def reply_to_customer(
         logger.warning(f"inbox reply: could not save chat history: {exc}")
 
     set_human_handover(wa_id, active=True)
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, wa_id, "reply")
     logger.info(f"INBOX_REPLIED | tenant={tenant_id} | wa={wa_id} | by={principal.get('username')}")
     return {"status": "ok", "wa_id": wa_id, "sent": sent}
 

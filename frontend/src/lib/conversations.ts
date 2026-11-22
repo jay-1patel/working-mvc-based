@@ -9,6 +9,7 @@
 import { api } from './api'
 import type { Attachment } from './attachments'
 import type { Agent, ChatTurn, Complaint, ConversationThread, InboxItem } from './types'
+import { isMockMode, mockAgents, mockInbox, mockTurns } from './mock'
 
 const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -45,7 +46,7 @@ export const conversationsApi = {
   // Use /chat/thread — /conversations/detail collides with
   // POST /tenants/{tenant_id}/conversations/{wa_id} when ordered wrong.
   thread: (tenantId: string, waId: string, limit = 300, signal?: AbortSignal) =>
-    api.post<{ wa_id: string; messages: ChatTurn[] }>(
+    isMockMode() ? Promise.resolve({ wa_id: waId, messages: mockTurns }) : api.post<{ wa_id: string; messages: ChatTurn[] }>(
       '/api/admin/tenants/chat/thread',
       { wa_id: waId, limit },
       { signal },
@@ -65,33 +66,60 @@ export const conversationsApi = {
       }, { signal })
       .then((r) => r.history),
 
-  inbox: (tenantId: string, includeResolved = false, signal?: AbortSignal) =>
-    api.post<{ queue: InboxItem[]; count: number; handoff_count: number }>(
+  inbox: (tenantId: string, includeResolved = true, signal?: AbortSignal) =>
+    isMockMode() ? Promise.resolve({ queue: mockInbox, count: mockInbox.length, handoff_count: 1 }) : api.post<{ queue: InboxItem[]; count: number; handoff_count: number }>(
       '/api/admin/tenants/inbox',
       { include_resolved: includeResolved },
       { signal },
     ),
 
   setHandover: (tenantId: string, waId: string, mode: 'bot' | 'human') =>
-    api.post<{ status: string }>('/api/admin/tenants/inbox/handover', { wa_id: waId, mode }),
+    isMockMode()
+      ? Promise.resolve().then(() => {
+          const item = mockInbox.find((conversation) => conversation.wa_id === waId)
+          if (item) {
+            item.handover_mode = mode
+            item.resolved = false
+          }
+          return { status: 'ok' }
+        })
+      : api.post<{ status: string }>('/api/admin/tenants/inbox/handover', { wa_id: waId, mode }),
 
   assign: (tenantId: string, waId: string, agentId: string) =>
-    api.post<{ status: string }>('/api/admin/tenants/inbox/assign', { wa_id: waId, agent_id: agentId }),
+    isMockMode() ? Promise.resolve({ status: 'ok' }) : api.post<{ status: string }>('/api/admin/tenants/inbox/assign', { wa_id: waId, agent_id: agentId }),
 
   resolve: (tenantId: string, waId: string, reply = true) =>
-    api.post<{ status: string; notified: boolean }>(
-      '/api/admin/tenants/inbox/resolve',
-      { wa_id: waId, reply },
-    ),
+    isMockMode()
+      ? Promise.resolve().then(() => {
+          const item = mockInbox.find((conversation) => conversation.wa_id === waId)
+          if (item) {
+            item.handover_mode = 'bot'
+            item.resolved = true
+          }
+          return { status: 'ok', notified: false }
+        })
+      : api.post<{ status: string; notified: boolean }>(
+          '/api/admin/tenants/inbox/resolve',
+          { wa_id: waId, reply },
+        ),
 
   reply: (tenantId: string, waId: string, message: string, attachment?: Attachment | null) =>
-    api.post<{ status: string; sent: boolean }>(
-      '/api/admin/tenants/inbox/reply',
-      { wa_id: waId, message, attachment: attachment ?? undefined },
-    ),
+    isMockMode()
+      ? Promise.resolve().then(() => {
+          const item = mockInbox.find((conversation) => conversation.wa_id === waId)
+          if (item) {
+            item.handover_mode = 'human'
+            item.resolved = false
+          }
+          return { status: 'ok', sent: true }
+        })
+      : api.post<{ status: string; sent: boolean }>(
+          '/api/admin/tenants/inbox/reply',
+          { wa_id: waId, message, attachment: attachment ?? undefined },
+        ),
 
   agents: (tenantId: string, signal?: AbortSignal) =>
-    api.post<{ agents: Agent[] }>('/api/admin/tenants/agents', {}, { signal }).then((r) => r.agents),
+    isMockMode() ? Promise.resolve(mockAgents) : api.post<{ agents: Agent[] }>('/api/admin/tenants/agents', {}, { signal }).then((r) => r.agents),
 
   complaints: (
     tenantId: string,

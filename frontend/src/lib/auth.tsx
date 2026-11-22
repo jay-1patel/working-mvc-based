@@ -10,6 +10,7 @@ import {
 import { api, getToken, setCredentials, setToken, setUnauthorizedHandler } from './api'
 import { navigate } from './router'
 import type { AdminIdentity } from './types'
+import { isMockMode, mockIdentity } from './mock'
 
 interface AuthState {
   loading: boolean
@@ -39,6 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if (isMockMode()) {
+      setIdentity(mockIdentity)
+      setNeedsSetup(false)
+      setLoading(false)
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {

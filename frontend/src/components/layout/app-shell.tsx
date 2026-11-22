@@ -27,6 +27,7 @@ import { getVertical } from '@/lib/verticals'
 import { cn } from '@/lib/cn'
 import { CountBadge } from '@/components/remake/ui'
 import { VerticalGlyph } from '@/components/vertical-icon'
+import { disableMockMode, isMockMode } from '@/lib/mock'
 
 /**
  * Views with a split pane own the full height of the content area. The panes
@@ -106,11 +107,11 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
     let alive = true
     const load = () =>
       conversationsApi
-        .inbox(route.tenantId!, false)
+        .inbox(route.tenantId!, true)
         .then((r) => {
           if (alive) {
             setWaitingChats(
-              r.handoff_count ?? r.queue.filter((q) => q.handover_mode === 'human').length,
+              r.handoff_count ?? r.queue.filter((q) => q.handover_mode === 'human' && !q.resolved).length,
             )
           }
         })
@@ -440,6 +441,18 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               <LogOut className="h-4 w-4" />
             </button>
           </div>
+          {isMockMode() && (
+            <button
+              type="button"
+              onClick={() => {
+                disableMockMode()
+                window.location.reload()
+              }}
+              className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-xs font-medium text-txmuted transition hover:bg-paper hover:text-tx"
+            >
+              Exit mock preview
+            </button>
+          )}
         </div>
       </aside>
 

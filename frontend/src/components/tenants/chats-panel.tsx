@@ -4,6 +4,8 @@ import { usePermissions } from '@/lib/permissions'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useToast } from '@/components/ui/toast'
 import { conversationsApi, stripRoute } from '@/lib/conversations'
+import { apiUrl, authHeaders } from '@/lib/api'
+import { isMockMode } from '@/lib/mock'
 import { attachmentsApi, type Attachment } from '@/lib/attachments'
 import { AttachmentChip } from '@/components/tenants/chat-attachment'
 import { EmptyState, LoadingBlock } from '@/components/ui/feedback'
@@ -51,7 +53,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
   const [failed, setFailed] = useState<Record<string, FailedSend[]>>({})
   const failedSeq = useRef(0)
 
-  const inbox = useAsync((s) => conversationsApi.inbox(tenantId, false, s), [tenantId])
+  const inbox = useAsync((s) => conversationsApi.inbox(tenantId, true, s), [tenantId])
   const agents = useAsync((s) => conversationsApi.agents(tenantId, s), [tenantId])
   const thread = useAsync(
     (s) =>
@@ -72,6 +74,58 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
     return () => window.clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId])
+
+  // The stream makes inbound WhatsApp messages and inbox actions visible
+  // immediately. Polling above remains the recovery path for reconnects and
+  // multi-worker deployments where the in-process event is not shared.
+  useEffect(() => {
+    if (isMockMode() || import.meta.env.MODE === 'test') return
+    const controller = new AbortController()
+    let retryTimer: number | undefined
+
+    const connect = async () => {
+      try {
+        const response = await fetch(apiUrl('/api/admin/tenants/inbox/events'), {
+          headers: { ...authHeaders(), Accept: 'text/event-stream' },
+          signal: controller.signal,
+        })
+        if (!response.ok || !response.body) throw new Error(`Inbox stream failed (${response.status})`)
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const blocks = buffer.split('\n\n')
+          buffer = blocks.pop() ?? ''
+          for (const block of blocks) {
+            if (!block.includes('event: inbox.updated')) continue
+            const data = block.split('\n').find((line) => line.startsWith('data:'))
+            if (!data) continue
+            try {
+              const event = JSON.parse(data.slice(5).trim()) as { wa_id?: string }
+              inbox.reload()
+              if (event.wa_id && event.wa_id === selected) thread.reload()
+            } catch {
+              // A malformed event should not tear down the live inbox.
+            }
+          }
+        }
+        if (!controller.signal.aborted) throw new Error('Inbox stream closed')
+      } catch {
+        if (!controller.signal.aborted) {
+          retryTimer = window.setTimeout(() => void connect(), 2_000)
+        }
+      }
+    }
+
+    void connect()
+    return () => {
+      controller.abort()
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
+  }, [tenantId, selected, inbox.reload, thread.reload])
 
   const queue = useMemo(() => {
     const items = [...(inbox.data?.queue ?? [])]
@@ -241,7 +295,11 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                         <span className="truncate text-sm font-medium text-tx">
                           {item.name || item.wa_id}
                         </span>
-                        {human ? (
+                        {item.resolved ? (
+                          <span className="shrink-0 rounded-full bg-chipdefbg px-2 py-0.5 text-[11px] font-medium text-txmuted">
+                            Resolved
+                          </span>
+                        ) : human ? (
                           <span className="shrink-0 rounded-full bg-badbg px-2 py-0.5 text-[11px] font-semibold text-badink">
                             {wait ?? 'Waiting'}
                           </span>
@@ -283,7 +341,9 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                   <p className="text-sm font-semibold text-tx">{current?.name || selected}</p>
                   <p className="text-xs text-txmuted">
                     {selected}
-                    {current?.handover_mode === 'human'
+                    {current?.resolved
+                      ? ' · resolved'
+                      : current?.handover_mode === 'human'
                       ? ' · a human is handling this chat'
                       : ' · the bot is handling this chat'}
                     {current?.assigned_agent_id

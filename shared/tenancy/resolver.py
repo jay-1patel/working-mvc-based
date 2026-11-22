@@ -18,6 +18,15 @@ logger = logging.getLogger("tenancy.resolver")
 _UNSET = object()
 
 
+def _test_override_enabled() -> bool:
+    """Test-tenant routing is opt-in for production deployments."""
+    explicit = os.getenv("ALLOW_TEST_TENANT_OVERRIDE")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
+    return environment not in {"prod", "production", "staging"}
+
+
 def _extract_phone_ids(payload: Dict[str, Any]) -> list[str]:
     """All plausible phone-number identifiers in a WABA webhook, best first."""
     out: list[str] = []
@@ -41,6 +50,8 @@ def _extract_phone_ids(payload: Dict[str, Any]) -> list[str]:
 
 
 def _active_test_override() -> Optional[str]:
+    if not _test_override_enabled():
+        return None
     try:
         from database import get_active_test_tenant
         val = get_active_test_tenant()

@@ -24,12 +24,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import database
+from core.send2_auth import encode_send2_username
 from routes import auth as auth_routes
 from routes import tenant_approvals
 from routes import tenants as tenants_routes
 from shared.tenancy import store as tenancy_store
 
-PASSWORD = "RootPass123!"
+
+def _headers(username: str, session_id: str) -> dict:
+    return {"username": username, "session_id": session_id}
 
 
 class TenantApprovalTests(unittest.TestCase):
@@ -49,10 +52,14 @@ class TenantApprovalTests(unittest.TestCase):
         self.app.include_router(tenant_approvals.router)
         self.client = TestClient(self.app)
 
-        first = self.client.post(
-            "/api/auth/first-admin", json={"username": "root", "password": PASSWORD}
+        self.root_session = "root-session"
+        database.create_admin(
+            encode_send2_username("root"),
+            role="super_admin",
+            permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
+            session_id=self.root_session,
         )
-        assert first.status_code == 200, first.text
+        self.root = _headers("root", self.root_session)
 
     def tearDown(self):
         self.mongo.stop()
@@ -60,33 +67,25 @@ class TenantApprovalTests(unittest.TestCase):
 
     # ── helpers ────────────────────────────────────────────────────────
 
-    def _login(self, username):
-        res = self.client.post(
-            "/api/auth/login", json={"username": username, "password": PASSWORD}
-        )
-        assert res.status_code == 200, res.text
-        return {"Authorization": f"Bearer {res.json()['token']}"}
-
     def _create_admin(self, username, role="admin", tenant_id=None, *, creator=None):
         # Mirrors the Team screen's payload: explicit nulls for permissions
         # (admins get the server default), email and unused tenant scope.
         # Superadmin creates company admins; only a company admin creates sub-admins.
         payload = {
             "username": username,
-            "password": PASSWORD,
             "role": role,
             "permissions": None,
             "email": None,
             "tenant_id": tenant_id if role != "sub_admin" else None,
         }
-        headers = creator if creator is not None else self._login("root")
+        headers = creator if creator is not None else self.root
         res = self.client.post(
             "/api/auth/create",
             json=payload,
             headers=headers,
         )
         assert res.status_code == 200, res.text
-        return self._login(username)
+        return _headers(username, res.json()["session_id"])
 
     def _submit_create(self, headers, tenant_id="acme", **extra):
         return self.client.post(
@@ -119,11 +118,11 @@ class TenantApprovalTests(unittest.TestCase):
         return self.client.post(
             f"/api/admin/tenant-change-requests/{request_id}/decision",
             json={"decision": decision, "note": note},
-            headers=self._login("root"),
+            headers=self.root,
         )
 
     def _current_version(self, tenant_id):
-        res = self.client.get("/api/admin/tenants", headers=self._login("root"))
+        res = self.client.get("/api/admin/tenants", headers=self.root)
         for row in res.json()["tenants"]:
             if row["id"] == tenant_id:
                 return row["current_version"]
@@ -157,7 +156,7 @@ class TenantApprovalTests(unittest.TestCase):
                 "mobile_number": "919800000022",
                 "auto_scrape": False,
             },
-            headers=self._login("root"),
+            headers=self.root,
         )
         self.assertEqual(direct.status_code, 200)
 
@@ -191,7 +190,7 @@ class TenantApprovalTests(unittest.TestCase):
             {"brand": {"support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
         )
         direct_pub = self.client.post(
-            "/api/admin/tenants/acme/publish", headers=self._login("root")
+            "/api/admin/tenants/acme/publish", headers=self.root
         )
         self.assertEqual(direct_pub.status_code, 403)
         self.assertEqual(self._current_version("acme"), 1)
@@ -260,7 +259,7 @@ class TenantApprovalTests(unittest.TestCase):
                 "mobile_number": "919800000031",
                 "auto_scrape": False,
             },
-            headers=self._login("root"),
+            headers=self.root,
         )
         # Saving a broken draft is allowed; the problem comes back as a
         # validation warning.
@@ -311,7 +310,7 @@ class TenantApprovalTests(unittest.TestCase):
         self.assertEqual([r["id"] for r in mine.json()["requests"]], [request["id"]])
 
         # Super admins do not submit, they decide.
-        self.assertEqual(self._submit_create(self._login("root")).status_code, 403)
+        self.assertEqual(self._submit_create(self.root).status_code, 403)
         self.assertEqual(
             self.client.get(
                 "/api/admin/tenant-change-requests", headers=admin
@@ -320,7 +319,7 @@ class TenantApprovalTests(unittest.TestCase):
         )
 
         queue = self.client.get(
-            "/api/admin/tenant-change-requests", headers=self._login("root")
+            "/api/admin/tenant-change-requests", headers=self.root
         ).json()["requests"]
         self.assertEqual(len(queue), 1)
 
@@ -334,7 +333,7 @@ class TenantApprovalTests(unittest.TestCase):
 
         events = self.client.get(
             f"/api/admin/tenant-change-requests/{request['id']}/events",
-            headers=self._login("root"),
+            headers=self.root,
         ).json()["events"]
         self.assertEqual([e["event_type"] for e in events], ["submitted", "decision"])
 
@@ -355,13 +354,13 @@ class TenantApprovalTests(unittest.TestCase):
                 "mobile_number": "919800000032",
                 "auto_scrape": False,
             },
-            headers=self._login("root"),
+            headers=self.root,
         )
         conflict = self._decide(request_id, "approved")
         self.assertEqual(conflict.status_code, 409)
         # The request stays pending so the super admin can reject it instead.
         row = self.client.get(
-            "/api/admin/tenant-change-requests", headers=self._login("root")
+            "/api/admin/tenant-change-requests", headers=self.root
         ).json()["requests"][0]
         self.assertEqual(row["status"], "pending")
 
@@ -393,7 +392,7 @@ class TenantApprovalTests(unittest.TestCase):
                 "mobile_number": mobiles.get(tenant_id, "919800000049"),
                 "auto_scrape": False,
             },
-            headers=self._login("root"),
+            headers=self.root,
         )
         assert res.status_code == 200, res.text
 
@@ -459,7 +458,7 @@ class TenantApprovalTests(unittest.TestCase):
                 "mobile_number": "919800000098",
                 "auto_scrape": False,
             },
-            headers=self._login("root"),
+            headers=self.root,
         )
         self.assertEqual(created.status_code, 200)
         self.assertEqual(self._current_version("acme"), 0)
@@ -496,7 +495,7 @@ class TenantApprovalTests(unittest.TestCase):
 
         # 4. Super admin sees everything the admin added, then approves.
         queue = self.client.get(
-            "/api/admin/tenant-change-requests", headers=self._login("root")
+            "/api/admin/tenant-change-requests", headers=self.root
         ).json()["requests"]
         self.assertEqual(len(queue), 1)
         self.assertEqual(queue[0]["payload"]["snapshot"]["brand"]["bot_name"], "Asha")

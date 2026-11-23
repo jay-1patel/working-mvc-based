@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import database
+from core.send2_auth import encode_send2_username
 from routes import audit, auth
 
 
@@ -34,14 +35,14 @@ class AuditHistoryTests(unittest.TestCase):
     def setUp(self):
         self.mongo = MongomockSession().start()
         database.init_db()
+        self.staff_session = "staff-live-session"
         Repository("admins").insert(
             {
-                "id": 2,
-                "username": "staff",
-                "password_hash": "hash",
+                "username": encode_send2_username("staff"),
                 "role": "sub_admin",
-                "permissions": {},
+                "permissions": {"manage_operations": True},
                 "tenant_id": "tenant-a",
+                "session_id": self.staff_session,
             }
         )
 
@@ -49,7 +50,12 @@ class AuditHistoryTests(unittest.TestCase):
         app = FastAPI()
         app.include_router(audit.router)
         app.include_router(auth.router)
-        app.dependency_overrides[audit.get_current_admin] = lambda: self.current_admin
+
+        def _current_admin():
+            # Look up the attribute at call time so tests can reassign the actor.
+            return self.current_admin
+
+        app.dependency_overrides[audit.get_current_admin] = _current_admin
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -160,58 +166,79 @@ class AuditHistoryTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/admin/audit-history", params={"outcome": "maybe"}).status_code, 422)
 
     def test_first_admin_creation_is_audited_without_password_material(self):
-        with patch.object(auth, "ADMIN_SECRET_KEY", "test-admin-signing-key"), patch.object(
-            auth, "_admin_count", return_value=0
-        ), patch.object(auth, "_validate_password_strength"), patch.object(
-            auth, "_hash_password", return_value="stored-hash"
-        ):
-            response = self.client.post(
-                "/api/auth/first-admin",
-                json={"username": "bootstrap", "password": "BootstrapPassword!123", "email": "root@example.test"},
-            )
-        self.assertEqual(response.status_code, 200)
-        admin = Repository("admins").find_one({"username": "bootstrap"})
-        event = Repository("admin_audit_events").find_all(sort=[("id", -1)], limit=1)[0]
-        self.assertEqual(admin["role"], "super_admin")
-        self.assertEqual(event["actor_username"], "bootstrap")
-        self.assertEqual(event["action"], "first_admin_created")
-        self.assertNotIn("BootstrapPassword!123", json.dumps(event.get("details_json") or {}))
+        missing = self.client.post(
+            "/api/auth/first-admin",
+            json={"username": "bootstrap", "session_id": "no-such-route"},
+        )
+        self.assertEqual(missing.status_code, 404)
+        again = self.client.post(
+            "/api/auth/first-admin",
+            json={"username": "bootstrap-2", "session_id": "still-missing"},
+        )
+        self.assertNotEqual(again.status_code, 200)
+
+        database.create_admin(
+            encode_send2_username("root"),
+            role="super_admin",
+            permissions=dict(auth.SUPER_ADMIN_PERMISSIONS),
+            session_id="root-session",
+        )
+        created = self.client.post(
+            "/api/auth/create",
+            json={"username": "bootstrap", "role": "admin", "email": "root@example.test"},
+            headers={"username": "root", "session_id": "root-session"},
+        )
+        # The dependency override authenticates as the seeded super admin.
+        self.assertEqual(created.status_code, 200, created.text)
+        session_id = created.json()["session_id"]
+        events = Repository("admin_audit_events").find_all(
+            {"action": "admin_created"}, sort=[("id", -1)], limit=1
+        )
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event["action"], "admin_created")
+        blob = json.dumps(event.get("details_json") or {}, default=str)
+        self.assertNotIn("password", blob.lower())
+        self.assertNotIn(session_id, blob)
 
     def test_login_success_and_failure_are_recorded_without_credentials(self):
-        with patch.object(auth, "_verify_password", side_effect=lambda supplied, hashed: supplied == "correct"):
-            with patch.object(auth, "_create_token", return_value="test-jwt"):
-                failed = self.client.post("/api/auth/login", json={"username": "staff", "password": "wrong"})
-                success = self.client.post("/api/auth/login", json={"username": "staff", "password": "correct"})
+        wrong_session = "wrong-session-secret"
+        failed = self.client.post(
+            "/api/auth/login",
+            json={"username": "staff", "session_id": wrong_session},
+        )
+        success = self.client.post(
+            "/api/auth/login",
+            json={"username": "staff", "session_id": self.staff_session},
+        )
         self.assertEqual(failed.status_code, 401)
-        self.assertEqual(success.status_code, 200)
+        self.assertEqual(success.status_code, 200, success.text)
 
         rows = Repository("admin_audit_events").find_all(sort=[("id", 1)])
-        self.assertEqual([(row["action"], row["outcome"]) for row in rows], [("login", "failure"), ("login", "success")])
+        self.assertEqual(
+            [(row["action"], row["outcome"]) for row in rows],
+            [("login", "failure"), ("login", "success")],
+        )
         self.assertEqual(rows[0]["actor_username"], "staff")
         self.assertEqual(rows[0]["tenant_id"], "tenant-a")
-        blob = json.dumps(rows)
-        self.assertNotIn("wrong", blob)
-        self.assertNotIn("test-jwt", blob)
+        blob = json.dumps(rows, default=str)
+        self.assertNotIn(wrong_session, blob)
+        self.assertNotIn(self.staff_session, blob)
 
-    def test_login_reports_missing_jwt_secret_as_configuration_error(self):
+    def test_login_succeeds_without_jwt_and_bearer_alone_is_rejected(self):
         client = TestClient(self.client.app, raise_server_exceptions=False)
         self.client.app.dependency_overrides.pop(auth.get_current_admin, None)
-        with patch.object(auth, "ADMIN_SECRET_KEY", None), patch.object(
-            auth, "_verify_password", return_value=True
-        ):
-            response = client.post(
-                "/api/auth/login",
-                json={"username": "staff", "password": "correct"},
-            )
-            token_response = client.get(
-                "/api/auth/me",
-                headers={"Authorization": "Bearer stale-token"},
-            )
-
-        self.assertEqual(response.status_code, 503)
-        self.assertIn("ADMIN_SECRET_KEY", response.json()["detail"])
-        self.assertEqual(token_response.status_code, 503)
-        self.assertIn("ADMIN_SECRET_KEY", token_response.json()["detail"])
+        response = client.post(
+            "/api/auth/login",
+            json={"username": "staff", "session_id": self.staff_session},
+        )
+        token_response = client.get(
+            "/api/auth/me",
+            headers={"Authorization": "Bearer stale-token"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn("jwt", response.text.lower())
+        self.assertEqual(token_response.status_code, 401)
 
     def test_admin_update_records_changed_fields_and_role_change_is_refused(self):
         # Roles are fixed at account creation (role-panels item 10): a PATCH
@@ -224,23 +251,14 @@ class AuditHistoryTests(unittest.TestCase):
             "id": 3, "username": "tenant-admin", "role": "admin", "tenant_id": "tenant-a",
             "permissions": {"manage_admins": True},
         }
-        target = {
-            "id": 2,
-            "username": "staff",
-            "role": "sub_admin",
-            "permissions": {"manage_operations": True},
-            "tenant_id": "tenant-a",
-            "email": None,
-        }
-        with patch.object(auth, "get_admin_record", return_value=target):
-            refused = self.client.patch("/api/auth/admins/staff", json={"role": "admin"})
-            response = self.client.patch(
-                "/api/auth/admins/staff", json={"permissions": {"view_customers": True}}
-            )
-        self.assertEqual(refused.status_code, 403)
-        self.assertEqual(response.status_code, 200)
+        refused = self.client.patch("/api/auth/admins/staff", json={"role": "admin"})
+        response = self.client.patch(
+            "/api/auth/admins/staff", json={"permissions": {"view_customers": True}}
+        )
+        self.assertEqual(refused.status_code, 403, refused.text)
+        self.assertEqual(response.status_code, 200, response.text)
         row = Repository("admin_audit_events").find_all(sort=[("id", -1)], limit=1)[0]
-        updated = Repository("admins").find_one({"username": "staff"})
+        updated = Repository("admins").find_one({"username": encode_send2_username("staff")})
         self.assertEqual(updated["role"], "sub_admin")
         self.assertEqual(row["action"], "admin_updated")
         details = row.get("details_json") or {}

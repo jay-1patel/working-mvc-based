@@ -19,11 +19,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import database
+from core.send2_auth import encode_send2_username
 from routes import auth as auth_routes
 from routes import campaigns as campaigns_routes
 from routes import tenants as tenants_routes
-
-PASSWORD = "RootPass123!"
 
 BASE = "/api/admin/tenants/acme/campaigns"
 
@@ -54,15 +53,14 @@ class CampaignTests(unittest.TestCase):
         self.app.include_router(campaigns_routes.router)
         self.client = TestClient(self.app)
 
-        first = self.client.post(
-            "/api/auth/first-admin", json={"username": "root", "password": PASSWORD}
+        root_session = "root-session"
+        database.create_admin(
+            encode_send2_username("root"),
+            role="super_admin",
+            permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
+            session_id=root_session,
         )
-        assert first.status_code == 200, first.text
-        res = self.client.post(
-            "/api/auth/login", json={"username": "root", "password": PASSWORD}
-        )
-        assert res.status_code == 200, res.text
-        super_headers = {"Authorization": f"Bearer {res.json()['token']}"}
+        super_headers = {"username": "root", "session_id": root_session}
         # Super admins are view-only inside a tenant. Campaign writes belong
         # to the tenant's own admin.
         created = self.client.post(
@@ -81,7 +79,6 @@ class CampaignTests(unittest.TestCase):
             "/api/auth/create",
             json={
                 "username": "acme-admin",
-                "password": PASSWORD,
                 "role": "admin",
                 "tenant_id": "acme",
                 "email": "admin@acme.example",
@@ -89,11 +86,10 @@ class CampaignTests(unittest.TestCase):
             headers=super_headers,
         )
         assert made.status_code == 200, made.text
-        login = self.client.post(
-            "/api/auth/login", json={"username": "acme-admin", "password": PASSWORD}
-        )
-        assert login.status_code == 200, login.text
-        self.headers = {"Authorization": f"Bearer {login.json()['token']}"}
+        self.headers = {
+            "username": "acme-admin",
+            "session_id": made.json()["session_id"],
+        }
 
         # One approved template.
         res = self.client.post(

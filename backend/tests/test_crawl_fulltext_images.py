@@ -324,7 +324,7 @@ class FulltextPipelineTests(unittest.TestCase):
             return_value={"tenant_id": "deep-a", "offerings_created": 0, "faqs_saved": 0, "status": "configured"},
         )
         for p in (
-            self.db_patch, self.env_patch, self.clients_patch, self.resolver_patch,
+            self.env_patch, self.clients_patch, self.resolver_patch,
             self.llm_patch, self.faq_index_patch, self.faq_ingest_patch,
             self.bifurcator_patch,
         ):
@@ -346,7 +346,7 @@ class FulltextPipelineTests(unittest.TestCase):
         self.temp.cleanup()
         self.server.shutdown()
         for p in (
-            self.db_patch, self.env_patch, self.clients_patch, self.resolver_patch,
+            self.env_patch, self.clients_patch, self.resolver_patch,
             self.llm_patch, self.faq_index_patch, self.faq_ingest_patch,
             self.bifurcator_patch,
         ):

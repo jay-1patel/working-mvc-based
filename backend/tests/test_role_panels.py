@@ -33,6 +33,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import database
+from core.send2_auth import encode_send2_username
 from routes import audit as audit_routes
 from routes import auth as auth_routes
 from routes import campaigns as campaigns_routes
@@ -41,7 +42,9 @@ from routes import tenant_files as tenant_files_routes
 from routes import tenants as tenants_routes
 from services import error_reporter
 
-PASSWORD = "RootPass123!"
+
+def _headers(username: str, session_id: str) -> dict:
+    return {"username": username, "session_id": session_id}
 
 
 class RolePanelTests(unittest.TestCase):
@@ -59,13 +62,17 @@ class RolePanelTests(unittest.TestCase):
         for module in (auth_routes, tenants_routes, approvals_routes,
                        campaigns_routes, tenant_files_routes, audit_routes):
             self.app.include_router(module.router)
+        self.app.include_router(tenant_files_routes.flat_router)
         self.client = TestClient(self.app, raise_server_exceptions=False)
 
-        first = self.client.post(
-            "/api/auth/first-admin", json={"username": "root", "password": PASSWORD}
+        self.root_session = "root-session"
+        database.create_admin(
+            encode_send2_username("root"),
+            role="super_admin",
+            permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
+            session_id=self.root_session,
         )
-        assert first.status_code == 200, first.text
-        self.root = self._login("root")
+        self.root = _headers("root", self.root_session)
 
         created = self.client.post(
             "/api/admin/tenants",
@@ -86,13 +93,6 @@ class RolePanelTests(unittest.TestCase):
 
     # ── helpers ────────────────────────────────────────────────────────
 
-    def _login(self, username):
-        res = self.client.post(
-            "/api/auth/login", json={"username": username, "password": PASSWORD}
-        )
-        assert res.status_code == 200, res.text
-        return {"Authorization": f"Bearer {res.json()['token']}"}
-
     def _create_admin(self, username, role="admin", tenant_id=None):
         # Superadmin creates company admins; only a company admin creates sub-admins.
         headers = self.acme_admin if role == "sub_admin" else self.root
@@ -100,7 +100,6 @@ class RolePanelTests(unittest.TestCase):
             "/api/auth/create",
             json={
                 "username": username,
-                "password": PASSWORD,
                 "role": role,
                 "permissions": None,
                 "email": None,
@@ -109,7 +108,7 @@ class RolePanelTests(unittest.TestCase):
             headers=headers,
         )
         assert res.status_code == 200, res.text
-        return self._login(username)
+        return _headers(username, res.json()["session_id"])
 
     # ── the guard, as pure path classification ─────────────────────────
 
@@ -138,9 +137,12 @@ class RolePanelTests(unittest.TestCase):
     # ── super admin view-only, over HTTP ───────────────────────────────
 
     def test_super_admin_upload_is_refused(self):
+        # Uploads are the flat session-scoped route. Bind the super admin to
+        # the tenant so the request reaches the view-only guard.
+        database.update_admin_record(encode_send2_username("root"), tenant_id="acme")
         res = self.client.post(
-            "/api/admin/tenants/acme/files/upload",
-            files={"file": ("faq.txt", b"question answer", "text/plain")},
+            "/api/admin/tenants/files/upload",
+            json={"filename": "faq.txt", "content": "question answer", "module": "faq"},
             headers=self.root,
         )
         self.assertEqual(res.status_code, 403, res.text)
@@ -344,7 +346,10 @@ class RolePanelTests(unittest.TestCase):
         )
         self.assertEqual(change.status_code, 403, change.text)
         self.assertIn("fixed at account creation", change.json()["detail"])
-        self.assertEqual(database.get_admin_record("helper")["role"], "sub_admin")
+        self.assertEqual(
+            database.get_admin_record(encode_send2_username("helper"))["role"],
+            "sub_admin",
+        )
 
         edit = self.client.patch(
             "/api/auth/admins/helper",
@@ -352,7 +357,10 @@ class RolePanelTests(unittest.TestCase):
             headers=self.acme_admin,
         )
         self.assertEqual(edit.status_code, 200, edit.text)
-        self.assertEqual(database.get_admin_record("helper")["role"], "sub_admin")
+        self.assertEqual(
+            database.get_admin_record(encode_send2_username("helper"))["role"],
+            "sub_admin",
+        )
 
     def test_super_admin_cannot_administer_tenant_accounts(self):
         # D-05 (QA 2026-11-13): account administration by a super admin is

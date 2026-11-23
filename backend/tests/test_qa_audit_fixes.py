@@ -21,8 +21,9 @@ for _path in (BACKEND_DIR, PROJECT_ROOT):
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from db import core as db_core
 import database
+from core.send2_auth import encode_send2_username
+from db.mongo import Repository
 from routes import auth
 from routes.admin import router as admin_router
 from routes.campaigns import router as campaigns_router
@@ -52,32 +53,40 @@ def _app() -> FastAPI:
 class QaAuditFixTests(unittest.TestCase):
     def setUp(self):
         self.mongo = MongomockSession().start()
-        self.core_patch.start()
-        self.secret_patch = patch.object(auth, "ADMIN_SECRET_KEY", SECRET)
-        self.secret_patch.start()
         database.init_db()
+        self.sessions = {}
         self._tenant("acme", "919800000001")
         self._tenant("beta", "919800000002")
         self._admin("admin-acme", "admin", "acme")
         self._admin("admin-beta", "admin", "beta")
         self._admin("super", "super_admin", None)
-        with database.get_db_context() as conn:
-            conn.execute(
-                "INSERT INTO chat_history (wa_id, sender_name, message, response, tenant_id) "
-                "VALUES (?, ?, ?, ?, ?)",
-                ("919111", "Tester", "SECRET_ACME", "reply-acme", "acme"),
-            )
-            conn.execute(
-                "INSERT INTO chat_history (wa_id, sender_name, message, response, tenant_id) "
-                "VALUES (?, ?, ?, ?, ?)",
-                ("919111", "Tester", "SECRET_BETA", "reply-beta", "beta"),
-            )
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        Repository("chat_history").insert(
+            {
+                "wa_id": "919111",
+                "sender_name": "Tester",
+                "message": "SECRET_ACME",
+                "response": "reply-acme",
+                "tenant_id": "acme",
+                "created_at": now,
+            }
+        )
+        Repository("chat_history").insert(
+            {
+                "wa_id": "919111",
+                "sender_name": "Tester",
+                "message": "SECRET_BETA",
+                "response": "reply-beta",
+                "tenant_id": "beta",
+                "created_at": now,
+            }
+        )
         self.client = TestClient(_app())
 
     def tearDown(self):
         self.mongo.stop()
-        self.secret_patch.stop()
-        self.core_patch.stop()
 
     def _tenant(self, tid, mobile):
         from shared.tenancy import store
@@ -91,24 +100,24 @@ class QaAuditFixTests(unittest.TestCase):
         )
 
     def _admin(self, username, role, tenant_id):
+        session_id = f"session-{username}"
+        permissions = dict(auth.SUPER_ADMIN_PERMISSIONS) if role == "super_admin" else {
+            "manage_operations": True,
+            "chat_history": True,
+            "view_analytics": True,
+            "view_products": True,
+        }
         database.create_admin(
-            username=username,
-            password_hash="not-used",
+            username=encode_send2_username(username),
             role=role,
-            permissions={
-                "manage_operations": True,
-                "chat_history": True,
-                "view_analytics": True,
-                "view_products": True,
-            },
+            permissions=permissions,
             tenant_id=tenant_id,
+            session_id=session_id,
         )
-
-    def _token(self, username):
-        return auth._create_token(username)
+        self.sessions[username] = session_id
 
     def _auth(self, username):
-        return {"Authorization": f"Bearer {self._token(username)}"}
+        return {"username": username, "session_id": self.sessions[username]}
 
     def test_legacy_chat_history_is_tenant_scoped_and_requires_auth(self):
         open_call = self.client.get("/api/chat/history/919111")

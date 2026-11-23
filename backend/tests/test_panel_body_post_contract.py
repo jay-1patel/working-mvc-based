@@ -64,7 +64,9 @@ class PanelBodyPostContractTests(unittest.TestCase):
             for method in (route.methods or set())
             if route.path in EXPECTED
         ]
-        self.assertEqual(len(EXPECTED), 32)
+        # /api/admin/onboarding-kits/list is the extra flat POST beyond the
+        # original 32 tenant-body routes.
+        self.assertEqual(len(EXPECTED), 33)
         self.assertEqual({path for _, path in registrations}, EXPECTED)
         self.assertTrue(all(method == "POST" for method, _ in registrations))
         self.assertFalse([item for item, count in Counter(registrations).items() if count > 1])

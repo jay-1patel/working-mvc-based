@@ -150,7 +150,8 @@ def report_error(
             from backend.core.context import request_id_var, error_tenant_var, error_context_var
         request_id = request_id or request_id_var.get() or ("evt_" + secrets.token_hex(8))
         trace_context = error_context_var.get()
-        tenant_id = tenant_id or (trace_context.get('tenant_id') if trace_context is not None else error_tenant_var.get())
+        context_tenant = (trace_context or {}).get("tenant_id") if trace_context is not None else None
+        tenant_id = tenant_id or context_tenant or error_tenant_var.get()
         if isinstance(error, BaseException):
             message = str(error) or error.__class__.__name__
             if not detail:

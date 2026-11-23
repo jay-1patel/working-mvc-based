@@ -1,139 +1,121 @@
-"""
-QA Section 1 — Auth / admins / permissions / tenant isolation.
-Evidence-producing live tests against the running server (port 9000).
-Does not mutate production tenants: uses throwaway qa-* usernames when possible.
+"""QA Section 1 — auth checks against the FastAPI app in-process.
+
+The live server on port 9000 is not part of the unit suite. These cases
+exercise the same login and admin routes through TestClient and mongomock.
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
-import time
 import unittest
 from pathlib import Path
 
-import jwt
-import requests
+from mongo_test_support import MongomockSession
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "backend"))
-sys.path.insert(0, str(ROOT / "routing"))
 
-BASE = os.getenv("QA_BASE_URL", "http://127.0.0.1:9000").rstrip("/")
-REPORT = ROOT / "reports" / "qa" / "section1_auth_evidence.jsonl"
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-
-def _log(case: str, **payload):
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    row = {"case": case, "ts": time.time(), **payload}
-    with REPORT.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(row, default=str) + "\n")
-    return row
+import database
+from core.send2_auth import encode_send2_username
+from routes import auth as auth_routes
+from routes import status as status_routes
 
 
 class Section1AuthLive(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # Discover whether any admin exists / try common local creds from env only
-        cls.admin_user = os.getenv("QA_ADMIN_USER", "")
-        cls.admin_pass = os.getenv("QA_ADMIN_PASS", "")
-        cls.token = None
-        if cls.admin_user and cls.admin_pass:
-            r = requests.post(
-                f"{BASE}/api/auth/login",
-                json={"username": cls.admin_user, "password": cls.admin_pass},
-                timeout=15,
-            )
-            if r.status_code == 200:
-                cls.token = r.json().get("token") or r.json().get("access_token")
+    def setUp(self):
+        self.mongo = MongomockSession().start()
+        database.init_db()
+        self.session = "seed-session"
+        database.create_admin(
+            encode_send2_username("qa-admin"),
+            role="super_admin",
+            permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
+            session_id=self.session,
+        )
+        app = FastAPI()
+        app.include_router(auth_routes.router)
+        app.include_router(status_routes.router)
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        self.mongo.stop()
 
     def test_login_empty_credentials(self):
-        r = requests.post(f"{BASE}/api/auth/login", json={"username": "", "password": ""}, timeout=15)
-        _log("login_empty", status=r.status_code, body=r.text[:500])
+        r = self.client.post("/api/auth/login", json={"username": "", "session_id": ""})
         self.assertIn(r.status_code, (400, 401, 422))
 
     def test_login_wrong_password_generic(self):
-        r = requests.post(
-            f"{BASE}/api/auth/login",
-            json={"username": "definitely-not-a-user-xyz", "password": "wrong-password"},
-            timeout=15,
+        r = self.client.post(
+            "/api/auth/login",
+            json={"username": "definitely-not-a-user-xyz", "session_id": "wrong-session"},
         )
-        body = r.text
-        _log("login_wrong", status=r.status_code, body=body[:500])
-        self.assertIn(r.status_code, (401, 403, 429))
-        # Should not leak whether user exists
-        low = body.lower()
-        self.assertNotIn("no such user", low)
-        self.assertNotIn("user not found", low)
+        body = r.text.lower()
+        self.assertEqual(r.status_code, 401)
+        self.assertNotIn("no such user", body)
+        self.assertNotIn("user not found", body)
 
     def test_login_sql_injection_style(self):
-        r = requests.post(
-            f"{BASE}/api/auth/login",
-            json={"username": "' OR '1'='1", "password": "' OR '1'='1"},
-            timeout=15,
+        r = self.client.post(
+            "/api/auth/login",
+            json={"username": "' OR '1'='1", "session_id": "' OR '1'='1"},
         )
-        _log("login_sqli", status=r.status_code, body=r.text[:500])
-        self.assertIn(r.status_code, (401, 403, 422, 429))
-        self.assertNotIn("token", r.text.lower() if r.status_code >= 400 else "")
+        self.assertIn(r.status_code, (401, 422))
+        if r.status_code >= 400:
+            self.assertNotIn("token", r.text.lower())
 
     def test_first_admin_second_call_blocked(self):
-        r1 = requests.post(
-            f"{BASE}/api/auth/first-admin",
-            json={"username": f"qa_first_{int(time.time())}", "password": "QaTestPass!234"},
-            timeout=15,
+        r1 = self.client.post(
+            "/api/auth/first-admin",
+            json={"username": "qa_first", "session_id": "x"},
         )
-        _log("first_admin_call", status=r1.status_code, body=r1.text[:500])
-        # If admins already exist, expect 403/409/400; if created, second call must fail
-        r2 = requests.post(
-            f"{BASE}/api/auth/first-admin",
-            json={"username": f"qa_first2_{int(time.time())}", "password": "QaTestPass!234"},
-            timeout=15,
+        r2 = self.client.post(
+            "/api/auth/first-admin",
+            json={"username": "qa_first2", "session_id": "y"},
         )
-        _log("first_admin_second", status=r2.status_code, body=r2.text[:500])
-        self.assertNotEqual(r2.status_code, 200, "second first-admin must not create another superadmin")
+        self.assertEqual(r1.status_code, 404)
+        self.assertNotEqual(r2.status_code, 200)
 
     def test_tampered_jwt_rejected(self):
-        fake = jwt.encode({"sub": "admin", "role": "super_admin"}, "wrong-secret", algorithm="HS256")
-        if isinstance(fake, bytes):
-            fake = fake.decode()
-        r = requests.get(f"{BASE}/api/auth/me", headers={"Authorization": f"Bearer {fake}"}, timeout=15)
-        _log("tampered_jwt", status=r.status_code, body=r.text[:300])
-        self.assertIn(r.status_code, (401, 403))
+        r = self.client.get(
+            "/api/auth/me",
+            headers={"Authorization": "Bearer stale-token"},
+        )
+        self.assertEqual(r.status_code, 401)
 
     def test_missing_auth_on_admin_route(self):
-        r = requests.get(f"{BASE}/api/auth/admins", timeout=15)
-        _log("admins_no_auth", status=r.status_code, body=r.text[:300])
-        self.assertIn(r.status_code, (401, 403))
+        r = self.client.get("/api/auth/admins")
+        self.assertEqual(r.status_code, 401)
 
     def test_rate_limit_rapid_login(self):
+        # RATE_LIMIT is disabled under pytest, so these stay 401/422 and must not 500.
         codes = []
-        for i in range(25):
-            r = requests.post(
-                f"{BASE}/api/auth/login",
-                json={"username": "rate-limit-probe", "password": f"bad-{i}"},
-                timeout=15,
+        for i in range(8):
+            r = self.client.post(
+                "/api/auth/login",
+                json={"username": "rate-limit-probe", "session_id": f"bad-{i}"},
             )
             codes.append(r.status_code)
-            if r.status_code == 429:
-                break
-        _log("login_rate_limit", codes=codes)
-        # Either rate limit triggers or limit is disabled — record evidence either way
-        self.assertTrue(any(c in (401, 403, 429) for c in codes))
+        self.assertTrue(codes)
+        self.assertTrue(all(code in (401, 422) for code in codes))
+        self.assertNotIn(500, codes)
 
     def test_webhook_status_leaks_verify_token(self):
-        r = requests.get(f"{BASE}/webhook/status", timeout=15)
+        r = self.client.get("/webhook/status")
+        self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
-        _log("webhook_status_leak", status=r.status_code, keys=list(body.keys()), has_token=bool(body.get("verify_token")))
-        # Security finding if verify_token is returned unauthenticated
-        if body.get("verify_token"):
-            _log(
-                "BUG_webhook_status_leaks_verify_token",
-                severity="Major",
-                evidence=f"GET /webhook/status returned verify_token without auth (len={len(str(body.get('verify_token')))})",
-                suspected="backend/routes/status.py:38",
-            )
+        self.assertNotIn("verify_token", body)
+        self.assertIn("verify_token_set", body)
+        config = body.get("send2_config") or {}
+        self.assertEqual(
+            set(config),
+            {"username_set", "password_set", "number_set"},
+        )
+        self.assertTrue(all(isinstance(value, bool) for value in config.values()))
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()

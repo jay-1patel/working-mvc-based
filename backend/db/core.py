@@ -61,6 +61,9 @@ def _ensure_columns(conn, table, columns):
 
 
 def _loads_json(value, default=None):
+    # Mongo stores JSON columns as objects; SQLite stored them as text.
+    if isinstance(value, (dict, list)):
+        return value
     try:
         return json.loads(value) if value else (default if default is not None else {})
     except (json.JSONDecodeError, TypeError):

@@ -17,6 +17,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import database
+from db.mongo import Repository
 from shared.tenancy import store as tenancy_store
 
 
@@ -39,35 +40,41 @@ class TenantHardDeleteTests(unittest.TestCase):
             {"display_name": "Purge Me", "brand": {"name": "Purge Me"}},
             updated_by="test",
         )
-        with database.get_db_context() as conn:
-            conn.execute(
-                "INSERT INTO products (name, slug, tenant_id, is_active) VALUES (?, ?, ?, 1)",
-                ("Loan Pack", "loan-pack", self.tid),
-            )
-            conn.execute(
-                "INSERT INTO faq_dataset (source_file, content_type, content, tenant_id) "
-                "VALUES (?, 'text', 'hello', ?)",
-                ("kit.pdf", self.tid),
-            )
-            conn.execute(
-                "INSERT INTO customers (tenant_id, wa_id, name) VALUES (?, ?, ?)",
-                (self.tid, "919999999999", "Test User"),
-            )
-            conn.execute(
-                "INSERT INTO chat_history (wa_id, message, response, tenant_id) "
-                "VALUES (?, 'hi', 'hello', ?)",
-                ("919999999999", self.tid),
-            )
-            conn.execute(
-                "INSERT INTO app_settings (key, value) VALUES (?, ?)",
-                ("active_test_tenant", self.tid),
-            )
-            conn.execute(
-                "INSERT INTO admin_audit_events "
-                "(created_at, actor_username, actor_role, action, tenant_id, outcome) "
-                "VALUES (datetime('now'), 'ops', 'super_admin', 'tenant_created', ?, 'success')",
-                (self.tid,),
-            )
+        from datetime import datetime, timezone
+
+        Repository("products").insert(
+            {"name": "Loan Pack", "slug": "loan-pack", "tenant_id": self.tid, "is_active": 1}
+        )
+        Repository("faq_dataset").insert(
+            {
+                "source_file": "kit.pdf",
+                "content_type": "text",
+                "content": "hello",
+                "tenant_id": self.tid,
+            }
+        )
+        Repository("customers").insert(
+            {"tenant_id": self.tid, "wa_id": "919999999999", "name": "Test User"}
+        )
+        Repository("chat_history").insert(
+            {
+                "wa_id": "919999999999",
+                "message": "hi",
+                "response": "hello",
+                "tenant_id": self.tid,
+            }
+        )
+        Repository("app_settings").insert({"key": "active_test_tenant", "value": self.tid})
+        Repository("admin_audit_events").insert(
+            {
+                "created_at": datetime.now(timezone.utc),
+                "actor_username": "ops",
+                "actor_role": "super_admin",
+                "action": "tenant_created",
+                "tenant_id": self.tid,
+                "outcome": "success",
+            }
+        )
 
         pack = self.clients_root / self.tid
         pack.mkdir(parents=True, exist_ok=True)
@@ -90,48 +97,19 @@ class TenantHardDeleteTests(unittest.TestCase):
         self.assertIsNone(tenancy_store.get_tenant(self.tid))
         self.assertFalse((self.clients_root / self.tid).exists())
 
-        with database.get_db_context() as conn:
-            self.assertEqual(
-                conn.execute(
-                    "SELECT COUNT(*) AS c FROM products WHERE tenant_id = ?",
-                    (self.tid,),
-                ).fetchone()["c"],
-                0,
-            )
-            self.assertEqual(
-                conn.execute(
-                    "SELECT COUNT(*) AS c FROM faq_dataset WHERE tenant_id = ?",
-                    (self.tid,),
-                ).fetchone()["c"],
-                0,
-            )
-            self.assertEqual(
-                conn.execute(
-                    "SELECT COUNT(*) AS c FROM customers WHERE tenant_id = ?",
-                    (self.tid,),
-                ).fetchone()["c"],
-                0,
-            )
-            self.assertEqual(
-                conn.execute(
-                    "SELECT COUNT(*) AS c FROM draft_config WHERE scope = ?",
-                    (tenancy_store.profile_scope(self.tid),),
-                ).fetchone()["c"],
-                0,
-            )
-            active = conn.execute(
-                "SELECT value FROM app_settings WHERE key = ?",
-                ("active_test_tenant",),
-            ).fetchone()
-            self.assertIsNone(active)
-            # Prior audit history for this tenant is retained.
-            self.assertEqual(
-                conn.execute(
-                    "SELECT COUNT(*) AS c FROM admin_audit_events WHERE tenant_id = ?",
-                    (self.tid,),
-                ).fetchone()["c"],
-                1,
-            )
+        self.assertEqual(Repository("products").count({"tenant_id": self.tid}), 0)
+        self.assertEqual(Repository("faq_dataset").count({"tenant_id": self.tid}), 0)
+        self.assertEqual(Repository("customers").count({"tenant_id": self.tid}), 0)
+        self.assertEqual(
+            Repository("draft_config").count({"scope": tenancy_store.profile_scope(self.tid)}),
+            0,
+        )
+        self.assertIsNone(Repository("app_settings").find_one({"key": "active_test_tenant"}))
+        # Prior audit history for this tenant is retained.
+        self.assertEqual(
+            Repository("admin_audit_events").count({"tenant_id": self.tid}),
+            1,
+        )
 
 
 if __name__ == "__main__":

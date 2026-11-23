@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Loader2, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
 import { tenantsApi } from '@/lib/tenants'
-import { editorContactErrors, editorFromProfile, editorToSnapshot, isValidPhone, timezoneOptions, type EditorForm } from '@/lib/profile'
+import { editorContactErrors, editorFromProfile, editorToSnapshot, timezoneOptions, type EditorForm } from '@/lib/profile'
 import { FEATURE_LABELS, getVertical } from '@/lib/verticals'
 import type { FeatureFlag } from '@/lib/types'
 import {
@@ -14,7 +14,6 @@ import {
   Notice,
   Panel,
   PrimaryButton,
-  TagField,
   Toggle,
 } from '@/components/remake/ui'
 import { LoadingBlock } from '@/components/ui/feedback'
@@ -48,7 +47,6 @@ const FEATURE_GROUPS: { title: string; flags: FeatureFlag[] }[] = [
 
 /** The compact size the legacy `size="sm"` buttons had in the header. */
 const smallBtn = 'px-3 py-1.5 text-xs'
-const fieldLabelClass = 'mb-1.5 block text-sm font-medium text-tx'
 
 export function ProfileEditor({ tenantId }: { tenantId: string }) {
   const detail = useTenantDetail(tenantId)
@@ -240,80 +238,6 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Brand">
-          <p className="-mt-1 mb-4 text-sm text-txmuted">Names and contact details used in menus and signatures.</p>
-          <div className="space-y-4">
-            <FieldInput label="Display name" disabled={!editing} value={form.displayName} onChange={(e) => patch({ displayName: e.target.value })} />
-            <FieldInput label="Company name" disabled={!editing} value={form.brand.name} onChange={(e) => patch({ brand: { ...form.brand, name: e.target.value } })} />
-            <FieldInput label="Bot name" disabled={!editing} value={form.brand.botName} onChange={(e) => patch({ brand: { ...form.brand, botName: e.target.value } })} />
-            <FieldInput label="Tagline" disabled={!editing} value={form.brand.tagline} onChange={(e) => patch({ brand: { ...form.brand, tagline: e.target.value } })} />
-            <FieldInput label="Website" disabled={!editing} value={form.brand.website} onChange={(e) => patch({ brand: { ...form.brand, website: e.target.value } })} />
-            <FieldInput
-              label="Support email"
-              type="email"
-              disabled={!editing}
-              value={form.brand.supportEmail}
-              onChange={(e) => patch({ brand: { ...form.brand, supportEmail: e.target.value } })}
-            />
-            <FieldInput
-              label="Support phone"
-              disabled={!editing}
-              value={form.brand.supportPhone}
-              error={
-                editing && form.brand.supportPhone.trim() && !isValidPhone(form.brand.supportPhone)
-                  ? 'Phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210'
-                  : undefined
-              }
-              onChange={(e) => patch({ brand: { ...form.brand, supportPhone: e.target.value } })}
-            />
-            <FieldInput
-              label="Closing signature"
-              disabled={!editing}
-              value={form.brand.signature}
-              onChange={(e) => patch({ brand: { ...form.brand, signature: e.target.value } })}
-            />
-          </div>
-        </Panel>
-
-        <Panel title="Vocabulary">
-          <p className="-mt-1 mb-4 text-sm text-txmuted">
-            The nouns the bot uses. Changing these changes every message, menu and prompt that uses them.
-          </p>
-          <div className="space-y-4">
-            {(
-              [
-                ['item_noun', 'Plural offering noun', 'products'],
-                ['item_noun_singular', 'Singular offering noun', 'product'],
-                ['browse_label', 'Browse label', 'Browse Products'],
-                ['catalog_label', 'Brochure label', 'View Brochure'],
-                ['lead_noun', 'Enquiry noun', 'enquiry'],
-                ['enquiry_label', 'Enquiry button label', 'Enquire'],
-                ['support_label', 'Support label', 'Support'],
-              ] as const
-            ).map(([key, label, example]) => (
-              <FieldInput
-                key={key}
-                label={label}
-                disabled={!editing}
-                value={form.vocabulary[key] ?? ''}
-                placeholder={example}
-                onChange={(e) => patch({ vocabulary: { ...form.vocabulary, [key]: e.target.value } })}
-              />
-            ))}
-            <div>
-              <p className={fieldLabelClass}>Domain keywords</p>
-              <p className="mb-2 text-xs text-txfaint">
-                Comma separated. The classifier will not route anything to an intent that uses a term this profile switched off.
-              </p>
-              <TagField
-                disabled={!editing}
-                value={form.keywords.split(',').map((s) => s.trim()).filter(Boolean)}
-                onChange={(next) => patch({ keywords: next.join(', ') })}
-              />
-            </div>
-          </div>
-        </Panel>
-
         <Panel title="Working hours">
           <p className="-mt-1 mb-4 text-sm text-txmuted">Working hours configuration.</p>
           <div className="space-y-4">
@@ -434,53 +358,6 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         </div>
       </Panel>
 
-      <Panel title="Guardrails" className="mt-4">
-        <p className="-mt-1 mb-4 text-sm text-txmuted">
-          What the bot must never claim, and when it must stop and call a human.
-        </p>
-        <div className="space-y-4">
-          <FieldTextarea
-            label="Never state (one per line)"
-            rows={4}
-            disabled={!editing}
-            value={form.guardrails.neverState}
-            onChange={(e) => patch({ guardrails: { ...form.guardrails, neverState: e.target.value } })}
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className={fieldLabelClass}>Forbidden terms</p>
-              <TagField
-                disabled={!editing}
-                value={split(form.guardrails.forbiddenTerms)}
-                onChange={(next) => patch({ guardrails: { ...form.guardrails, forbiddenTerms: next.join(', ') } })}
-              />
-            </div>
-            <div>
-              <p className={fieldLabelClass}>Handoff keywords</p>
-              <TagField
-                disabled={!editing}
-                value={split(form.guardrails.handoffKeywords)}
-                onChange={(next) => patch({ guardrails: { ...form.guardrails, handoffKeywords: next.join(', ') } })}
-              />
-            </div>
-          </div>
-          <div>
-            <p className={fieldLabelClass}>Escalate on</p>
-            <TagField
-              disabled={!editing}
-              value={split(form.guardrails.escalateKeywords)}
-              onChange={(next) => patch({ guardrails: { ...form.guardrails, escalateKeywords: next.join(', ') } })}
-            />
-          </div>
-          <FieldInput
-            label="Escalation message"
-            disabled={!editing}
-            value={form.guardrails.escalationMessage}
-            onChange={(e) => patch({ guardrails: { ...form.guardrails, escalationMessage: e.target.value } })}
-          />
-        </div>
-      </Panel>
-
       <p className="mt-4 flex items-center gap-2 text-xs text-txmuted">
         <TriangleAlert className="h-3.5 w-3.5" />
         {current === baseline
@@ -493,9 +370,3 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
   )
 }
 
-function split(value: string): string[] {
-  return value
-    .split(/[,\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-}

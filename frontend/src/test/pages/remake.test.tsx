@@ -69,9 +69,9 @@ describe('remake — grouped navigation', () => {
     ])
     const labels = nav.map((i) => i.label)
     expect(labels).toContain('Chats')
+    expect(labels).toContain('Profile')
+    expect(labels.indexOf('Profile')).toBe(labels.indexOf('Chats') + 1)
     expect(labels).toContain('WhatsApp menu')
-    const whatsapp = nav.find((i) => i.id === 'whatsapp')
-    expect(whatsapp?.children?.map((c) => c.label)).toEqual(['WhatsApp menu', 'Profile menu'])
     expect(labels).toContain('Connections')
     expect(labels).toContain('Questions the bot understands')
     expect(labels).not.toContain('Live inbox')
@@ -141,6 +141,7 @@ describe('remake — shell in the app', () => {
     for (const group of ['Talk to customers', 'Your business data', 'Grow', 'Manage']) {
       expect(screen.queryByText(group)).not.toBeInTheDocument()
     }
+    expect(await screen.findByRole('button', { name: /^profile$/i })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: /whatsapp menu/i })).toBeInTheDocument()
     expect((await screen.findAllByText('Chats')).length).toBeGreaterThan(0)
     expect(await screen.findByRole('button', { name: /businesses/i })).toBeInTheDocument()

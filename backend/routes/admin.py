@@ -1149,7 +1149,7 @@ async def store_chat_attachment(filename: str, content: bytes, media_type: str |
 KNOWN_MENU_KEYS = ["kb_main"]
 
 
-@router.get("/menus")
+@router.post("/menus")
 def list_menus_api(current_admin: dict = Depends(get_current_admin)):
     """All menu keys with their full merged item lists (defaults + overrides)."""
     return {
@@ -1160,32 +1160,17 @@ def list_menus_api(current_admin: dict = Depends(get_current_admin)):
     }
 
 
-@router.get("/menus/{menu_key}")
-def get_menu_api(menu_key: str, current_admin: dict = Depends(get_current_admin)):
-    if menu_key not in KNOWN_MENU_KEYS:
-        raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
-
-    # BUG FIX: this used to return ONLY the raw DB rows once a single edit
-    # existed, which made every other menu item vanish from the editor after
-    # the first save/toggle. get_menu_editor_items() always merges the code
-    # defaults with the DB overrides so the editor sees the complete menu.
-    return {
-        "menu_key": menu_key,
-        "items": get_menu_editor_items(menu_key),
-        "settings": get_menu_settings(menu_key),
-    }
-
-
-@router.get("/menus/{menu_key}/settings")
+# NOTE: nested settings / items / reorder / reset / update / delete routes
+# are declared before the bare POST /menus/{menu_key} so path segments like
+# "settings" are never captured as a menu_key or item_id.
+@router.post("/menus/{menu_key}/settings")
 def get_menu_settings_api(menu_key: str, current_admin: dict = Depends(get_current_admin)):
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
     return {"menu_key": menu_key, "settings": get_menu_settings(menu_key)}
 
 
-# NOTE: settings routes are declared BEFORE the /{item_id} route so that
-# "settings" is never captured as an item_id path parameter.
-@router.put("/menus/{menu_key}/settings")
+@router.post("/menus/{menu_key}/settings/update")
 def set_menu_settings_api(
     menu_key: str,
     data: dict,
@@ -1211,7 +1196,7 @@ def set_menu_settings_api(
     return {"ok": True, "menu_key": menu_key, "settings": after}
 
 
-@router.put("/menus/{menu_key}/{item_id}")
+@router.post("/menus/{menu_key}/{item_id}/update")
 def update_menu_item_api(
     menu_key: str,
     item_id: str,
@@ -1379,7 +1364,7 @@ def reorder_menu_items_api(
     return {"ok": True, "menu_key": menu_key, "reordered": applied}
 
 
-@router.delete("/menus/{menu_key}/{item_id}")
+@router.post("/menus/{menu_key}/{item_id}/delete")
 def delete_menu_item_api(
     menu_key: str,
     item_id: str,
@@ -1446,6 +1431,22 @@ def reset_menu_api(menu_key: str, request: Request, current_admin: dict = Depend
     _record_audit(action="menu_reset", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "removed_count": removed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "removed": removed}
+
+
+@router.post("/menus/{menu_key}")
+def get_menu_api(menu_key: str, current_admin: dict = Depends(get_current_admin)):
+    if menu_key not in KNOWN_MENU_KEYS:
+        raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
+
+    # BUG FIX: this used to return ONLY the raw DB rows once a single edit
+    # existed, which made every other menu item vanish from the editor after
+    # the first save/toggle. get_menu_editor_items() always merges the code
+    # defaults with the DB overrides so the editor sees the complete menu.
+    return {
+        "menu_key": menu_key,
+        "items": get_menu_editor_items(menu_key),
+        "settings": get_menu_settings(menu_key),
+    }
 
 
 # ============================================================================

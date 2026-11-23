@@ -270,6 +270,9 @@ BODY_TENANT_POST_PATHS = frozenset({
 # view-only for super admins (profile page load).
 READ_ONLY_POST_PATH_PATTERNS = (
     re.compile(r"^/api/admin/tenants/[^/]+/detail$"),
+    re.compile(r"^/api/admin/menus$"),
+    re.compile(r"^/api/admin/menus/[^/]+$"),
+    re.compile(r"^/api/admin/menus/[^/]+/settings$"),
 )
 
 

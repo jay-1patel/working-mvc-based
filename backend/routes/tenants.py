@@ -604,6 +604,23 @@ class TenantDetailRequest(BaseModel):
     pass
 
 
+# Profile console no longer edits these; keep them out of the detail payload.
+_DETAIL_OMIT_KEYS = ("vocabulary", "guardrails")
+
+
+def _scrub_detail_profile(payload: Any) -> Any:
+    """Drop vocabulary / guardrails from a profile-shaped dict."""
+    if not isinstance(payload, dict):
+        return payload
+    return {key: value for key, value in payload.items() if key not in _DETAIL_OMIT_KEYS}
+
+
+def _scrub_detail_layers(layers: Any) -> Any:
+    if not isinstance(layers, dict):
+        return layers
+    return {name: _scrub_detail_profile(layer) for name, layer in layers.items()}
+
+
 @router.post("/{tenant_id}/detail")
 def tenant_detail(
     tenant_id: str,
@@ -628,13 +645,13 @@ def tenant_detail(
             pending_error = str(exc)
     return {
         "tenant": _public_tenant(layers.get("tenant")),
-        "layers": layers.get("layers", {}),
+        "layers": _scrub_detail_layers(layers.get("layers", {})),
         "current_version": layers.get("current_version", 0),
         "versions": layers.get("versions", []),
-        "effective": effective,
+        "effective": _scrub_detail_profile(effective),
         "effective_error": None if effective else "effective profile could not be built",
         "has_draft": bool(draft),
-        "pending": pending,
+        "pending": _scrub_detail_profile(pending),
         "pending_error": pending_error,
     }
 

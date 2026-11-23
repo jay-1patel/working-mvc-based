@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Loader2, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
+import { Loader2, Pencil, Save, Send, TriangleAlert } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
 import { tenantsApi } from '@/lib/tenants'
 import {
@@ -148,59 +148,35 @@ export function ProfileEditor({
         description={description}
         actions={
           readOnly ? undefined : editing ? (
-            <>
-              <GhostButton
-                className={smallBtn}
-                disabled={!dirty}
-                onClick={() => {
-                  setForm(editorFromProfile(effective))
-                  setDirty(false)
-                  setWarnings([])
-                }}
-              >
-                <RotateCcw className="h-4 w-4" />
-                Discard changes
-              </GhostButton>
-              {isSuperAdmin ? (
-                <>
-                  <GhostButton
-                    className={smallBtn}
-                    disabled={action.busy}
-                    onClick={() => saveDraft(false)}
-                  >
-                    {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    Save draft
-                  </GhostButton>
-                  <PrimaryButton
-                    className={smallBtn}
-                    disabled={action.busy}
-                    onClick={() => saveDraft(true)}
-                  >
-                    {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    Save & publish
-                  </PrimaryButton>
-                </>
-              ) : (
+            isSuperAdmin ? (
+              <>
+                <GhostButton
+                  className={smallBtn}
+                  disabled={action.busy}
+                  onClick={() => saveDraft(false)}
+                >
+                  {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save draft
+                </GhostButton>
                 <PrimaryButton
                   className={smallBtn}
                   disabled={action.busy}
                   onClick={() => saveDraft(true)}
                 >
                   {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Submit for approval
+                  Save & publish
                 </PrimaryButton>
-              )}
-              <span title={dirty ? 'Save or discard your changes first' : undefined} className="inline-flex">
-                <GhostButton
-                  className={smallBtn}
-                  disabled={dirty}
-                  onClick={() => setEditing(false)}
-                >
-                  <Check className="h-4 w-4" />
-                  Done editing
-                </GhostButton>
-              </span>
-            </>
+              </>
+            ) : (
+              <PrimaryButton
+                className={smallBtn}
+                disabled={action.busy}
+                onClick={() => saveDraft(true)}
+              >
+                {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Submit for approval
+              </PrimaryButton>
+            )
           ) : (
             <PrimaryButton
               className={smallBtn}

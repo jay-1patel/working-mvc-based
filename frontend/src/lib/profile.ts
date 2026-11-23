@@ -741,6 +741,8 @@ function csv(value: string): string[] {
 }
 
 export function editorToSnapshot(form: EditorForm): ProfileSnapshot {
+  // vocabulary / guardrails are no longer edited in the console; omit them
+  // so a save cannot blank values that still live on the server profile.
   return {
     display_name: form.displayName,
     features: featureRecord(form.features),
@@ -753,7 +755,6 @@ export function editorToSnapshot(form: EditorForm): ProfileSnapshot {
       support_phone: form.brand.supportPhone,
       signature: form.brand.signature,
     },
-    vocabulary: form.vocabulary,
     business_hours: {
       timezone: form.businessHours.timezone,
       always_open: form.businessHours.alwaysOpen,
@@ -766,13 +767,6 @@ export function editorToSnapshot(form: EditorForm): ProfileSnapshot {
       sales_email: form.notifications.salesEmail,
       support_email: form.notifications.supportEmail,
       brochure_url: form.notifications.brochureUrl,
-    },
-    guardrails: {
-      never_state: form.guardrails.neverState.split('\n').map((s) => s.trim()).filter(Boolean),
-      escalate_keywords: csv(form.guardrails.escalateKeywords).map((s) => s.toLowerCase()),
-      forbidden_terms: csv(form.guardrails.forbiddenTerms),
-      handoff_keywords: csv(form.guardrails.handoffKeywords),
-      escalation_message: form.guardrails.escalationMessage,
     },
     prompt: { keywords: csv(form.keywords) },
   }

@@ -4,11 +4,13 @@ import { useAuth } from '@/lib/auth'
 import { ApiError } from '@/lib/api'
 import { FieldInput, Notice, PrimaryButton } from '@/components/remake/ui'
 import { PASSWORD_HINT, passwordError } from '@/lib/password'
+import { enableMockMode } from '@/lib/mock'
 
 export function LoginView() {
   const { needsSetup, login, setup } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [sessionId, setSessionId] = useState('')
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -26,7 +28,7 @@ export function LoginView() {
     setError(null)
     try {
       if (needsSetup) await setup(username, password, email)
-      else await login(username, password)
+      else await login(username, sessionId)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message)
     } finally {
@@ -56,16 +58,29 @@ export function LoginView() {
             autoComplete="username"
             autoFocus
             required
+            hint={needsSetup ? undefined : 'Plain username only, e.g. test_support_ (Base64 login is rejected).'}
           />
-          <FieldInput
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={needsSetup ? 'new-password' : 'current-password'}
-            hint={needsSetup ? PASSWORD_HINT : undefined}
-            required
-          />
+          {needsSetup ? (
+            <FieldInput
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              hint={PASSWORD_HINT}
+              required
+            />
+          ) : (
+            <FieldInput
+              label="Session ID"
+              type="password"
+              value={sessionId}
+              onChange={(e) => setSessionId(e.target.value)}
+              autoComplete="current-password"
+              hint="Use the live session_id for this admin from the database."
+              required
+            />
+          )}
           {needsSetup && (
             <FieldInput
               label="Email (optional)"
@@ -94,6 +109,18 @@ export function LoginView() {
           <KeyRound className="h-3 w-3" />
           Sessions are stored locally in this browser only.
         </p>
+        {import.meta.env.DEV && !needsSetup && (
+          <button
+            type="button"
+            onClick={() => {
+              enableMockMode()
+              window.location.reload()
+            }}
+            className="mt-3 w-full text-center text-xs font-medium text-acc underline-offset-2 hover:underline"
+          >
+            Preview as simple admin
+          </button>
+        )}
       </div>
     </div>
     <footer className="send2-footer">Send2Digital <span aria-hidden="true">·</span> AI Chatbot</footer>

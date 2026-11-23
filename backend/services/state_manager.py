@@ -19,9 +19,23 @@ only sets and resets `status`.
 import json
 import time
 import logging
-from database import get_db_context
+from datetime import datetime, timezone
 
 logger = logging.getLogger("state_manager")
+
+_SQLITE_DISABLED = (
+    "user_states access requires MongoDB; SQLite get_db_context is disabled"
+)
+
+
+def _use_mongodb():
+    from db.core import use_mongodb
+    return use_mongodb()
+
+
+def _states_repo():
+    from db.mongo import Repository
+    return Repository("user_states")
 
 B2C_CHECKOUT_STATES = [
     "B2C_CHECKOUT_NAME", "B2C_CHECKOUT_MOBILE", "B2C_CHECKOUT_PINCODE",
@@ -54,11 +68,10 @@ class OptimisticLockError(Exception):
 def get_user_state(wa_id: str) -> str | None:
     """Return current state string, or None if no record."""
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT state FROM user_states WHERE wa_id = ?", (wa_id,)
-            ).fetchone()
-            return row[0] if row else None
+        if _use_mongodb():
+            row = _states_repo().find_one({"wa_id": wa_id})
+            return row.get("state") if row else None
+        raise RuntimeError(_SQLITE_DISABLED)
     except Exception as e:
         logger.error(f"get_user_state failed for {wa_id}: {e}")
         return None
@@ -67,15 +80,17 @@ def get_user_state(wa_id: str) -> str | None:
 def read_user_context(wa_id: str) -> tuple[dict, int]:
     """Return (context_dict, version). Empty dict + 0 if no record."""
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT context_json, version FROM user_states WHERE wa_id = ?",
-                (wa_id,),
-            ).fetchone()
+        if _use_mongodb():
+            row = _states_repo().find_one({"wa_id": wa_id})
             if not row:
                 return {}, 0
-            ctx = json.loads(row[0]) if row[0] else {}
-            return ctx, (row[1] or 0)
+            ctx = row.get("context_json")
+            if isinstance(ctx, str):
+                ctx = json.loads(ctx or "{}")
+            elif not isinstance(ctx, dict):
+                ctx = {}
+            return ctx, int(row.get("version") or 0)
+        raise RuntimeError(_SQLITE_DISABLED)
     except Exception as e:
         logger.error(f"read_user_context failed for {wa_id}: {e}")
         return {}, 0
@@ -84,13 +99,19 @@ def read_user_context(wa_id: str) -> tuple[dict, int]:
 def write_user_context(wa_id: str, context: dict, expected_version: int) -> bool:
     """CAS write: update only if version matches. Returns True on success."""
     try:
-        with get_db_context() as conn:
-            cur = conn.execute(
-                "UPDATE user_states SET context_json = ?, version = version + 1, "
-                "updated_at = CURRENT_TIMESTAMP WHERE wa_id = ? AND version = ?",
-                (json.dumps(context), wa_id, expected_version),
+        if _use_mongodb():
+            repo = _states_repo()
+            updated = repo.inc(
+                {"wa_id": wa_id, "version": expected_version},
+                "version",
+                1,
+                extra={
+                    "context_json": context,
+                    "updated_at": datetime.now(timezone.utc),
+                },
             )
-            return cur.rowcount > 0
+            return updated > 0
+        raise RuntimeError(_SQLITE_DISABLED)
     except Exception as e:
         logger.error(f"write_user_context failed for {wa_id}: {e}")
         return False
@@ -185,6 +206,8 @@ def check_state_expiry(wa_id: str, context: dict, checkout_states: list,
 # Same table, same version column, same CAS write. Flows get no parallel store.
 
 def _loads_collected(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
     if not raw:
         return {}
     try:
@@ -248,13 +271,20 @@ def ensure_conversation_row(wa_id: str, tenant_id: str | None = None) -> None:
         )
         return
     try:
-        with get_db_context() as conn:
-            conn.execute(
-                """INSERT INTO user_states (tenant_id, wa_id, state, context_json, collected, status)
-                   VALUES (?, ?, 'B2C_MAIN_MENU', '{}', '{}', ?)
-                   ON CONFLICT(tenant_id, wa_id) DO NOTHING""",
-                (t_id, wa_id, STATUS_BOT),
-            )
+        if _use_mongodb():
+            repo = _states_repo()
+            if not repo.find_one({"tenant_id": t_id, "wa_id": wa_id}):
+                repo.insert({
+                    "tenant_id": t_id,
+                    "wa_id": wa_id,
+                    "state": "B2C_MAIN_MENU",
+                    "context_json": {},
+                    "collected": {},
+                    "status": STATUS_BOT,
+                    "version": 0,
+                })
+        else:
+            raise RuntimeError(_SQLITE_DISABLED)
     except Exception as e:
         logger.error(f"ensure_conversation_row failed for {wa_id}: {e}")
 
@@ -262,53 +292,54 @@ def ensure_conversation_row(wa_id: str, tenant_id: str | None = None) -> None:
 def read_conversation(wa_id: str) -> dict:
     """Full conversation row: state, context, tenant, flow progress, status."""
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT state, context_json, version, " + FLOW_COLUMNS +
-                " FROM user_states WHERE wa_id = ?", (wa_id,)
-            ).fetchone()
+        if _use_mongodb():
+            row = _states_repo().find_one({"wa_id": wa_id})
+            if row is None:
+                ensure_conversation_row(wa_id)
+                return {
+                    "wa_id": wa_id,
+                    "state": "MAIN_MENU",
+                    "context": {},
+                    "version": 0,
+                    "tenant_id": None,
+                    "active_flow": None,
+                    "current_step": None,
+                    "collected": {},
+                    "status": STATUS_BOT,
+                }
+            try:
+                context = row.get("context_json")
+                if isinstance(context, str):
+                    context = json.loads(context or "{}")
+                elif not isinstance(context, dict):
+                    context = {}
+            except (json.JSONDecodeError, TypeError):
+                context = {}
+            return {
+                "wa_id": wa_id,
+                "state": row.get("state"),
+                "context": context,
+                "version": int(row.get("version") or 0),
+                "tenant_id": row.get("tenant_id"),
+                "active_flow": row.get("active_flow"),
+                "current_step": row.get("current_step"),
+                "collected": _loads_collected(row.get("collected")),
+                "status": row.get("status") or STATUS_BOT,
+            }
+        raise RuntimeError(_SQLITE_DISABLED)
     except Exception as e:
         logger.error(f"read_conversation failed for {wa_id}: {e}")
         return {}
-    if not row:
-        ensure_conversation_row(wa_id)
-        return {
-            "wa_id": wa_id,
-            "state": "MAIN_MENU",
-            "context": {},
-            "version": 0,
-            "tenant_id": None,
-            "active_flow": None,
-            "current_step": None,
-            "collected": {},
-            "status": STATUS_BOT,
-        }
-    try:
-        context = json.loads(row["context_json"] or "{}")
-    except (json.JSONDecodeError, TypeError):
-        context = {}
-    return {
-        "wa_id": wa_id,
-        "state": row["state"],
-        "context": context if isinstance(context, dict) else {},
-        "version": row["version"] or 0,
-        "tenant_id": row["tenant_id"],
-        "active_flow": row["active_flow"],
-        "current_step": row["current_step"],
-        "collected": _loads_collected(row["collected"]),
-        "status": row["status"] or STATUS_BOT,
-    }
 
 
 
 def active_flow(wa_id: str) -> str | None:
     """Name of the flow currently running for this user, or None."""
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT active_flow FROM user_states WHERE wa_id = ?", (wa_id,)
-            ).fetchone()
-        return (row["active_flow"] if row else None) or None
+        if _use_mongodb():
+            row = _states_repo().find_one({"wa_id": wa_id})
+            return (row.get("active_flow") if row else None) or None
+        raise RuntimeError(_SQLITE_DISABLED)
     except Exception as e:
         logger.error(f"active_flow failed for {wa_id}: {e}")
         return None
@@ -316,11 +347,10 @@ def active_flow(wa_id: str) -> str | None:
 
 def get_status(wa_id: str) -> str:
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT status FROM user_states WHERE wa_id = ?", (wa_id,)
-            ).fetchone()
-        return (row["status"] if row else None) or STATUS_BOT
+        if _use_mongodb():
+            row = _states_repo().find_one({"wa_id": wa_id})
+            return (row.get("status") if row else None) or STATUS_BOT
+        raise RuntimeError(_SQLITE_DISABLED)
     except Exception as e:
         logger.error(f"get_status failed for {wa_id}: {e}")
         return STATUS_BOT
@@ -347,23 +377,25 @@ def update_conversation_with_retry(wa_id: str, mutate, max_retries: int = 3) -> 
             )
             return {}
         try:
-            with get_db_context() as conn:
-                cur = conn.execute(
-                    "UPDATE user_states SET tenant_id = ?, active_flow = ?, current_step = ?, "
-                    "collected = ?, status = ?, version = version + 1, "
-                    "updated_at = CURRENT_TIMESTAMP WHERE wa_id = ? AND version = ?",
-                    (
-                        tid,
-                        convo.get("active_flow"),
-                        convo.get("current_step"),
-                        json.dumps(convo.get("collected") or {}),
-                        convo.get("status") or STATUS_BOT,
-                        wa_id,
-                        convo.get("version", 0),
-                    ),
+            if _use_mongodb():
+                repo = _states_repo()
+                updated = repo.inc(
+                    {"wa_id": wa_id, "version": convo.get("version", 0)},
+                    "version",
+                    1,
+                    extra={
+                        "tenant_id": tid,
+                        "active_flow": convo.get("active_flow"),
+                        "current_step": convo.get("current_step"),
+                        "collected": convo.get("collected") or {},
+                        "status": convo.get("status") or STATUS_BOT,
+                        "updated_at": datetime.now(timezone.utc),
+                    },
                 )
-                if cur.rowcount > 0:
+                if updated > 0:
                     return convo
+            else:
+                raise RuntimeError(_SQLITE_DISABLED)
         except Exception as e:
             logger.error(f"conversation write failed for {wa_id}: {e}")
             return {}

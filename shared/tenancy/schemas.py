@@ -153,9 +153,17 @@ _PHONE_COUNTRY_CODES = frozenset((
     '60', '61', '62', '63', '64', '65', '66', '81', '82', '84', '86', '90',
     '91', '92', '93', '94', '95', '98', '1', '7',
 ))
-_URL_RE = re.compile(r"^(https?://)?([\w-]+\.)+[A-Za-z]{2,}(:\d+)?(/\S*)?$")
+# Host: domain (example.com) or IPv4 (10.100.100.43), optional port + path.
+_IPV4_HOST = r"(?:\d{1,3}\.){3}\d{1,3}"
+_DOMAIN_HOST = r"(?:[\w-]+\.)+[A-Za-z]{2,}"
+_URL_RE = re.compile(
+    rf"^(https?://)?({_DOMAIN_HOST}|{_IPV4_HOST})(:\d+)?(/\S*)?$"
+)
 # First URL-shaped token inside noisy text, e.g. "https://x.co (rates: https://y.co)".
-_URL_TOKEN_RE = re.compile(r"https?://[^\s()<>\",;]+|(?<![\w/.-])[\w-]+\.[A-Za-z]{2,}(?:/\S*)?", re.I)
+_URL_TOKEN_RE = re.compile(
+    rf"https?://[^\s()<>\",;]+|(?<![\w/.-])(?:{_DOMAIN_HOST}|{_IPV4_HOST})(?::\d+)?(?:/\S*)?",
+    re.I,
+)
 
 
 def _require_email(value: str, field: str) -> str:
@@ -238,6 +246,18 @@ def _require_url(value: str, field: str) -> str:
     if extracted:
         return extracted
     raise ValueError(f"{field} '{v}' is not a valid website URL")
+
+
+# Brochure may also be a media-host relative path or localhost (dev / LAN).
+_UPLOAD_PATH_RE = re.compile(r"^/uploaded_files/\S+$")
+_LOCALHOST_URL_RE = re.compile(r"^(https?://)?localhost(:\d+)?(/\S*)?$", re.I)
+
+
+def _require_brochure_url(value: str, field: str) -> str:
+    v = (value or "").strip()
+    if not v or _UPLOAD_PATH_RE.fullmatch(v) or _LOCALHOST_URL_RE.fullmatch(v):
+        return value
+    return _require_url(v, field)
 
 
 def missing_contact_fields(brand) -> List[str]:
@@ -521,6 +541,16 @@ class BusinessHours(_Base):
         return v
 
 
+class CallbackPolicy(_Base):
+    """Tenant-authorized callback channels and explicit operating rules."""
+
+    mode: Literal["auto", "off", "phone", "booking_url", "google_calendar", "human"] = "auto"
+    allowed_modes: List[str] = Field(default_factory=lambda: ["phone", "google_calendar", "booking_url", "human"])
+    booking_url: str = ""
+    instructions: str = ""
+    require_consent: bool = True
+
+
 class Guardrails(_Base):
     """What the bot must never do, and what to do instead."""
 
@@ -580,7 +610,7 @@ class Notifications(_Base):
     @field_validator("brochure_url")
     @classmethod
     def _check_brochure_url(cls, v):
-        return _require_url(v, "notifications.brochure_url")
+        return _require_brochure_url(v, "notifications.brochure_url")
 
     def active_channels(self, kind: str | None = None) -> List[NotificationChannel]:
         out = [c for c in self.channels if c.enabled and c.to]
@@ -858,6 +888,7 @@ class TenantProfile(_Base):
     intents: List[IntentSpec] = Field(default_factory=list)
     guardrails: Guardrails = Field(default_factory=Guardrails)
     business_hours: BusinessHours = Field(default_factory=BusinessHours)
+    callback_policy: CallbackPolicy = Field(default_factory=CallbackPolicy)
     notifications: Notifications = Field(default_factory=Notifications)
     intelligence: IntelligenceSpec = Field(default_factory=IntelligenceSpec)
 

@@ -248,7 +248,7 @@ class GoogleOAuthService:
                     self.oauth_config.refresh_token = token_data["refresh_token"]
                 return token_data
             else:
-                raise Exception(f"Failed to refresh token: {response.text}")
+                raise Exception(f"Failed to refresh token: HTTP {response.status_code}")
     
     def get_access_token(self) -> Optional[str]:
         """Get current access token (will automatically refresh if needed)."""

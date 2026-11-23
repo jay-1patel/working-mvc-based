@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -22,11 +24,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import database
+from core.send2_auth import encode_send2_username
 from routes import auth as auth_routes
 from routes import distributors as distributors_routes
 from routes import tenants as tenants_routes
-
-PASSWORD = "RootPass123!"
 
 VALID = {
     "wa_id": "100012345678901",
@@ -44,10 +45,7 @@ VALID = {
 
 class DistributorValidationTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "dist.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         database.init_db()
 
         self.app = FastAPI()
@@ -58,15 +56,14 @@ class DistributorValidationTests(unittest.TestCase):
         self.app.include_router(distributors_routes.router)
         self.client = TestClient(self.app)
 
-        first = self.client.post(
-            "/api/auth/first-admin", json={"username": "root", "password": PASSWORD}
+        root_session = "root-session"
+        database.create_admin(
+            encode_send2_username("root"),
+            role="super_admin",
+            permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
+            session_id=root_session,
         )
-        assert first.status_code == 200, first.text
-        res = self.client.post(
-            "/api/auth/login", json={"username": "root", "password": PASSWORD}
-        )
-        assert res.status_code == 200, res.text
-        super_headers = {"Authorization": f"Bearer {res.json()['token']}"}
+        super_headers = {"username": "root", "session_id": root_session}
         created = self.client.post(
             "/api/admin/tenants",
             json={
@@ -83,7 +80,6 @@ class DistributorValidationTests(unittest.TestCase):
             "/api/auth/create",
             json={
                 "username": "acme-admin",
-                "password": PASSWORD,
                 "role": "admin",
                 "tenant_id": "acme",
                 "email": "admin@acme.example",
@@ -91,15 +87,13 @@ class DistributorValidationTests(unittest.TestCase):
             headers=super_headers,
         )
         assert made.status_code == 200, made.text
-        login = self.client.post(
-            "/api/auth/login", json={"username": "acme-admin", "password": PASSWORD}
-        )
-        assert login.status_code == 200, login.text
-        self.headers = {"Authorization": f"Bearer {login.json()['token']}"}
+        self.headers = {
+            "username": "acme-admin",
+            "session_id": made.json()["session_id"],
+        }
 
     def tearDown(self):
-        self.db_patch.stop()
-        self.temp.cleanup()
+        self.mongo.stop()
 
     def _create(self, **overrides):
         payload = {**VALID, **overrides}
@@ -168,18 +162,9 @@ class DistributorValidationTests(unittest.TestCase):
         # Untouched fields keep their values.
         self.assertEqual(found["name"], "Acme Traders")
 
+    @unittest.skip("SQLite PRAGMA migration check removed for MongoDB-only backend")
     def test_migration_adds_columns_to_existing_table(self):
         """A database created before this change gets the three new columns."""
-        import sqlite3
-
-        with patch.object(database, "DB_PATH", self.db_path):
-            database.init_db()
-        conn = sqlite3.connect(self.db_path)
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(distributors)").fetchall()}
-        conn.close()
-        self.assertIn("city", columns)
-        self.assertIn("address", columns)
-        self.assertIn("service_area", columns)
 
 
 if __name__ == "__main__":

@@ -10,9 +10,9 @@ async function renderView(hash: string) {
 import { testState } from '../fixture-server'
 
 /**
- * Phase 2 (business-data reskin) structural guarantees: the two uploads
- * doors, the honest "Coming next" placeholders, and the attention strips —
- * each strip must appear only when the screen's own data supports it.
+ * Phase 2 (business-data reskin) structural guarantees: the merged Website
+ * crawler door, the honest "Coming next" placeholders, and the attention
+ * strips — each strip must appear only when the screen's own data supports it.
  */
 
 const T = 'acme'
@@ -21,31 +21,47 @@ afterEach(() => {
   testState.reset()
 })
 
-describe('phase 2 — uploads doors', () => {
-  it('Knowledge and Files are two doors onto the same uploads screen', async () => {
+describe('phase 2 — website crawler door', () => {
+  it('Website crawler opens the merged crawl + knowledge screen', async () => {
     renderApp(`#/tenants/${T}/overview`)
     await waitForScreen()
     const user = userEvent.setup()
 
     const navigation = within(await screen.findByRole('navigation', { name: 'Main navigation' }))
-    await user.click(navigation.getByRole('button', { name: 'Knowledge' }))
-    await waitFor(
-      () =>
-        expect(
-          screen.getByRole('heading', { name: 'Knowledge & uploads' }),
-        ).toBeInTheDocument(),
-      { timeout: 3000 },
-    )
+    expect(navigation.queryByRole('button', { name: 'Knowledge' })).not.toBeInTheDocument()
+    expect(navigation.queryByRole('button', { name: 'Website knowledge' })).not.toBeInTheDocument()
+    expect(navigation.queryByRole('button', { name: 'Files' })).not.toBeInTheDocument()
 
-    await user.click(navigation.getByRole('button', { name: 'Files' }))
+    await user.click(navigation.getByRole('button', { name: 'Website crawler' }))
     await waitFor(
       () =>
         expect(
-          screen.getByRole('heading', { name: 'Knowledge & uploads' }),
+          screen.getByRole('heading', { name: 'Website crawler' }),
         ).toBeInTheDocument(),
       { timeout: 3000 },
     )
-    expect(window.location.hash).toBe(`#/tenants/${T}/uploads`)
+    expect(window.location.hash).toBe(`#/tenants/${T}/website-crawler`)
+    expect(screen.getByRole('tab', { name: 'Crawl' })).toHaveAttribute('aria-selected', 'true')
+
+    await user.click(screen.getByRole('tab', { name: 'Upload documents' }))
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Upload documents' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    )
+    expect(screen.getByText(/Document upload sessions/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'Files (FAQ, KB, …)' }))
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Files (FAQ, KB, …)' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    )
+    expect(await screen.findByRole('heading', { name: 'File library' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Knowledge base' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'FAQ' })).toBeInTheDocument()
   })
 })
 
@@ -86,7 +102,7 @@ describe('phase 2 — attention strips follow the data', () => {
   })
 
   it('customers: open complaints in the data surface the strip', async () => {
-    testState.respond('GET /api/admin/tenants/acme/customers', () => ({
+    testState.respond('POST /api/admin/tenants/customers', () => ({
       body: {
         customers: [
           {
@@ -109,7 +125,7 @@ describe('phase 2 — attention strips follow the data', () => {
   })
 
   it('uploads: a failed file surfaces the strip; clean data does not', async () => {
-    testState.respond('GET /api/admin/tenants/acme/files', () => ({
+    testState.respond('POST /api/admin/tenants/files', () => ({
       body: {
         files: [
           {

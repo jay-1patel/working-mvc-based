@@ -15,7 +15,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
-from database import get_db, safe_audit_details
+from database import safe_audit_details
+from db.audit_history_ops import (
+    admin_audit_statistics,
+    get_admin_audit_event as fetch_admin_audit_event,
+    list_admin_audit_events,
+)
 from routes.auth import get_current_admin
 
 router = APIRouter(tags=["audit-history"])
@@ -225,52 +230,23 @@ def list_audit_history(
     sort_column = sort_by or "created_at"
     sort_direction = sort_order or "desc"
 
-    conn = get_db()
-    try:
-        total = conn.execute(f"SELECT COUNT(*) FROM admin_audit_events{clause}", params).fetchone()[0]
-        
-        # Get column mapping for sorting
-        column_map = {
-            "created_at": "created_at",
-            "action": "action", 
-            "actor_username": "actor_username",
-            "target_username": "target_username",
-            "outcome": "outcome",
-            "tenant_id": "tenant_id",
-            "tenant_name": "tenant_name",
-            "tenant_slug": "tenant_slug",
-            "ip_address": "ip_address",
-            "resource_type": "resource_type",
-            "id": "id"
-        }
-        
-        actual_sort_column = column_map.get(sort_column, "created_at")
-        
-        rows = conn.execute(
-            f"""SELECT id, created_at, actor_id, actor_username, actor_role,
-                       action, outcome, resource_type, resource_id, target_username,
-                       tenant_id, tenant_name, tenant_slug, actor_kind, actor_label,
-                       details_json, ip_address, user_agent
-                FROM admin_audit_events{clause}
-                ORDER BY {actual_sort_column} {sort_direction}, id DESC LIMIT ? OFFSET ?""",
-            [*params, limit, offset],
-        ).fetchall()
-    finally:
-        conn.close()
-
-    events = []
-    for row in rows:
-        event = dict(row)
-        try:
-            event["details"] = safe_audit_details(json.loads(event.pop("details_json") or "{}"))
-        except (json.JSONDecodeError, TypeError):
-            event["details"] = {}
-        event["tenant_label"] = " · ".join(
-            part for part in (event.get("tenant_name"), event.get("tenant_slug"), event.get("tenant_id")) if part
-        ) or "Platform"
-        events.append(event)
-    
-    return {"events": events, "total": total, "limit": limit, "offset": offset}
+    category_actions = CATEGORY_ACTIONS.get(category) if category else None
+    actor_roles = _ADMIN_VISIBLE_ACTOR_ROLES if current_admin.get("role") == "admin" else None
+    return list_admin_audit_events(
+        start_date=start_date,
+        end_date=end_date,
+        actor=actor,
+        action=action,
+        category_actions=category_actions,
+        tenant_id=tenant_id,
+        outcome=outcome,
+        search=search,
+        actor_roles=actor_roles,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_column,
+        sort_order=sort_direction,
+    )
 
 
 @router.get("/api/admin/audit-statistics")
@@ -305,47 +281,9 @@ def get_audit_statistics(
     _append_actor_role_scope(where, params, current_admin)
     clause = f" WHERE {' AND '.join(where)}" if where else ""
 
-    conn = get_db()
-    try:
-        # Total events
-        total = conn.execute(f"SELECT COUNT(*) FROM admin_audit_events{clause}", params).fetchone()[0]
-        
-        # By outcome
-        outcome_stats = conn.execute(
-            f"""SELECT outcome, COUNT(*) as count 
-                FROM admin_audit_events{clause} 
-                GROUP BY outcome""", 
-            params
-        ).fetchall()
-        
-        by_outcome = {"success": 0, "failure": 0}
-        for row in outcome_stats:
-            if row[0] in by_outcome:
-                by_outcome[row[0]] = row[1]
-        
-        # By action
-        action_stats = conn.execute(
-            f"""SELECT action, COUNT(*) as count 
-                FROM admin_audit_events{clause} 
-                GROUP BY action""", 
-            params
-        ).fetchall()
-        
-        by_action = {row[0]: row[1] for row in action_stats}
-        
-        # By date (daily)
-        date_stats = conn.execute(
-            f"""SELECT date(created_at) as audit_date, COUNT(*) as count 
-                FROM admin_audit_events{clause} 
-                GROUP BY date(created_at) 
-                ORDER BY audit_date""", 
-            params
-        ).fetchall()
-        
-        by_date = {row[0]: row[1] for row in date_stats}
-        
-        # By category
-        category_map = {
+    category_actions = CATEGORY_ACTIONS.get(category) if category else None
+    actor_roles = _ADMIN_VISIBLE_ACTOR_ROLES if current_admin.get("role") == "admin" else None
+    category_map = {
             "login": "authentication",
             "first_admin_created": "accounts",
             "admin_created": "accounts",
@@ -388,39 +326,18 @@ def get_audit_statistics(
             "campaign_deleted": "campaigns"
         }
         
-        category_stats = conn.execute(
-            f"""SELECT action, COUNT(*) as count 
-                FROM admin_audit_events{clause} 
-                GROUP BY action""", 
-            params
-        ).fetchall()
-        
-        by_category: dict = {"authentication": 0, "accounts": 0, "tenant_setup": 0, "api_access": 0}
-        for action, count in category_stats:
-            cat = category_map.get(action, "other")
-            by_category[cat] = by_category.get(cat, 0) + count
-        
-        # By actor
-        actor_stats = conn.execute(
-            f"""SELECT actor_username, COUNT(*) as count 
-                FROM admin_audit_events{clause} 
-                GROUP BY actor_username""", 
-            params
-        ).fetchall()
-        
-        by_actor = {row[0]: row[1] for row in actor_stats}
-        
-    finally:
-        conn.close()
-    
-    return {
-        "total_events": total,
-        "by_outcome": by_outcome,
-        "by_action": by_action,
-        "by_date": by_date,
-        "by_category": by_category,
-        "by_actor": by_actor
-    }
+    return admin_audit_statistics(
+        start_date=start_date,
+        end_date=end_date,
+        actor=actor,
+        action=action,
+        category_actions=category_actions,
+        tenant_id=tenant_id,
+        outcome=outcome,
+        search=search,
+        actor_roles=actor_roles,
+        category_map=category_map,
+    )
 
 
 def _render_audit_pdf(events: list, columns: list) -> bytes:
@@ -519,30 +436,22 @@ def export_audit_history(
     
     clause = f" WHERE {' AND '.join(where)}" if where else ""
     
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""SELECT id, created_at, actor_id, actor_username, actor_role, action, outcome,
-                       resource_type, resource_id, target_username, tenant_id, tenant_name,
-                       tenant_slug, actor_kind, actor_label, details_json, ip_address, user_agent
-                FROM admin_audit_events{clause}
-                ORDER BY created_at DESC, id DESC LIMIT ?""",
-            [*params, limit],
-        ).fetchall()
-    finally:
-        conn.close()
-
-    events = []
-    for row in rows:
-        event = dict(row)
-        try:
-            event["details"] = safe_audit_details(json.loads(event.pop("details_json") or "{}"))
-        except (json.JSONDecodeError, TypeError):
-            event["details"] = {}
-        event["tenant_label"] = " · ".join(
-            part for part in (event.get("tenant_name"), event.get("tenant_slug"), event.get("tenant_id")) if part
-        ) or "Platform"
-        events.append(event)
+    category_actions = CATEGORY_ACTIONS.get(category) if category else None
+    actor_roles = _ADMIN_VISIBLE_ACTOR_ROLES if current_admin.get("role") == "admin" else None
+    payload = list_admin_audit_events(
+        start_date=start_date,
+        end_date=end_date,
+        actor=actor,
+        action=action,
+        category_actions=category_actions,
+        tenant_id=tenant_id,
+        outcome=outcome,
+        search=search,
+        actor_roles=actor_roles,
+        limit=limit,
+        offset=0,
+    )
+    events = payload["events"]
     
     # Parse requested columns
     requested_columns = columns.split(",") if columns else [
@@ -649,37 +558,16 @@ def get_audit_event(
     # tenant's event by id.
     _scoped_tenant_id(current_admin, None)
 
-    conn = get_db()
-    try:
-        row = conn.execute(
-            """SELECT id, created_at, actor_id, actor_username, actor_role, action, outcome,
-                       resource_type, resource_id, target_username, tenant_id, tenant_name,
-                       tenant_slug, actor_kind, actor_label, details_json, ip_address, user_agent
-                FROM admin_audit_events WHERE id = ?""",
-            [event_id],
-        ).fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Event not found")
-        row_dict = dict(row)
-        if current_admin.get("role") == "admin":
-            own = _scoped_tenant_id(current_admin, None)
-            if str(row_dict.get("tenant_id") or "") != str(own or ""):
-                raise HTTPException(status_code=403, detail="Admins can only view their own tenant's audit history")
-            if not _admin_may_view_actor_role(current_admin, row_dict.get("actor_role")):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Admins can only view admin and sub-admin activity logs",
-                )
-        
-        event = row_dict
-        try:
-            event["details"] = safe_audit_details(json.loads(event.pop("details_json") or "{}"))
-        except (json.JSONDecodeError, TypeError):
-            event["details"] = {}
-        event["tenant_label"] = " · ".join(
-            part for part in (event.get("tenant_name"), event.get("tenant_slug"), event.get("tenant_id")) if part
-        ) or "Platform"
-        return event
-    finally:
-        conn.close()
+    row_dict = fetch_admin_audit_event(event_id)
+    if not row_dict:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if current_admin.get("role") == "admin":
+        own = _scoped_tenant_id(current_admin, None)
+        if str(row_dict.get("tenant_id") or "") != str(own or ""):
+            raise HTTPException(status_code=403, detail="Admins can only view their own tenant's audit history")
+        if not _admin_may_view_actor_role(current_admin, row_dict.get("actor_role")):
+            raise HTTPException(
+                status_code=403,
+                detail="Admins can only view admin and sub-admin activity logs",
+            )
+    return row_dict

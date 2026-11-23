@@ -4,6 +4,8 @@ import { usePermissions } from '@/lib/permissions'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useToast } from '@/components/ui/toast'
 import { conversationsApi, stripRoute } from '@/lib/conversations'
+import { apiUrl, authHeaders } from '@/lib/api'
+import { isMockMode } from '@/lib/mock'
 import { attachmentsApi, type Attachment } from '@/lib/attachments'
 import { AttachmentChip } from '@/components/tenants/chat-attachment'
 import { EmptyState, LoadingBlock } from '@/components/ui/feedback'
@@ -52,6 +54,10 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
   const failedSeq = useRef(0)
 
   const inbox = useAsync((s) => conversationsApi.inbox(tenantId, true, s), [tenantId])
+  // The live inbox can be empty when no conversation is currently waiting for
+  // handover. Keep the Chats screen useful by loading the tenant's stored
+  // conversations as a fallback.
+  const conversations = useAsync((s) => conversationsApi.threads(tenantId, { limit: 500 }, s), [tenantId])
   const agents = useAsync((s) => conversationsApi.agents(tenantId, s), [tenantId])
   const thread = useAsync(
     (s) =>
@@ -73,8 +79,72 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId])
 
+  // The stream makes inbound WhatsApp messages and inbox actions visible
+  // immediately. Polling above remains the recovery path for reconnects and
+  // multi-worker deployments where the in-process event is not shared.
+  useEffect(() => {
+    if (isMockMode() || import.meta.env.MODE === 'test') return
+    const controller = new AbortController()
+    let retryTimer: number | undefined
+
+    const connect = async () => {
+      try {
+        const response = await fetch(apiUrl('/api/admin/tenants/inbox/events'), {
+          headers: { ...authHeaders(), Accept: 'text/event-stream' },
+          signal: controller.signal,
+        })
+        if (!response.ok || !response.body) throw new Error(`Inbox stream failed (${response.status})`)
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const blocks = buffer.split('\n\n')
+          buffer = blocks.pop() ?? ''
+          for (const block of blocks) {
+            if (!block.includes('event: inbox.updated')) continue
+            const data = block.split('\n').find((line) => line.startsWith('data:'))
+            if (!data) continue
+            try {
+              const event = JSON.parse(data.slice(5).trim()) as { wa_id?: string }
+              inbox.reload()
+              if (event.wa_id && event.wa_id === selected) thread.reload()
+            } catch {
+              // A malformed event should not tear down the live inbox.
+            }
+          }
+        }
+        if (!controller.signal.aborted) throw new Error('Inbox stream closed')
+      } catch {
+        if (!controller.signal.aborted) {
+          retryTimer = window.setTimeout(() => void connect(), 2_000)
+        }
+      }
+    }
+
+    void connect()
+    return () => {
+      controller.abort()
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
+  }, [tenantId, selected, inbox.reload, thread.reload])
+
   const queue = useMemo(() => {
-    const items = [...(inbox.data?.queue ?? [])]
+    const inboxItems = inbox.data?.queue ?? []
+    const items = inboxItems.length
+      ? [...inboxItems]
+      : (conversations.data ?? []).map((item) => ({
+          wa_id: item.wa_id,
+          name: item.name,
+          last_message: item.last_message,
+          last_message_at: item.last_at,
+          turns: item.turns,
+          bot_state: item.bot_state,
+          handover_mode: item.handover ? ('human' as const) : ('bot' as const),
+          assigned_agent_id: null,
+        }))
     items.sort((a, b) => {
       const ah = a.handover_mode === 'human' ? 0 : 1
       const bh = b.handover_mode === 'human' ? 0 : 1
@@ -92,6 +162,13 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
         (i.last_message ?? '').toLowerCase().includes(q),
     )
   }, [inbox.data, search])
+
+  // Match the reference inbox: open the first (human-waiting first) chat as
+  // soon as the queue arrives, while preserving an explicit user selection.
+  useEffect(() => {
+    if (selected && queue.some((item) => item.wa_id === selected)) return
+    setSelected(queue[0]?.wa_id ?? null)
+  }, [queue, selected])
 
   const current: InboxItem | undefined = queue.find((i) => i.wa_id === selected)
   const failedHere = selected ? (failed[selected] ?? []) : []
@@ -234,7 +311,11 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                         <span className="truncate text-sm font-medium text-tx">
                           {item.name || item.wa_id}
                         </span>
-                        {human ? (
+                        {item.resolved ? (
+                          <span className="shrink-0 rounded-full bg-chipdefbg px-2 py-0.5 text-[11px] font-medium text-txmuted">
+                            Resolved
+                          </span>
+                        ) : human ? (
                           <span className="shrink-0 rounded-full bg-badbg px-2 py-0.5 text-[11px] font-semibold text-badink">
                             {wait ?? 'Waiting'}
                           </span>
@@ -276,7 +357,9 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                   <p className="text-sm font-semibold text-tx">{current?.name || selected}</p>
                   <p className="text-xs text-txmuted">
                     {selected}
-                    {current?.handover_mode === 'human'
+                    {current?.resolved
+                      ? ' · resolved'
+                      : current?.handover_mode === 'human'
                       ? ' · a human is handling this chat'
                       : ' · the bot is handling this chat'}
                     {current?.assigned_agent_id
@@ -317,6 +400,11 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
               </div>
 
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+                {thread.error && (
+                  <div className="mb-2">
+                    <ErrorBanner message={thread.error} />
+                  </div>
+                )}
                 {thread.loading ? (
                   <LoadingBlock label="Loading messages…" />
                 ) : (thread.data?.messages ?? []).length === 0 && failedHere.length === 0 ? (
@@ -435,9 +523,9 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
         </section>
       </div>
 
-      {inbox.data && (
+      {(inbox.data || conversations.data) && (
         <p className="mt-3 shrink-0 text-xs text-txfaint">
-          {inbox.data.count} conversations · {inbox.data.handoff_count} waiting for a human
+          {queue.length} conversations · {inbox.data?.handoff_count ?? 0} waiting for a human
         </p>
       )}
     </div>

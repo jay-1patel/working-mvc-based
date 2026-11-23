@@ -6,7 +6,6 @@ import {
   Building2,
   ChevronDown,
   ClipboardCheck,
-  KeyRound,
   LayoutGrid,
   LogOut,
   Menu,
@@ -15,7 +14,6 @@ import {
   Send,
   ShieldCheck,
   UserRound,
-  Users,
   X,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
@@ -24,7 +22,7 @@ import { useOfferingsCount } from '@/lib/offerings'
 import { buildTenantNav, NAV_GROUP_ORDER, type NavItem } from '@/lib/navigation'
 import { conversationsApi } from '@/lib/conversations'
 import { navigate, type RouteMatch } from '@/lib/router'
-import { isOnboardingLocked, TEAM_PERMISSION, TENANT_PERMISSION, usePermissions } from '@/lib/permissions'
+import { isOnboardingLocked, TENANT_PERMISSION, usePermissions } from '@/lib/permissions'
 import { getVertical } from '@/lib/verticals'
 import { cn } from '@/lib/cn'
 import { CountBadge } from '@/components/remake/ui'
@@ -58,6 +56,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const [switcherOpen, setSwitcherOpen] = useState(false)
   // Below `lg` the sidebar lives behind a hamburger; this tracks that drawer.
   const [navOpen, setNavOpen] = useState(false)
+  /** Sidebar dropdown parents the admin has expanded (auto-opens when a child is active). */
+  const [openNavDropdowns, setOpenNavDropdowns] = useState<Record<string, boolean>>({})
 
   // Any navigation collapses the drawer so it never covers the page asked for.
   useEffect(() => {
@@ -127,7 +127,70 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
 
   const navItem = (item: NavItem) => {
     const Icon = item.icon
-    const isActive = route.view === item.id
+    const childActive = Boolean(item.children?.some((child) => route.view === child.id))
+    const isActive =
+      route.view === item.id ||
+      childActive ||
+      (item.id === 'website-crawler' &&
+        (route.view === 'uploads' || route.view === 'website-knowledge'))
+
+    if (item.children?.length) {
+      const expanded = childActive || Boolean(openNavDropdowns[item.id])
+      return (
+        <div key={`${item.id}-${item.label}`} className="space-y-0.5">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => {
+              if (childActive) return
+              setOpenNavDropdowns((prev) => ({
+                ...prev,
+                [item.id]: !prev[item.id],
+              }))
+            }}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+              isActive
+                ? 'font-medium text-acc'
+                : 'text-txmuted hover:bg-paper hover:text-tx',
+            )}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+            <ChevronDown
+              className={cn('h-4 w-4 shrink-0 text-txmuted transition', expanded && 'rotate-180')}
+            />
+          </button>
+          {expanded && (
+            <div className="ml-3 space-y-0.5 border-l border-line pl-2">
+              {item.children.map((child) => {
+                const ChildIcon = child.icon
+                const childIsActive = route.view === child.id
+                return (
+                  <button
+                    key={`${child.id}-${child.label}`}
+                    type="button"
+                    onClick={() =>
+                      navigate(`/tenants/${encodeURIComponent(route.tenantId!)}/${child.id}`)
+                    }
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                      childIsActive
+                        ? 'font-medium text-acc'
+                        : 'text-txmuted hover:bg-paper hover:text-tx',
+                    )}
+                  >
+                    <ChildIcon className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-left">{child.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )
+    }
+
     return (
       <button
         key={`${item.id}-${item.label}`}
@@ -373,19 +436,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               </p>
             </div>
           ) : tenantScoped && route.tenantId ? (
-            <div className="space-y-4">
-              {NAV_GROUP_ORDER.map((group) => {
-                const items = nav.filter((i) => i.group === group)
-                if (!items.length) return null
-                return (
-                  <div key={group} className="space-y-0.5">
-                    <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
-                      {group}
-                    </p>
-                    {items.map(navItem)}
-                  </div>
-                )
-              })}
+            <div className="space-y-0.5">
+              {NAV_GROUP_ORDER.flatMap((group) => nav.filter((i) => i.group === group)).map(navItem)}
             </div>
           ) : identity?.role !== 'super_admin' && identity?.tenant_id ? (
             <div className="space-y-0.5">
@@ -423,38 +475,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
           )}
 
-          {!locked && !isSuperAdmin && identity && (can('manage_operations') || identity.role === 'admin') && (
-            <div className="space-y-0.5 border-t border-line pt-3">
-              <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
-                Manage
-              </p>
-              {globalItem('dashboard', 'Overview', LayoutGrid, '/dashboard', 'dashboard')}
-              {identity.role === 'admin' && (
-                <>
-                  {globalItem('audit-history', 'Activity log', ScrollText, '/audit-history', 'audit-history')}
-                  {globalItem('errors', 'Errors & health', AlertTriangle, '/errors', 'errors')}
-                </>
-              )}
-              {identity.tenant_id &&
-                globalItem(
-                  'api-access',
-                  'API access',
-                  KeyRound,
-                  `/tenants/${encodeURIComponent(identity.tenant_id)}/api-access`,
-                  'api-access',
-                )}
-              {globalItem('tenant-requests', 'My change requests', Send, '/tenant-requests', 'tenant-requests')}
-            </div>
-          )}
-
-          {can(TEAM_PERMISSION) && !locked && (
-            <div className="space-y-0.5 border-t border-line pt-3">
-              <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
-                Manage
-              </p>
-              {globalItem('team', 'People', Users, '/team', 'team')}
-            </div>
-          )}
         </nav>
 
         <div className="border-t border-line p-3">

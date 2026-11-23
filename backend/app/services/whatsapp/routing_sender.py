@@ -38,13 +38,24 @@ def _send2_response_ok(status_code: int, body_text: str | None) -> bool:
 
 
 def _resolve_media_url(media_url: str) -> str:
-    """Make a media URL absolute. send2.digital needs a public http(s) URL.
+    """Make a media URL absolute under PUBLIC_BASE_URL (Cloudflare from .env).
 
-    Relative server paths (e.g. ``/uploaded_files/x.pdf``) are prefixed with the
-    configured public base URL; otherwise a broken ``https:///...`` URL results.
+    Relative paths and old-host ``/uploaded_files/...`` links are rebased so
+    WhatsApp always fetches from the current ``routing/.env`` origin.
     """
     if not media_url:
         return media_url
+    try:
+        from services.media_host import rebase_public_url
+    except ImportError:
+        try:
+            from backend.services.media_host import rebase_public_url
+        except ImportError:
+            rebase_public_url = None  # type: ignore
+    if rebase_public_url:
+        rebased = rebase_public_url(media_url)
+        if rebased:
+            return rebased
     if media_url.startswith(("http://", "https://")):
         return media_url
     from routing.config import PUBLIC_BASE_URL
@@ -186,19 +197,18 @@ def get_tenant_send2_credentials(tenant_id: str = None) -> tuple:
 
     if tid:
         try:
-            from routing.database import get_db_context
             import json
-            with get_db_context() as conn:
-                row = conn.execute(
-                    "SELECT credentials_json FROM tenant_integrations WHERE tenant_id = ? AND LOWER(provider) IN ('send2', 'whatsapp')",
-                    (tid,),
-                ).fetchone()
-                if row and row["credentials_json"]:
-                    creds = json.loads(row["credentials_json"])
-                    u = creds.get("username") or creds.get("send2_username") or creds.get("user_name")
-                    p = creds.get("password") or creds.get("send2_password")
-                    if u and p:
-                        return str(u), str(p)
+            from db.integrations_ops import list_tenant_integrations
+            for row in list_tenant_integrations(tid):
+                prov = str(row.get("provider") or "").lower()
+                if prov not in ("send2", "whatsapp"):
+                    continue
+                raw = row.get("credentials_json") or row.get("credentials") or {}
+                creds = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+                u = creds.get("username") or creds.get("send2_username") or creds.get("user_name")
+                p = creds.get("password") or creds.get("send2_password")
+                if u and p:
+                    return str(u), str(p)
         except Exception as e:
             logger.debug(f"Could not load custom credentials for tenant {tid}: {e}")
 
@@ -592,12 +602,18 @@ def normalize_reply_buttons(buttons):
 
 
 def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
-    """Send an interactive button message via send2.digital Quick Button API.
+    """Send an interactive button message via send2.digital.
+
+    Primary path is ``session-msg-send`` Cloud interactive (same as working
+    text / list menus). The legacy quick-button endpoint often returns bare
+    ``OK`` without delivering to WhatsApp, so it is only a fallback and bare
+    ``OK`` there is treated as failure (caller can fall back to plain text).
 
     `buttons` is a list of button objects in the send2.digital format, e.g.:
         [{"type": "reply", "reply": {"id": "check_moq", "title": "Check MOQ by product"}}]
     """
     username, password = get_tenant_send2_credentials(tenant_id)
+    clean_to = re.sub(r"[^\d]", "", str(to or "")).strip() or str(to)
     buttons = normalize_reply_buttons(buttons)
     if not buttons:
         logger.warning("No usable buttons for interactive message (missing id/title)")
@@ -626,18 +642,68 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
         send_whatsapp_message(to, text, tenant_id=tenant_id)
         body_to_send = "Please select an option below:"
     else:
-        body_to_send = _truncate_body(raw_text, limit=1020)
+        body_to_send = _truncate_body(raw_text, limit=1020) or " "
 
+    footer_text = str(footer or " ").strip()[:60] or " "
+
+    # Primary: session-msg-send Cloud interactive buttons (reliable delivery).
+    cloud_interactive = {
+        "type": "button",
+        "body": {"text": body_to_send},
+        "footer": {"text": footer_text},
+        "action": {"buttons": formatted_buttons},
+    }
+    cloud_payload = {
+        "user_name": username,
+        "password": password,
+        "contact_no": clean_to,
+        "message_type": "interactive",
+        "interactive": cloud_interactive,
+        "messaging_product": "whatsapp",
+    }
+    try:
+        logger.info(
+            "INTERACTIVE_CLOUD_REQUEST | to=%s | buttons=%d",
+            clean_to, len(formatted_buttons),
+        )
+        with httpx.Client(trust_env=False, timeout=30) as client:
+            resp = client.post(SEND2_SESSION_SEND_URL, json=cloud_payload)
+        logger.info(
+            "INTERACTIVE_CLOUD_RESPONSE | to=%s | status=%s | body=%s",
+            clean_to, resp.status_code, (resp.text or "")[:300],
+        )
+        from routing.hookdeck import tee_outbound
+        tee_outbound(SEND2_SESSION_SEND_URL, cloud_payload, resp.status_code, resp.text, to=clean_to)
+        low = (resp.text or "").lower()
+        if (
+            _send2_response_ok(resp.status_code, resp.text)
+            and "invalid parameter" not in low
+            and "interactive payload is required" not in low
+            and "unexpected server error" not in low
+        ):
+            return True
+        logger.warning(
+            "INTERACTIVE_CLOUD_FALLBACK | to=%s | trying legacy quick-button",
+            clean_to,
+        )
+    except Exception as e:
+        logger.warning(
+            "INTERACTIVE_CLOUD_FAILED | to=%s | error=%s | trying legacy quick-button",
+            clean_to, e,
+        )
+
+    # Fallback: Quick Button endpoint. Bare "OK" is unreliable — require an
+    # explicit success phrase (same policy as list_messages).
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise
     # send2.digital rejects the whole request with {"error":"INVALID PARAMETER"}.
     payload = {
         "username": username,
         "password": password,
-        "number": to,
+        "number": clean_to,
         "headertype": "text",
         "headertext": " ",
         "bodytext": body_to_send,
-        "footertext": str(footer or " ")[:60],
+        "footertext": footer_text,
         "total_buttons": len(formatted_buttons),
         "buttons": formatted_buttons,
     }
@@ -647,10 +713,24 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
             json=payload,
             timeout=30,
         )
-        logger.info(f"Interactive reply sent to {to}, status={resp.status_code}, body={resp.text[:300]}")
+        logger.info(
+            "Interactive reply sent to %s, status=%s, body=%s",
+            clean_to, resp.status_code, (resp.text or "")[:300],
+        )
         from routing.hookdeck import tee_outbound
-        tee_outbound(SEND2_QUICK_BUTTON_URL, payload, resp.status_code, resp.text, to=to)
-        return _send2_response_ok(resp.status_code, resp.text)
+        tee_outbound(SEND2_QUICK_BUTTON_URL, payload, resp.status_code, resp.text, to=clean_to)
+        body = (resp.text or "").strip().lower()
+        if resp.status_code == 200 and (
+            "message sent successfully" in body
+            or '"success":true' in body
+            or '"success": true' in body
+        ):
+            return True
+        logger.error(
+            "INTERACTIVE_QUICKBTN_UNRELIABLE_OK | to=%s | status=%s | body=%s",
+            clean_to, resp.status_code, (resp.text or "")[:200],
+        )
+        return False
     except Exception as e:
         logger.error(f"send2.digital interactive send failed: {e}")
         return False

@@ -338,6 +338,7 @@ export interface InboxItem {
   bot_state: string | null
   handover_mode: 'bot' | 'human'
   assigned_agent_id: string | null
+  resolved: boolean
 }
 
 export interface Agent {

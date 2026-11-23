@@ -25,6 +25,40 @@ from contextlib import contextmanager
 logger = logging.getLogger("brochure_service")
 
 
+def _fetch_admin_brochure_rows(tenant_id: str | None, modules: tuple) -> list:
+    """Rows from admin_files for brochure modules (SQLite + Mongo)."""
+    from db.core import use_mongodb
+
+    if use_mongodb():
+        from db.mongo import Repository
+
+        flt: dict = {"module": {"$in": list(modules)}}
+        if tenant_id:
+            flt["tenant_id"] = tenant_id
+        else:
+            flt["$or"] = [{"tenant_id": None}, {"tenant_id": ""}]
+        return Repository("admin_files").find_all(
+            flt, sort=[("created_at", -1), ("id", -1)]
+        )
+    raise RuntimeError("admin_files brochure lookup requires MongoDB")
+
+
+def _fetch_brochure_by_module_row(module: str, tenant_id: str | None) -> dict | None:
+    from db.core import use_mongodb
+
+    if use_mongodb():
+        from db.mongo import Repository
+
+        flt = {"module": module}
+        if tenant_id:
+            flt["tenant_id"] = tenant_id
+        else:
+            flt["$or"] = [{"tenant_id": None}, {"tenant_id": ""}]
+        rows = Repository("admin_files").find(flt, sort=[("created_at", -1)], limit=1)
+        return rows[0] if rows else None
+    raise RuntimeError("admin_files brochure lookup requires MongoDB")
+
+
 # 🎯 Brochure types/modules that are supported
 BROCHURE_MODULES = [
     "catalogue",           # Main product/service brochure
@@ -276,24 +310,8 @@ class BrochureService:
             # Option A/B onboarding kit PDFs are stored as module=kb and must never
             # be returned here — even if the filename contains "brochure".
             brochure_modules = tuple(BROCHURE_MODULES) + ("brochure",)
-            with self._get_db_context() as conn:
-                placeholders = ", ".join(["?"] * len(brochure_modules))
-                
-                if tenant_id:
-                    sql = (
-                        f"SELECT * FROM admin_files WHERE tenant_id = ? "
-                        f"AND module IN ({placeholders}) ORDER BY created_at DESC"
-                    )
-                    rows = conn.execute(sql, (tenant_id,) + brochure_modules).fetchall()
-                else:
-                    sql = (
-                        f"SELECT * FROM admin_files WHERE tenant_id IS NULL "
-                        f"AND module IN ({placeholders}) ORDER BY created_at DESC"
-                    )
-                    rows = conn.execute(sql, brochure_modules).fetchall()
-                
-                for row in rows:
-                    _append_row(row)
+            for row in _fetch_admin_brochure_rows(tenant_id, brochure_modules):
+                _append_row(row)
             
             # Profile-configured brochure URL (admin setting), still a real upload/link.
             if not brochures and tenant_id:
@@ -386,37 +404,23 @@ class BrochureService:
         module = module.lower()
         
         try:
-            with self._get_db_context() as conn:
-                if tenant_id:
-                    row = conn.execute(
-                        """SELECT * FROM admin_files 
-                           WHERE tenant_id = ? AND module = ?
-                           ORDER BY created_at DESC LIMIT 1""",
-                        (tenant_id, module)
-                    ).fetchone()
-                else:
-                    row = conn.execute(
-                        """SELECT * FROM admin_files 
-                           WHERE tenant_id IS NULL AND module = ?
-                           ORDER BY created_at DESC LIMIT 1""",
-                        (module,)
-                    ).fetchone()
-                
-                if row:
-                    display = row["name"] or f"{module}_brochure.pdf"
-                    return Brochure(
-                        file_id=row["id"],
-                        tenant_id=row["tenant_id"] or "",
-                        module=row["module"] or module,
-                        name=row["name"] or display,
-                        filename=display,
-                        url=row["url"] or "",
-                        file_path=row["file_path"] or "",
-                        ext=row["ext"] or "",
-                        size=row["size"] or 0,
-                        doc_id=row["doc_id"] or None,
-                        created_at=row["created_at"] or "",
-                    )
+            row = _fetch_brochure_by_module_row(module, tenant_id)
+            if row:
+                rd = dict(row)
+                display = rd.get("name") or f"{module}_brochure.pdf"
+                return Brochure(
+                    file_id=rd.get("id"),
+                    tenant_id=rd.get("tenant_id") or "",
+                    module=rd.get("module") or module,
+                    name=rd.get("name") or display,
+                    filename=display,
+                    url=rd.get("url") or "",
+                    file_path=rd.get("file_path") or "",
+                    ext=rd.get("ext") or "",
+                    size=rd.get("size") or 0,
+                    doc_id=rd.get("doc_id"),
+                    created_at=rd.get("created_at") or "",
+                )
         
         except Exception as e:
             logger.error(f"Failed to get brochure by module {module} for tenant {tenant_id}: {e}")
@@ -469,33 +473,10 @@ class BrochureService:
         return button_module_map.get(button_id.lower())
     
     def _get_db_context(self):
-        """Get database context."""
-        try:
-            from backend.database import get_db_context
-            return get_db_context()
-        except ImportError:
-            try:
-                from database import get_db_context
-                return get_db_context()
-            except ImportError:
-                # Fallback to direct import
-                import sqlite3
-                from pathlib import Path
-                db_path = Path(__file__).parent.parent / "faq.db"
-                
-                def temp_db_context():
-                    conn = sqlite3.connect(str(db_path))
-                    conn.row_factory = sqlite3.Row
-                    try:
-                        yield conn
-                        conn.commit()
-                    except:
-                        conn.rollback()
-                        raise
-                    finally:
-                        conn.close()
-                
-                return temp_db_context()
+        """Deprecated: Mongo-only; brochure queries use Repository helpers."""
+        from contextlib import nullcontext
+
+        return nullcontext()
 
 
 # 🎯 Query categorization for better brochure matching

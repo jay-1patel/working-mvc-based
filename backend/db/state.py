@@ -1,10 +1,11 @@
 """User conversation state and human-handover flags data access — extracted from backend/database.py."""
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 from .core import (
-    logger, get_db_context,
-    _current_tenant, get_request_tenant
+    logger, get_db_context, use_mongodb,
+    _current_tenant, get_request_tenant, _loads_json
 )
 
 
@@ -13,15 +14,25 @@ def _resolve_tenant_id(wa_id: str, tenant_id: Optional[str] = None) -> str:
     if tid:
         return tid
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT tenant_id FROM user_states WHERE wa_id = ? "
-                "AND tenant_id IS NOT NULL AND TRIM(tenant_id) != '' "
-                "ORDER BY updated_at DESC LIMIT 1",
-                (wa_id,),
-            ).fetchone()
-            if row and row["tenant_id"]:
-                return str(row["tenant_id"])
+        if use_mongodb():
+            from .mongo import Repository
+            rows = Repository("user_states").find(
+                {"wa_id": wa_id, "tenant_id": {"$nin": [None, ""]}},
+                sort=[("updated_at", -1)],
+                limit=1,
+            )
+            if rows and rows[0].get("tenant_id"):
+                return str(rows[0]["tenant_id"])
+        else:
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT tenant_id FROM user_states WHERE wa_id = ? "
+                    "AND tenant_id IS NOT NULL AND TRIM(tenant_id) != '' "
+                    "ORDER BY updated_at DESC LIMIT 1",
+                    (wa_id,),
+                ).fetchone()
+                if row and row["tenant_id"]:
+                    return str(row["tenant_id"])
     except Exception:
         # deliberate: resolver chain — fall through to the next source.
         logger.debug("STATE_TENANT_RESOLVE_STEP_SKIPPED | source=user_states wa=%s", wa_id, exc_info=True)
@@ -35,6 +46,27 @@ def _resolve_tenant_id(wa_id: str, tenant_id: Optional[str] = None) -> str:
 
 def get_user_state(wa_id: str, tenant_id: Optional[str] = None) -> dict:
     tid = _resolve_tenant_id(wa_id, tenant_id)
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("user_states")
+        row = repo.find_one({"tenant_id": tid, "wa_id": wa_id})
+        if row is None:
+            row = repo.find_one({"wa_id": wa_id})
+        if row:
+            result = dict(row)
+            ctx = result.get("context_json")
+            if isinstance(ctx, dict):
+                result["context_json"] = ctx
+            else:
+                result["context_json"] = _loads_json(ctx, {})
+            return result
+        return {
+            "wa_id": wa_id,
+            "tenant_id": tid,
+            "state": "MAIN_MENU",
+            "context_json": {},
+            "lang": "en",
+        }
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT * FROM user_states WHERE tenant_id = ? AND wa_id = ?",
@@ -70,6 +102,19 @@ def set_user_state(
     tenant_id: Optional[str] = None,
 ) -> bool:
     tid = _resolve_tenant_id(wa_id, tenant_id)
+    if use_mongodb():
+        from .mongo import Repository
+        payload = {
+            "tenant_id": tid,
+            "wa_id": wa_id,
+            "state": state,
+            "context_json": context or {},
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if lang:
+            payload["lang"] = lang
+        Repository("user_states").upsert({"tenant_id": tid, "wa_id": wa_id}, payload)
+        return True
     with get_db_context() as conn:
         context_json = json.dumps(context or {})
         if lang:
@@ -111,6 +156,25 @@ def clear_user_context(wa_id: str, tenant_id: Optional[str] = None) -> bool:
     return set_user_state(wa_id, "MAIN_MENU", {}, tenant_id=tenant_id)
 
 
+def _clear_handover_resolved_mongo(repo, filt: dict, now: datetime) -> int:
+    """Clear ``handover_resolved_at`` on Mongo.
+
+    ``encode_row`` drops ``None`` values, so ``$set: {handover_resolved_at: null}``
+    never writes. Use ``$unset`` instead. Also avoid ``$ne`` filters — this
+    Mongo layer only reliably supports equality matches.
+    """
+    from .mongo import encode_row
+
+    result = repo.collection.update_many(
+        filt,
+        {
+            "$set": encode_row("user_states", {"updated_at": now}),
+            "$unset": {"handover_resolved_at": ""},
+        },
+    )
+    return int(getattr(result, "modified_count", 0) or 0)
+
+
 def set_human_handover(wa_id: str, active: bool, tenant_id: Optional[str] = None) -> bool:
     """Set or clear the human-handover state for a conversation.
 
@@ -121,6 +185,24 @@ def set_human_handover(wa_id: str, active: bool, tenant_id: Optional[str] = None
     """
     tid = _resolve_tenant_id(wa_id, tenant_id)
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            now = datetime.now(timezone.utc)
+            repo = Repository("user_states")
+            payload = {
+                "tenant_id": tid,
+                "wa_id": wa_id,
+                "human_handover": 1 if active else 0,
+                "updated_at": now,
+            }
+            if not active:
+                payload["handover_resolved_at"] = now
+            repo.upsert({"tenant_id": tid, "wa_id": wa_id}, payload)
+            if active:
+                _clear_handover_resolved_mongo(
+                    repo, {"tenant_id": tid, "wa_id": wa_id}, now
+                )
+            return True
         with get_db_context() as conn:
             if active:
                 conn.execute(
@@ -152,12 +234,67 @@ def set_human_handover(wa_id: str, active: bool, tenant_id: Optional[str] = None
         return False
 
 
+def touch_handover_activity(wa_id: str, tenant_id: Optional[str] = None) -> None:
+    """Refresh user_states.updated_at while human_handover is active."""
+    tid = _resolve_tenant_id(wa_id, tenant_id)
+    try:
+        if use_mongodb():
+            from .mongo import Repository
+            now = datetime.now(timezone.utc)
+            repo = Repository("user_states")
+            row = repo.find_one({"tenant_id": tid, "wa_id": wa_id, "human_handover": 1})
+            if row:
+                repo.update({"id": row["id"]}, {"updated_at": now})
+            return
+        with get_db_context() as conn:
+            conn.execute(
+                """
+                UPDATE user_states
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE wa_id = ? AND human_handover = 1 AND tenant_id = ?
+                """,
+                (wa_id, tid),
+            )
+    except Exception as e:
+        logger.warning("touch_handover_activity failed for %s: %s", wa_id, e)
+
+
 def reopen_conversation_on_inbound(wa_id: str, tenant_id: Optional[str] = None) -> bool:
     """Clear a stale ``handover_resolved_at`` so a new inbound message puts the
     conversation back in the live inbox.
     """
     tid = _resolve_tenant_id(wa_id, tenant_id)
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            repo = Repository("user_states")
+            now = datetime.now(timezone.utc)
+            # Equality-only filters: find rows for this wa_id, then unset.
+            cleared = 0
+            seen = set()
+            rows = list(repo.find_all({"wa_id": wa_id}) or [])
+            if tid:
+                scoped = repo.find_one({"tenant_id": tid, "wa_id": wa_id})
+                if scoped:
+                    rows.append(scoped)
+            for row in rows:
+                if not row or not row.get("handover_resolved_at"):
+                    continue
+                key = (str(row.get("tenant_id") or ""), str(row.get("wa_id") or ""), str(row.get("id") or ""))
+                if key in seen:
+                    continue
+                seen.add(key)
+                if row.get("id") is not None:
+                    filt = {"id": row["id"]}
+                else:
+                    filt = {"tenant_id": row.get("tenant_id"), "wa_id": wa_id}
+                cleared += _clear_handover_resolved_mongo(repo, filt, now)
+            if cleared:
+                logger.info(
+                    "INBOX_REOPENED | wa=%s | tenant=%s | cleared=%s",
+                    wa_id, tid, cleared,
+                )
+            return True
         with get_db_context() as conn:
             conn.execute(
                 "UPDATE user_states SET handover_resolved_at = NULL, updated_at = CURRENT_TIMESTAMP "

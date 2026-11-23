@@ -11,7 +11,6 @@ Cart shape:
 }
 """
 import logging
-from database import get_db_context
 
 logger = logging.getLogger("b2c_cart")
 
@@ -113,16 +112,16 @@ def validate_stock(context: dict) -> list:
     issues = []
     for item in cart.get("items", []):
         try:
-            with get_db_context() as conn:
-                row = conn.execute(
-                    "SELECT stock_quantity FROM products WHERE id = ?",
-                    (item["product_id"],),
-                ).fetchone()
-                if row is None:
-                    issues.append(f"{item['name']} is no longer available.")
-                elif row[0] is not None and row[0] < item["qty"]:
+            from database import get_product
+
+            row = get_product(int(item["product_id"]))
+            if row is None:
+                issues.append(f"{item['name']} is no longer available.")
+            else:
+                stock = row.get("stock_quantity")
+                if stock is not None and stock < item["qty"]:
                     issues.append(
-                        f"{item['name']}: only {row[0]} units available (you requested {item['qty']})."
+                        f"{item['name']}: only {stock} units available (you requested {item['qty']})."
                     )
         except Exception as e:
             logger.warning(f"Stock check failed for product {item['product_id']}: {e}")

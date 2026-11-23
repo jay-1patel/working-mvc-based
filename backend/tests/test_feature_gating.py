@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -26,13 +28,10 @@ from shared.tenancy.loader import get_tenant_profile, validate_merged_profile
 
 class FeatureGatingTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "gating.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
         database.init_db()
         # The profile cache is process-wide; without this the second test would
@@ -58,9 +57,8 @@ class FeatureGatingTests(unittest.TestCase):
         )
 
     def tearDown(self):
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     def _publish(self):
         draft = tenancy_store.get_draft("gate-test")
@@ -125,6 +123,13 @@ class FeatureGatingTests(unittest.TestCase):
 
     def test_vertical_privilege_matrix(self):
         """Banking, Finance, and Tours & Travels have campaigns enabled, but orders/distributors blocked."""
+        from shared.tenancy import cache as tenancy_cache
+
+        # Earlier tests can cache a generic fallback for these file-backed
+        # clients at version 0. Drop that cache so the client packs load.
+        for tid in ("meridianbank", "northwindcapital", "wanderly", "troogood"):
+            tenancy_cache.purge(tid)
+            tenancy_store.invalidate(tid)
         for tid in ("meridianbank", "northwindcapital", "wanderly"):
             self.assertTrue(is_enabled(tid, "campaigns"), f"{tid} must have campaigns enabled")
             self.assertFalse(is_enabled(tid, "orders"), f"{tid} must not have orders")

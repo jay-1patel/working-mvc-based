@@ -20,7 +20,8 @@ import { LoadingBlock } from '@/components/ui/feedback'
 import { Panel, PrimaryButton } from '@/components/remake/ui'
 import { BarChart, DonutChart, ProgressRing, SparkArea } from './charts'
 
-interface DashboardStats {
+interface DashboardOverview {
+  days: number
   kb_files: number
   faq_files: number
   products: number
@@ -30,14 +31,13 @@ interface DashboardStats {
   orders_solved: number
   total_complaints: number
   complaints_solved: number
-}
-
-interface AnalyticsOverview {
-  days: number
   total_messages: number
   unique_users: number
   avg_response_ms: number
   route_breakdown: { route: string; count: number }[]
+  response_time: ResponseTimeRow[]
+  frequent_questions: { query: string; count: number; last_asked?: string }[]
+  total_unique_questions: number
 }
 
 interface ResponseTimeRow {
@@ -92,37 +92,20 @@ export function OverviewDashboard({
   const tenant = tenantId ? tenants.find((t) => t.id === tenantId) : null
   const isSuper = identity?.role === 'super_admin'
 
-  const stats = useAsync((s) => api.get<DashboardStats>('/api/admin/dashboard/stats', s), [])
-  const overview = useAsync(
-    (s) => api.get<AnalyticsOverview>('/api/admin/analytics/overview?days=7', s),
-    [],
-  )
-  const responseTime = useAsync(
+  const dashboard = useAsync(
     (s) =>
-      api.get<{ days: number; data: ResponseTimeRow[] }>(
-        '/api/admin/analytics/response-time?days=7',
-        s,
-      ),
-    [],
-  )
-  const questions = useAsync(
-    (s) =>
-      api.get<{ questions: { query: string; count: number }[] }>(
-        '/api/admin/analytics/frequent-questions?days=7&limit=8',
-        s,
-      ),
+      api.post<DashboardOverview>('/api/admin/dashboard/overview?days=7&limit=8', undefined, {
+        signal: s,
+      }),
     [],
   )
 
-  const loading =
-    (stats.loading && !stats.data) ||
-    (overview.loading && !overview.data)
-
-  const ov = overview.data
-  const st = stats.data
-  const topQs = (questions.data?.questions?.length
-    ? questions.data.questions
-    : st?.top_questions) ?? []
+  const loading = dashboard.loading && !dashboard.data
+  const ov = dashboard.data
+  const st = dashboard.data
+  const topQs = (dashboard.data?.frequent_questions?.length
+    ? dashboard.data.frequent_questions
+    : dashboard.data?.top_questions) ?? []
 
   const routeSlices = (ov?.route_breakdown ?? [])
     .filter((r) => r.count > 0)
@@ -134,7 +117,7 @@ export function OverviewDashboard({
       color: ROUTE_COLORS[i % ROUTE_COLORS.length],
     }))
 
-  const sparkPoints = (responseTime.data?.data ?? []).map((d) => ({
+  const sparkPoints = (dashboard.data?.response_time ?? []).map((d) => ({
     label: shortDate(d.date),
     value: d.avg_ms,
   }))

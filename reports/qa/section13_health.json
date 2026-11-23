@@ -1,0 +1,9 @@
+{
+  "all_healthy": true,
+  "services": {
+    "send2_api": {
+      "configured": true,
+      "ok": true
+    }
+  }
+}

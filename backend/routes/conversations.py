@@ -5,7 +5,7 @@ and global. This router is the tenant-owned path the console uses, so a tenant
 console sees only its own customers:
 
     GET    /api/admin/tenants/{tenant_id}/conversations
-    GET    /api/admin/tenants/{tenant_id}/conversations/{wa_id}
+    POST   /api/admin/tenants/{tenant_id}/conversations/{wa_id}
     GET    /api/admin/tenants/{tenant_id}/chat-history
     GET    /api/admin/tenants/{tenant_id}/inbox
     PUT    /api/admin/tenants/{tenant_id}/inbox/handover/{wa_id}
@@ -22,22 +22,123 @@ written before that column existed fall back to the tenant on their state row
 (`user_states.tenant_id`). Complaints carry tenant_id directly.
 """
 
+import asyncio
+import json
 import logging
+import queue as queue_module
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from database import get_db, get_db_context, set_human_handover
-from routes.auth import get_current_admin, has_permission, require_tenant_access, security
+from database import assign_conversation as assign_inbox_conversation, set_human_handover
+from db.conversations_ops import (
+    complaint_wa_id,
+    conversation_detail,
+    customer_360_view,
+    delete_tenant_complaint,
+    list_tenant_agents,
+    list_tenant_complaints,
+    list_tenant_conversations,
+    patch_complaint_status,
+    tenant_chat_history,
+    tenant_inbox_queue,
+    tenant_owns_conversation,
+    update_tenant_complaint,
+)
+from routes.auth import (
+    authorize_tenant_access,
+    get_current_admin,
+    has_permission,
+    require_tenant_access,
+    security,
+    session_tenant_id,
+)
+from services.inbox_events import inbox_events
 
 logger = logging.getLogger("conversations")
 router = APIRouter(prefix="/api/admin/tenants/{tenant_id}", tags=["conversations"])
+flat_router = APIRouter(prefix="/api/admin/tenants", tags=["conversations"])
 
 ALLOWED_STATUSES = {"open", "in_progress", "awaiting_info", "resolved", "closed"}
 ALLOWED_PRIORITIES = {"low", "normal", "high", "urgent"}
+
+
+class ConversationDetailRequest(BaseModel):
+    wa_id: str
+    limit: int = 300
+
+
+class ConversationThreadRequest(BaseModel):
+    """Body for tenant-scoped thread POST (wa_id is in the path)."""
+    limit: int = 300
+
+
+class ChatHistoryRequest(BaseModel):
+    days: int = 30
+    search: Optional[str] = None
+    wa_id: Optional[str] = None
+    limit: int = 500
+
+
+class InboxListRequest(BaseModel):
+    include_resolved: bool = False
+
+
+class InboxHandoverRequest(BaseModel):
+    wa_id: str
+    mode: str
+
+
+class InboxAssignRequest(BaseModel):
+    wa_id: str
+    agent_id: str
+
+
+class InboxResolveRequest(BaseModel):
+    wa_id: str
+    reply: bool = True
+
+
+class InboxReplyRequest(BaseModel):
+    wa_id: str
+    message: str = ""
+    attachment: Optional[dict] = None
+
+
+class InboxAttachmentRequest(BaseModel):
+    filename: str
+    content: str
+    media_type: Optional[str] = None
+
+
+class AgentsListRequest(BaseModel):
+    pass
+
+
+class ComplaintsListRequest(BaseModel):
+    status: Optional[str] = None
+    limit: int = 200
+
+
+class ComplaintUpdateRequest(BaseModel):
+    ticket_id: str
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    assigned_to: Optional[str] = None
+
+
+class ComplaintReplyRequest(BaseModel):
+    ticket_id: str
+    message: str
+    status: Optional[str] = None
+
+
+class ComplaintDeleteRequest(BaseModel):
+    ticket_id: str
 
 
 # ── auth ──────────────────────────────────────────────────────────────────
@@ -60,6 +161,18 @@ def _require(perm: str):
     return dependency
 
 
+def _flat_principal(request: Request, credentials, perm: str) -> tuple[dict, str]:
+    """Authorize using the tenant bound to username/session_id (not the body)."""
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    if principal.get("type") == "tenant":
+        return principal, tenant_id
+    admin = get_current_admin(request, credentials)
+    if not has_permission(admin, perm):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+    return principal, tenant_id
+
+
 def _tenant_scope(alias: str) -> str:
     """Tenant-scope predicate for a chat_history table aliased `alias`.
 
@@ -79,6 +192,26 @@ _TENANT_SCOPE = _tenant_scope("ch")
 
 # ── conversation threads ──────────────────────────────────────────────────
 
+def _format_thread_messages(rows: list) -> list:
+    messages = []
+    for item in rows:
+        raw = item.get("message") or ""
+        item["user_message"] = (
+            raw.split("] ", 1)[1] if raw.startswith("[") and "] " in raw else raw
+        )
+        messages.append(item)
+    return messages
+
+
+def _conversation_thread_payload(tenant_id: str, wa_id: str, limit: int) -> dict:
+    if limit > 1000:
+        raise HTTPException(status_code=422, detail="limit must be less than or equal to 1000")
+    detail = conversation_detail(tenant_id, wa_id, limit=limit)
+    if not detail.get("owned"):
+        raise HTTPException(status_code=404, detail="This conversation does not belong to this tenant")
+    return {"wa_id": wa_id, "messages": _format_thread_messages(detail["messages"])}
+
+
 @router.get("/conversations")
 def list_conversations(
     tenant_id: str,
@@ -87,173 +220,150 @@ def list_conversations(
     principal: dict = Depends(_require("chat_history")),
 ):
     """One row per customer: who they are, the last line, and the counts."""
-    conn = get_db()
-    try:
-        sql = f"""
-            SELECT
-                ch.wa_id,
-                MAX(ch.created_at) AS last_message_at,
-                COUNT(*) AS turns,
-                SUM(CASE WHEN ch.response IS NULL OR ch.response = '' THEN 1 ELSE 0 END) AS inbound
-            FROM chat_history ch
-            WHERE {_TENANT_SCOPE}
-        """
-        params: list = [tenant_id, tenant_id]
-        if search:
-            sql += " AND (ch.wa_id LIKE ? OR ch.sender_name LIKE ? OR ch.message LIKE ?)"
-            params.extend([f"%{search}%"] * 3)
-        sql += " GROUP BY ch.wa_id ORDER BY last_message_at DESC LIMIT ?"
-        params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
-
-        threads = []
-        for row in rows:
-            wa_id = row["wa_id"]
-            last = conn.execute(
-                "SELECT message, response, sender_name FROM chat_history ch "
-                f"WHERE {_TENANT_SCOPE} AND ch.wa_id = ? ORDER BY ch.id DESC LIMIT 1",
-                (tenant_id, tenant_id, wa_id),
-            ).fetchone()
-            state = conn.execute(
-                "SELECT human_handover, state, handover_resolved_at FROM user_states "
-                "WHERE wa_id = ? AND tenant_id = ?",
-                (wa_id, tenant_id),
-            ).fetchone()
-            handover = bool(state["human_handover"]) if state else False
-            threads.append({
-                "wa_id": wa_id,
-                "name": (last["sender_name"] if last else None) or wa_id,
-                "last_message": (last["message"] if last else "") or "",
-                "last_at": row["last_message_at"],
-                "turns": row["turns"],
-                "inbound": row["inbound"] or 0,
-                "handover": handover,
-                "bot_state": state["state"] if state else None,
-            })
-        return {"conversations": threads, "count": len(threads)}
-    finally:
-        conn.close()
+    raw = list_tenant_conversations(tenant_id=tenant_id, limit=limit, search=search)
+    conversations = [
+        {
+            "wa_id": t["wa_id"],
+            "name": t.get("sender_name") or t["wa_id"],
+            "last_message": t.get("last_message") or "",
+            "last_at": t.get("last_message_at"),
+            "turns": t.get("turns", 0),
+            "inbound": t.get("inbound", 0),
+            "handover": t.get("handover_mode") == "human",
+            "bot_state": t.get("bot_state"),
+        }
+        for t in raw
+    ]
+    return {"conversations": conversations, "count": len(conversations)}
 
 
-@router.get("/conversations/{wa_id}")
-def get_conversation(
+@router.post("/conversations/{wa_id}")
+def get_conversation_for_tenant(
     tenant_id: str,
     wa_id: str,
-    limit: int = Query(300, le=1000),
-    principal: dict = Depends(_require("chat_history")),
+    body: Optional[ConversationThreadRequest] = None,
+    principal: dict = Depends(_require("view_inbox")),
 ):
-    conn = get_db()
+    """Thread for the Chats panel — scoped by path tenant_id (POST)."""
+    limit = body.limit if body is not None else 300
+    return _conversation_thread_payload(tenant_id, wa_id, limit)
+
+
+@flat_router.post("/chat/thread")
+@flat_router.post("/conversations/detail")  # alias; prefer /chat/thread (no path-route collision)
+def get_conversation(
+    body: ConversationDetailRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    wa_id, limit = body.wa_id, body.limit
+    # Chats uses view_inbox; Past chats uses chat_history. Accept either so the
+    # live thread does not 403 into an empty "No messages" state.
     try:
-        owns = conn.execute(
-            f"SELECT 1 FROM chat_history ch WHERE {_TENANT_SCOPE} AND ch.wa_id = ? LIMIT 1",
-            (tenant_id, tenant_id, wa_id),
-        ).fetchone()
-        if not owns:
-            raise HTTPException(status_code=404, detail="This conversation does not belong to this tenant")
-
-        rows = conn.execute(
-            f"SELECT ch.* FROM chat_history ch WHERE {_TENANT_SCOPE} "
-            "AND ch.wa_id = ? ORDER BY ch.id ASC LIMIT ?",
-            (tenant_id, tenant_id, wa_id, limit),
-        ).fetchall()
-        messages = []
-        for r in rows:
-            item = dict(r)
-            # Rows are stored as "[route] user message" + the bot's response.
-            raw = item.get("message") or ""
-            item["user_message"] = raw.split("] ", 1)[1] if raw.startswith("[") and "] " in raw else raw
-            messages.append(item)
-        return {"wa_id": wa_id, "messages": messages}
-    finally:
-        conn.close()
+        principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    except HTTPException as inbox_exc:
+        if inbox_exc.status_code != 403:
+            raise
+        principal, tenant_id = _flat_principal(request, credentials, "chat_history")
+    return _conversation_thread_payload(tenant_id, wa_id, limit)
 
 
-@router.get("/chat-history")
+@flat_router.post("/chat-history")
 def chat_history(
-    tenant_id: str,
-    days: int = Query(30, ge=1, le=1095),
-    search: Optional[str] = Query(None),
-    wa_id: Optional[str] = Query(None),
-    limit: int = Query(500, le=2000),
-    principal: dict = Depends(_require("chat_history")),
+    body: ChatHistoryRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    conn = get_db()
-    try:
-        sql = f"""
-            SELECT ch.*, (SELECT sender_name FROM chat_history n WHERE n.wa_id = ch.wa_id
-                          AND {_tenant_scope("n")}
-                          ORDER BY n.id DESC LIMIT 1) AS sender_name
-            FROM chat_history ch
-            WHERE {_TENANT_SCOPE}
-              AND ch.created_at >= DATE('now', ?)
-        """
-        params: list = [tenant_id, tenant_id, tenant_id, tenant_id, f"-{days} days"]
-        if wa_id:
-            sql += " AND ch.wa_id = ?"
-            params.append(wa_id)
-        if search:
-            sql += " AND (ch.wa_id LIKE ? OR ch.message LIKE ? OR ch.response LIKE ?)"
-            params.extend([f"%{search}%"] * 3)
-        sql += " ORDER BY ch.created_at DESC LIMIT ?"
-        params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
-        return {"history": [dict(r) for r in rows]}
-    finally:
-        conn.close()
+    days, search, wa_id, limit = body.days, body.search, body.wa_id, body.limit
+    principal, tenant_id = _flat_principal(request, credentials, "chat_history")
+    return tenant_chat_history(
+        tenant_id=tenant_id,
+        days=days,
+        search=search,
+        wa_id=wa_id,
+        limit=limit,
+    )
 
 
 # ── live inbox (human handover) ───────────────────────────────────────────
 
-@router.get("/inbox")
+@flat_router.post("/inbox")
 def inbox_queue(
-    tenant_id: str,
-    include_resolved: bool = False,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    conn = get_db()
-    try:
-        where = "" if include_resolved else "AND us.handover_resolved_at IS NULL"
-        rows = conn.execute(
-            f"""
-            SELECT
-                ch.wa_id,
-                MAX(ch.created_at) AS last_message_at,
-                (SELECT message FROM chat_history c2 WHERE c2.wa_id = ch.wa_id
-                 AND {_tenant_scope("c2")}
-                 ORDER BY c2.id DESC LIMIT 1) AS last_message,
-                (SELECT COUNT(*) FROM chat_history c3 WHERE c3.wa_id = ch.wa_id
-                 AND {_tenant_scope("c3")}) AS turn_count,
-                us.state AS bot_state,
-                COALESCE(us.human_handover, 0) AS human_handover
-            FROM chat_history ch
-            LEFT JOIN user_states us ON us.wa_id = ch.wa_id AND us.tenant_id = ?
-            WHERE {_TENANT_SCOPE} {where}
-            GROUP BY ch.wa_id
-            ORDER BY human_handover DESC, last_message_at DESC
-            """,
-            (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id, tenant_id, tenant_id),
-        ).fetchall()
+    include_resolved = body.include_resolved
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    payload = tenant_inbox_queue(tenant_id, include_resolved=include_resolved)
+    queue = [
+        {
+            "wa_id": c["wa_id"],
+            "name": c.get("name") or c["wa_id"],
+            "last_message": c.get("last_message") or "",
+            "last_message_at": c.get("last_message_at"),
+            "turns": c.get("unread_count") or c.get("turns") or 0,
+            "bot_state": c.get("bot_state"),
+            "handover_mode": c.get("handover_mode") or "bot",
+            "assigned_agent_id": c.get("assigned_agent_id"),
+            "resolved": bool(c.get("resolved")),
+        }
+        for c in payload.get("conversations", [])
+    ]
+    queue.sort(key=lambda q: (q["handover_mode"] != "human", str(q.get("last_message_at") or "")))
+    handoff = sum(1 for c in queue if c["handover_mode"] == "human")
+    return {"queue": queue, "count": len(queue), "handoff_count": handoff}
 
-        queue = []
-        for row in rows:
-            assignment = conn.execute(
-                "SELECT agent_id FROM conversation_assignments WHERE wa_id = ? AND tenant_id = ?",
-                (row["wa_id"], tenant_id),
-            ).fetchone()
-            queue.append({
-                "wa_id": row["wa_id"],
-                "name": row["wa_id"],
-                "last_message": row["last_message"] or "",
-                "last_message_at": row["last_message_at"],
-                "turns": row["turn_count"] or 0,
-                "bot_state": row["bot_state"],
-                "handover_mode": "human" if row["human_handover"] else "bot",
-                "assigned_agent_id": assignment["agent_id"] if assignment else None,
-            })
-        handoff = sum(1 for c in queue if c["handover_mode"] == "human")
-        return {"queue": queue, "count": len(queue), "handoff_count": handoff}
-    finally:
-        conn.close()
+
+@flat_router.get("/inbox/events")
+async def inbox_events_stream(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Stream tenant-scoped inbox changes for the admin Chats panel."""
+    _principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    subscriber = inbox_events.subscribe(tenant_id)
+
+    async def events():
+        # The in-process hub is the fast path.  The database fingerprint is
+        # the cross-worker path, so an SSE connection still notices changes
+        # made by another worker even when no shared pub/sub service exists.
+        last_fingerprint = None
+
+        def inbox_fingerprint():
+            snapshot = tenant_inbox_queue(tenant_id, include_resolved=True)
+            return json.dumps(snapshot.get("conversations", []), sort_keys=True, default=str)
+
+        try:
+            yield "event: ready\ndata: {}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.to_thread(subscriber.get, True, 1)
+                    last_fingerprint = await asyncio.to_thread(inbox_fingerprint)
+                    yield f"event: inbox.updated\ndata: {json.dumps(event)}\n\n"
+                except queue_module.Empty:
+                    fingerprint = await asyncio.to_thread(inbox_fingerprint)
+                    if last_fingerprint is None:
+                        last_fingerprint = fingerprint
+                    elif fingerprint != last_fingerprint:
+                        last_fingerprint = fingerprint
+                        yield "event: inbox.updated\ndata: {\"wa_id\": null, \"reason\": \"cross_worker\"}\n\n"
+                    else:
+                        yield ": heartbeat\n\n"
+        finally:
+            inbox_events.unsubscribe(tenant_id, subscriber)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 class HandoverBody(BaseModel):
@@ -265,34 +375,33 @@ class AssignBody(BaseModel):
     agent_id: str
 
 
-@router.put("/inbox/handover/{wa_id}")
+@flat_router.post("/inbox/handover")
 def set_handover(
-    tenant_id: str,
-    wa_id: str,
-    body: HandoverBody,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxHandoverRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    wa_id = body.wa_id
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     if body.mode not in ("bot", "human"):
         raise HTTPException(status_code=400, detail="mode must be 'bot' or 'human'")
     set_human_handover(wa_id, active=(body.mode == "human"))
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, wa_id, "handover")
     logger.info(f"INBOX_HANDOVER | tenant={tenant_id} | wa={wa_id} | mode={body.mode}")
     return {"status": "ok", "wa_id": wa_id, "mode": body.mode}
 
 
-@router.post("/inbox/assign")
+@flat_router.post("/inbox/assign")
 def assign_conversation(
-    tenant_id: str,
-    body: AssignBody,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxAssignRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    with get_db_context() as conn:
-        conn.execute(
-            """INSERT INTO conversation_assignments (tenant_id, wa_id, agent_id, assigned_at)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(tenant_id, wa_id) DO UPDATE SET
-                 agent_id = excluded.agent_id, assigned_at = excluded.assigned_at""",
-            (tenant_id, body.wa_id, body.agent_id, datetime.utcnow().isoformat()),
-        )
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    assign_inbox_conversation(tenant_id, body.wa_id, body.agent_id)
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, body.wa_id, "assign")
     return {"status": "ok", "wa_id": body.wa_id, "agent_id": body.agent_id}
 
 
@@ -302,14 +411,17 @@ RESOLVED_MESSAGE = (
 )
 
 
-@router.post("/inbox/resolve/{wa_id}")
+@flat_router.post("/inbox/resolve")
 def resolve_handoff(
-    tenant_id: str,
-    wa_id: str,
-    reply: bool = True,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxResolveRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    wa_id, reply = body.wa_id, body.reply
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     set_human_handover(wa_id, active=False)
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, wa_id, "resolve")
     sent = False
     if reply:
         try:
@@ -339,14 +451,15 @@ class InboxReply(BaseModel):
     attachment: Optional[dict] = None
 
 
-@router.post("/inbox/{wa_id}/reply")
+@flat_router.post("/inbox/reply")
 def reply_to_customer(
-    tenant_id: str,
-    wa_id: str,
-    body: InboxReply,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxReplyRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Send an agent's message to the customer and keep the bot out of the way."""
+    wa_id = body.wa_id
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
     message = (body.message or "").strip()
     attach = body.attachment or None
     attach_url = (attach or {}).get("url") or ""
@@ -367,15 +480,7 @@ def reply_to_customer(
     if not message and not send_as_media:
         raise HTTPException(status_code=400, detail="message or attachment is required")
 
-    conn = get_db()
-    try:
-        owns = conn.execute(
-            f"SELECT 1 FROM chat_history ch WHERE {_TENANT_SCOPE} AND ch.wa_id = ? LIMIT 1",
-            (tenant_id, tenant_id, wa_id),
-        ).fetchone()
-    finally:
-        conn.close()
-    if not owns:
+    if not tenant_owns_conversation(tenant_id, wa_id):
         raise HTTPException(status_code=404, detail="This conversation does not belong to this tenant")
 
     try:
@@ -435,79 +540,49 @@ def reply_to_customer(
         logger.warning(f"inbox reply: could not save chat history: {exc}")
 
     set_human_handover(wa_id, active=True)
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, wa_id, "reply")
     logger.info(f"INBOX_REPLIED | tenant={tenant_id} | wa={wa_id} | by={principal.get('username')}")
     return {"status": "ok", "wa_id": wa_id, "sent": sent}
 
 
-@router.post("/inbox/attach")
+@flat_router.post("/inbox/attach")
 async def attach_inbox_file(
-    tenant_id: str,
-    data: dict,
-    principal: dict = Depends(_require("view_inbox")),
+    body: InboxAttachmentRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    """Host a file on Imghippo/catbox so an agent can send it as WhatsApp media."""
+    """Host a file on the public application domain for WhatsApp delivery."""
     from routes.admin import decode_attachment_body, store_chat_attachment
 
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    data.pop("tenant_id", None)
     filename, content, media_type = decode_attachment_body(data)
     return await store_chat_attachment(filename, content, media_type)
 
 
-@router.get("/agents")
-def list_agents(tenant_id: str, principal: dict = Depends(_require("view_inbox"))):
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            """
-            SELECT a.username AS agent_id, a.username,
-                   COALESCE(ao.status, 'offline') AS status
-            FROM admins a
-            LEFT JOIN agent_status ao ON ao.agent_id = a.username
-            ORDER BY a.username
-            """
-        ).fetchall()
-        return {"agents": [dict(r) for r in rows]}
-    finally:
-        conn.close()
+@flat_router.post("/agents")
+def list_agents(
+    body: AgentsListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    return list_tenant_agents()
 
 
 # ── complaints ────────────────────────────────────────────────────────────
 
-@router.get("/complaints")
+@flat_router.post("/complaints")
 def list_complaints(
-    tenant_id: str,
-    status: Optional[str] = Query(None),
-    limit: int = Query(200, le=500),
-    principal: dict = Depends(_require("view_complaints")),
+    body: ComplaintsListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    conn = get_db()
-    try:
-        sql = "SELECT * FROM complaints WHERE tenant_id = ?"
-        params: list = [tenant_id]
-        if status:
-            sql += " AND status = ?"
-            params.append(status)
-        sql += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
-
-        complaints = []
-        for r in rows:
-            item = dict(r)
-            item["name"] = item.get("wa_id") or "unknown"
-            user_row = conn.execute(
-                "SELECT message FROM chat_history WHERE wa_id = ? "
-                "AND (response IS NULL OR response = '') ORDER BY id DESC LIMIT 1",
-                (item.get("wa_id"),),
-            ).fetchone()
-            item["last_user_message"] = (user_row["message"] if user_row else "") or ""
-            complaints.append(item)
-        open_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM complaints WHERE tenant_id = ? AND status = 'open'",
-            (tenant_id,),
-        ).fetchone()["c"]
-        return {"complaints": complaints, "count": len(complaints), "open_count": open_count or 0}
-    finally:
-        conn.close()
+    status, limit = body.status, body.limit
+    principal, tenant_id = _flat_principal(request, credentials, "view_complaints")
+    return list_tenant_complaints(tenant_id, status, limit)
 
 
 class ComplaintPatch(BaseModel):
@@ -516,13 +591,14 @@ class ComplaintPatch(BaseModel):
     assigned_to: Optional[str] = None
 
 
-@router.put("/complaints/{ticket_id}")
+@flat_router.post("/complaints/update")
 def update_complaint(
-    tenant_id: str,
-    ticket_id: str,
-    body: ComplaintPatch,
-    principal: dict = Depends(_require("manage_complaints")),
+    body: ComplaintUpdateRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    ticket_id = body.ticket_id
+    principal, tenant_id = _flat_principal(request, credentials, "manage_complaints")
     if not any([body.status, body.priority, body.assigned_to is not None]):
         raise HTTPException(status_code=400, detail="Nothing to update")
     if body.status and body.status not in ALLOWED_STATUSES:
@@ -530,34 +606,16 @@ def update_complaint(
     if body.priority and body.priority not in ALLOWED_PRIORITIES:
         raise HTTPException(status_code=400, detail=f"priority must be one of {sorted(ALLOWED_PRIORITIES)}")
 
-    now = datetime.utcnow().isoformat()
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT id FROM complaints WHERE ticket_id = ? AND tenant_id = ?",
-            (ticket_id, tenant_id),
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Complaint not found for this tenant")
-
-        updates, params = [], []
-        if body.status:
-            updates.append("status = ?")
-            params.append(body.status)
-            if body.status in ("resolved", "closed"):
-                updates.append("resolved_at = ?")
-                params.append(now)
-        if body.priority:
-            updates.append("priority = ?")
-            params.append(body.priority)
-        if body.assigned_to is not None:
-            updates.append("assigned_to = ?")
-            params.append(body.assigned_to)
-        updates.append("updated_at = ?")
-        params.append(now)
-        params.extend([ticket_id, tenant_id])
-        conn.execute(
-            f"UPDATE complaints SET {', '.join(updates)} WHERE ticket_id = ? AND tenant_id = ?", params
+    try:
+        update_tenant_complaint(
+            tenant_id,
+            ticket_id,
+            status=body.status,
+            priority=body.priority,
+            assigned_to=body.assigned_to,
         )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Complaint not found for this tenant")
     return {"status": "ok", "ticket_id": ticket_id}
 
 
@@ -566,30 +624,23 @@ class ComplaintReply(BaseModel):
     status: Optional[str] = None
 
 
-@router.post("/complaints/{ticket_id}/reply")
+@flat_router.post("/complaints/reply")
 def reply_complaint(
-    tenant_id: str,
-    ticket_id: str,
-    body: ComplaintReply,
-    principal: dict = Depends(_require("manage_complaints")),
+    body: ComplaintReplyRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    ticket_id = body.ticket_id
+    principal, tenant_id = _flat_principal(request, credentials, "manage_complaints")
     message = (body.message or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
     if body.status and body.status not in ALLOWED_STATUSES:
         raise HTTPException(status_code=400, detail=f"status must be one of {sorted(ALLOWED_STATUSES)}")
 
-    conn = get_db()
-    try:
-        row = conn.execute(
-            "SELECT wa_id FROM complaints WHERE ticket_id = ? AND tenant_id = ?",
-            (ticket_id, tenant_id),
-        ).fetchone()
-    finally:
-        conn.close()
-    if not row:
+    wa_id = complaint_wa_id(tenant_id, ticket_id)
+    if not wa_id:
         raise HTTPException(status_code=404, detail="Complaint not found for this tenant")
-    wa_id = row["wa_id"]
     if not wa_id:
         raise HTTPException(status_code=400, detail="Complaint has no customer to reply to")
 
@@ -610,18 +661,7 @@ def reply_complaint(
         logger.warning(f"reply_complaint: could not save chat history: {exc}")
 
     if body.status:
-        now = datetime.utcnow().isoformat()
-        with get_db_context() as conn:
-            updates = ["status = ?", "updated_at = ?"]
-            params = [body.status, now]
-            if body.status in ("resolved", "closed"):
-                updates.append("resolved_at = ?")
-                params.append(now)
-            params.extend([ticket_id, tenant_id])
-            conn.execute(
-                f"UPDATE complaints SET {', '.join(updates)} WHERE ticket_id = ? AND tenant_id = ?",
-                params,
-            )
+        patch_complaint_status(tenant_id, ticket_id, body.status)
 
     if body.status in ("awaiting_info", "in_progress"):
         set_human_handover(wa_id, True)
@@ -632,26 +672,19 @@ def reply_complaint(
     return {"status": "ok", "ticket_id": ticket_id, "wa_id": wa_id, "sent": sent, "new_status": body.status}
 
 
-@router.delete("/complaints/{ticket_id}")
+@flat_router.post("/complaints/delete")
 def delete_complaint(
-    tenant_id: str,
-    ticket_id: str,
-    principal: dict = Depends(_require("manage_complaints")),
+    body: ComplaintDeleteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT id FROM complaints WHERE ticket_id = ? AND tenant_id = ?",
-            (ticket_id, tenant_id),
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Complaint not found for this tenant")
-        conn.execute("DELETE FROM complaints WHERE ticket_id = ? AND tenant_id = ?", (ticket_id, tenant_id))
+    ticket_id = body.ticket_id
+    principal, tenant_id = _flat_principal(request, credentials, "manage_complaints")
+    try:
+        delete_tenant_complaint(tenant_id, ticket_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Complaint not found for this tenant")
     return {"status": "ok", "ticket_id": ticket_id}
-
-
-def _normalize_lookup_phone(value: str) -> str:
-    import re
-    return re.sub(r"\D", "", str(value or "").strip())
 
 
 @router.get("/customer-360/{wa_id}")
@@ -666,134 +699,9 @@ def customer_360(
     ``wa_id`` may be digits with or without ``+`` / spaces; we normalize to digits
     and also match ``customers.phone`` when it differs from the WhatsApp id.
     """
+    from db.conversations_ops import _normalize_lookup_phone
+
     digits = _normalize_lookup_phone(wa_id)
     if not digits:
         raise HTTPException(status_code=400, detail="wa_id / mobile number required")
-
-    with get_db_context() as conn:
-        customer = conn.execute(
-            """SELECT * FROM customers
-               WHERE tenant_id = ?
-                 AND (wa_id = ? OR phone = ? OR replace(replace(coalesce(phone,''),'+',''),' ','') = ?)
-               LIMIT 1""",
-            (tenant_id, digits, digits, digits),
-        ).fetchone()
-        resolved_wa = digits
-        if customer:
-            resolved_wa = str(customer["wa_id"] or digits)
-
-        session = conn.execute(
-            "SELECT * FROM user_sessions WHERE tenant_id = ? AND wa_id = ?",
-            (tenant_id, resolved_wa),
-        ).fetchone()
-        if session is None:
-            session = conn.execute(
-                "SELECT * FROM user_sessions WHERE wa_id = ? LIMIT 1",
-                (resolved_wa,),
-            ).fetchone()
-
-        state = conn.execute(
-            "SELECT * FROM user_states WHERE tenant_id = ? AND wa_id = ?",
-            (tenant_id, resolved_wa),
-        ).fetchone()
-        if state is None:
-            state = conn.execute(
-                "SELECT * FROM user_states WHERE wa_id = ? LIMIT 1",
-                (resolved_wa,),
-            ).fetchone()
-
-        chat = conn.execute(
-            """SELECT id, message, response, route, created_at FROM chat_history
-               WHERE tenant_id = ? AND wa_id = ?
-               ORDER BY created_at DESC LIMIT ?""",
-            (tenant_id, resolved_wa, limit),
-        ).fetchall()
-
-        try:
-            orders = conn.execute(
-                """SELECT * FROM orders
-                   WHERE (tenant_id = ? OR tenant_id IS NULL) AND wa_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
-                (tenant_id, resolved_wa, limit),
-            ).fetchall()
-        except Exception:
-            orders = []
-
-        try:
-            leads = conn.execute(
-                """SELECT * FROM leads WHERE tenant_id = ? AND wa_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
-                (tenant_id, resolved_wa, limit),
-            ).fetchall()
-        except Exception:
-            leads = []
-
-        try:
-            complaints = conn.execute(
-                """SELECT * FROM complaints
-                   WHERE (tenant_id = ? OR tenant_id IS NULL) AND wa_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
-                (tenant_id, resolved_wa, limit),
-            ).fetchall()
-        except Exception:
-            complaints = []
-
-        try:
-            handoffs = conn.execute(
-                """SELECT * FROM handoffs WHERE tenant_id = ? AND wa_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
-                (tenant_id, resolved_wa, limit),
-            ).fetchall()
-        except Exception:
-            handoffs = []
-
-        try:
-            send_log = conn.execute(
-                """SELECT id, reason, trigger_message_id, snippet, created_at
-                   FROM whatsapp_send_log
-                   WHERE wa_id = ? AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')
-                   ORDER BY created_at DESC LIMIT ?""",
-                (resolved_wa, tenant_id, limit),
-            ).fetchall()
-        except Exception:
-            send_log = []
-
-        try:
-            dedup = conn.execute(
-                """SELECT message_id, channel, processed_at FROM processed_inbound_messages
-                   WHERE wa_id = ? ORDER BY processed_at DESC LIMIT ?""",
-                (resolved_wa, min(limit, 50)),
-            ).fetchall()
-        except Exception:
-            dedup = []
-
-        try:
-            webhook_hits = conn.execute(
-                """SELECT id, direction, endpoint, status_code, message_id, created_at
-                   FROM webhook_logs
-                   WHERE wa_id = ? AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')
-                   ORDER BY created_at DESC LIMIT ?""",
-                (resolved_wa, tenant_id, min(limit, 50)),
-            ).fetchall()
-        except Exception:
-            webhook_hits = []
-
-    def _rows(rows):
-        return [dict(r) for r in (rows or [])]
-
-    return {
-        "tenant_id": tenant_id,
-        "wa_id": resolved_wa,
-        "lookup": digits,
-        "customer": dict(customer) if customer else None,
-        "session": dict(session) if session else None,
-        "state": dict(state) if state else None,
-        "chat_history": list(reversed(_rows(chat))),
-        "orders": _rows(orders),
-        "leads": _rows(leads),
-        "complaints": _rows(complaints),
-        "handoffs": _rows(handoffs),
-        "whatsapp_send_log": _rows(send_log),
-        "processed_inbound": _rows(dedup),
-        "webhook_logs": _rows(webhook_hits),
-    }
+    return customer_360_view(tenant_id, digits, limit)

@@ -19,6 +19,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -30,6 +32,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import database
+from core.send2_auth import encode_send2_username
 from shared.tenancy import store as tenancy_store
 
 
@@ -91,14 +94,13 @@ def _staged_payload() -> dict:
 
 class _CrawlTestBase(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
         self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "crawl-ui.sqlite3")
         self.upload = Path(self.temp.name) / "uploads"
         self.upload.mkdir()
         self.clients_root = Path(self.temp.name) / "clients"
         self.clients_root.mkdir()
 
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
         self.env_patch = patch.dict(os.environ, {"UPLOAD_DIR": str(self.upload)})
         self.clients_patch = patch(
             "shared.tenancy.paths.CLIENTS_DIR", self.clients_root
@@ -109,7 +111,6 @@ class _CrawlTestBase(unittest.TestCase):
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.env_patch.start()
         self.clients_patch.start()
         self.bc_patch.start()
@@ -117,15 +118,16 @@ class _CrawlTestBase(unittest.TestCase):
         database.init_db()
 
     def tearDown(self):
+        self.mongo.stop()
+        self.temp.cleanup()
         for p in (
-            self.db_patch, self.env_patch, self.clients_patch,
+            self.env_patch, self.clients_patch,
             self.bc_patch, self.resolver_patch,
         ):
             try:
                 p.stop()
             except Exception:
                 pass
-        self.temp.cleanup()
 
 
 class CrawlExportApiTests(_CrawlTestBase):
@@ -145,6 +147,17 @@ class CrawlExportApiTests(_CrawlTestBase):
         self.empty_run = database.create_crawl_run(
             "crawl-a", "https://empty.example/", trigger="manual", created_by="test"
         )
+        self.sessions = {}
+        for username, tenant_id in (("crawl-a-admin", "crawl-a"), ("crawl-b-admin", "crawl-b")):
+            session_id = f"session-{username}"
+            database.create_admin(
+                encode_send2_username(username),
+                role="admin",
+                permissions={"manage_operations": True},
+                tenant_id=tenant_id,
+                session_id=session_id,
+            )
+            self.sessions[tenant_id] = {"username": username, "session_id": session_id}
 
         from routes import crawl as crawl_routes
 
@@ -169,10 +182,14 @@ class CrawlExportApiTests(_CrawlTestBase):
                     self.app.dependency_overrides[dep.call] = _fake_principal
 
     def _export(self, tenant: str, run_id: int, fmt: str | None = None):
-        url = f"/api/admin/tenants/{tenant}/crawl-runs/{run_id}/export"
+        body = {"run_id": run_id}
         if fmt is not None:
-            url += f"?format={fmt}"
-        return self.client.get(url)
+            body["format"] = fmt
+        return self.client.post(
+            "/api/admin/tenants/crawl-runs/export",
+            json=body,
+            headers=self.sessions[tenant],
+        )
 
     def test_export_json_happy_path(self):
         r = self._export("crawl-a", self.run["id"], "json")
@@ -246,20 +263,29 @@ class CrawlApproveRule1Tests(_CrawlTestBase):
         def _light_faq_ingest(self_onb, tenant_id, faqs):
             if not faqs:
                 return 0
+            from datetime import datetime, timezone
+
+            from db.mongo import Repository
+
+            repo = Repository("faq_dataset")
             count = 0
-            with database.get_db_context() as conn:
-                for f in faqs:
-                    q = (f.get("question") or "").strip()
-                    a = (f.get("answer") or "").strip()
-                    if not q or not a:
-                        continue
-                    conn.execute(
-                        """INSERT INTO faq_dataset
-                               (source_file, content_type, content, page_number, module, tenant_id, created_at)
-                           VALUES (?, 'qa', ?, 1, 'faq', ?, CURRENT_TIMESTAMP)""",
-                        ("website_faq_test.md", f"Question: {q}\nAnswer: {a}", tenant_id),
-                    )
-                    count += 1
+            for f in faqs:
+                q = (f.get("question") or "").strip()
+                a = (f.get("answer") or "").strip()
+                if not q or not a:
+                    continue
+                repo.insert(
+                    {
+                        "source_file": "website_faq_test.md",
+                        "content_type": "qa",
+                        "content": f"Question: {q}\nAnswer: {a}",
+                        "page_number": 1,
+                        "module": "faq",
+                        "tenant_id": tenant_id,
+                        "created_at": datetime.now(timezone.utc),
+                    }
+                )
+                count += 1
             return count
 
         self.faq_ingest_patch = patch(
@@ -377,16 +403,12 @@ class CrawlApproveRule1Tests(_CrawlTestBase):
         self.assertIn(
             "Crawled Blue Widget", [p.get("name") for p in products]
         )
-        with database.get_db_context() as conn:
-            faq_rows = conn.execute(
-                "SELECT COUNT(*) AS c FROM faq_dataset "
-                "WHERE tenant_id = ? AND content LIKE '%Do you ship nationwide?%'",
-                ("rule1",),
-            ).fetchone()["c"]
-            kb_rows = conn.execute(
-                "SELECT COUNT(*) AS c FROM knowledge_base WHERE tenant_id = ?",
-                ("rule1",),
-            ).fetchone()["c"]
+        from db.mongo import Repository
+
+        faq_rows = Repository("faq_dataset").count(
+            {"tenant_id": "rule1", "content": {"$regex": "Do you ship nationwide?"}}
+        )
+        kb_rows = Repository("knowledge_base").count({"tenant_id": "rule1"})
         self.assertGreaterEqual(faq_rows, 1)
         self.assertGreaterEqual(kb_rows, 1)
 

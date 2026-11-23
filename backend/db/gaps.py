@@ -1,20 +1,11 @@
 """Unanswered-query (knowledge gap) capture data access — extracted from backend/database.py."""
-import os
 import json
-import re
-import sqlite3
 import logging
-import hashlib
 from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
 
 from .core import (
-    DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
-    _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-    get_request_tenant
+    logger, get_db_context, use_mongodb, get_request_tenant,
 )
-
 from .products import _resolve_tenant
 from .chat import save_chunks
 
@@ -43,6 +34,48 @@ def record_unanswered_query(
         return None
 
     effective_tenant = _resolve_tenant(tenant_id) if tenant_id else (get_request_tenant() or "default")
+
+    if use_mongodb():
+        from .mongo import Repository
+        try:
+            other_rows = Repository("tenants").find_all({
+                "id": {"$ne": str(effective_tenant)},
+                "slug": {"$ne": str(effective_tenant)},
+            })
+            for ot in other_rows:
+                names = {
+                    str(ot.get("slug") or "").lower().strip(),
+                    str(ot.get("display_name") or "").lower().strip(),
+                    str(ot.get("slug") or "").replace("-", " ").lower().strip(),
+                }
+                names.discard("")
+                if lower in names or any(
+                    len(n) >= 2 and (lower == n or lower == f"#{n}") for n in names
+                ):
+                    logger.info(
+                        "Ignoring cross-tenant keyword %r for tenant %s",
+                        cleaned, effective_tenant,
+                    )
+                    return None
+        except Exception as filter_err:
+            logger.debug("Cross-tenant filter check exception: %s", filter_err)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        recent_rows = Repository("unanswered_queries").find_all({
+            "tenant_id": effective_tenant,
+            "created_at": {"$gte": cutoff},
+        })
+        for recent in recent_rows:
+            if str(recent.get("query") or "").strip().lower() == lower:
+                return recent.get("id")
+        row = Repository("unanswered_queries").insert({
+            "tenant_id": effective_tenant,
+            "wa_id": wa_id,
+            "query": cleaned,
+            "reason": reason,
+            "confidence_score": float(confidence_score or 0.0),
+        })
+        return row.get("id")
 
     with get_db_context() as conn:
         # Cross-tenant check: do not record another brand's name/slug as a
@@ -97,6 +130,16 @@ def list_unanswered_queries(
 ) -> list[dict]:
     """Retrieve unanswered customer queries for a tenant."""
     effective_tenant = _resolve_tenant(tenant_id) if tenant_id else get_request_tenant()
+    if use_mongodb():
+        from .mongo import Repository
+        filters = {}
+        if effective_tenant:
+            filters["tenant_id"] = effective_tenant
+        if resolved is not None:
+            filters["resolved"] = 1 if resolved else 0
+        return Repository("unanswered_queries").find(
+            filters, sort=[("created_at", -1)], limit=int(limit)
+        )
     with get_db_context() as conn:
         params = []
         where_clauses = []
@@ -122,6 +165,17 @@ def resolve_unanswered_query(
 ) -> bool:
     """Mark a knowledge gap as resolved."""
     effective_tenant = _resolve_tenant(tenant_id) if tenant_id else get_request_tenant()
+    if use_mongodb():
+        from .mongo import Repository
+        filters = {"id": gap_id}
+        if effective_tenant:
+            filters["tenant_id"] = effective_tenant
+        return Repository("unanswered_queries").update(filters, {
+            "resolved": 1,
+            "resolved_at": datetime.now(timezone.utc),
+            "resolved_by": resolved_by or "admin",
+            "resolution_notes": notes or "",
+        }) > 0
     with get_db_context() as conn:
         params = [resolved_by or "admin", notes or "", gap_id]
         tenant_clause = ""
@@ -141,6 +195,40 @@ def resolve_unanswered_query(
 def get_knowledge_gaps_summary(tenant_id: str = None) -> dict:
     """Return top recurring unanswered queries and unresolved count for dashboard."""
     effective_tenant = _resolve_tenant(tenant_id) if tenant_id else get_request_tenant()
+    if use_mongodb():
+        from .mongo import get_database
+        match = {"resolved": 0}
+        if effective_tenant:
+            match["tenant_id"] = effective_tenant
+        coll = get_database()["unanswered_queries"]
+        unresolved_count = coll.count_documents(match)
+        pipeline = [
+            {"$match": match},
+            {"$addFields": {"_qkey": {"$toLower": {"$trim": {"input": {"$ifNull": ["$query", ""]}}}}}},
+            {"$group": {
+                "_id": "$_qkey",
+                "query": {"$last": "$query"},
+                "count": {"$sum": 1},
+                "last_asked": {"$max": "$created_at"},
+                "avg_score": {"$avg": "$confidence_score"},
+                "reason": {"$last": "$reason"},
+                "sample_id": {"$max": "$id"},
+            }},
+            {"$sort": {"count": -1, "last_asked": -1}},
+            {"$limit": 10},
+        ]
+        top_queries = []
+        for r in coll.aggregate(pipeline):
+            top_queries.append({
+                "query": r.get("query"),
+                "count": r.get("count"),
+                "last_asked": r.get("last_asked"),
+                "avg_score": round(float(r.get("avg_score") or 0.0), 3),
+                "reason": r.get("reason"),
+                "sample_id": r.get("sample_id"),
+            })
+        return {"total_unresolved": unresolved_count, "top_queries": top_queries}
+
     with get_db_context() as conn:
         params = [effective_tenant] if effective_tenant else []
         tenant_sql = "AND tenant_id = ?" if effective_tenant else ""
@@ -208,22 +296,36 @@ def add_faq_from_gap(
     save_chunks([chunk], module="faq", tenant_id=effective_tenant)
 
     # Save to knowledge_base table as well for hybrid RAG completeness
-    with get_db_context() as conn:
-        conn.execute(
-            """INSERT INTO knowledge_base (title, category, content, tags, source, chunks_json, embedding_blob, created_at, tenant_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                f"FAQ: {q[:50]}",
-                "faq",
-                formatted_content,
-                json.dumps(["faq", "knowledge_gap"]),
-                "Knowledge Gap FAQ",
-                json.dumps([formatted_content]),
-                None,
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                effective_tenant,
-            ),
-        )
+    if use_mongodb():
+        from .mongo import Repository
+        Repository("knowledge_base").insert({
+            "title": f"FAQ: {q[:50]}",
+            "category": "faq",
+            "content": formatted_content,
+            "tags": json.dumps(["faq", "knowledge_gap"]),
+            "source": "Knowledge Gap FAQ",
+            "chunks_json": [formatted_content],
+            "embedding_blob": None,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "tenant_id": effective_tenant,
+        })
+    else:
+        with get_db_context() as conn:
+            conn.execute(
+                """INSERT INTO knowledge_base (title, category, content, tags, source, chunks_json, embedding_blob, created_at, tenant_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    f"FAQ: {q[:50]}",
+                    "faq",
+                    formatted_content,
+                    json.dumps(["faq", "knowledge_gap"]),
+                    "Knowledge Gap FAQ",
+                    json.dumps([formatted_content]),
+                    None,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    effective_tenant,
+                ),
+            )
 
     # Rebuild FAQ index
     try:

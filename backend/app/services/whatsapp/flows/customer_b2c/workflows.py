@@ -11,6 +11,34 @@ logger = logging.getLogger("b2c_workflows")
 MIN_FAQ_CE_SCORE = 0.30
 MIN_KB_SIMILARITY = 0.40
 
+
+def _kb_chunk_texts_from_hits(hits, *, min_similarity: float = 0.0, filter_noise: bool = False) -> list:
+    """Load chunk text for FAISS hits from the knowledge_base collection."""
+    import json as _json
+    from db.mongo import Repository
+
+    kb_chunks = []
+    repo = Repository("knowledge_base")
+    for top in hits or []:
+        score = float(top.get("score") or top.get("similarity") or 0.0)
+        if score < min_similarity:
+            continue
+        row = repo.find_one({"id": top.get("doc_id")})
+        if not row:
+            continue
+        raw = row.get("chunks_json")
+        if not raw:
+            continue
+        chunks = raw if isinstance(raw, list) else _json.loads(raw)
+        ci = top.get("chunk_index")
+        if not isinstance(ci, int) or not (0 <= ci < len(chunks)):
+            continue
+        ctext = chunks[ci]
+        if filter_noise and (". . . ." in ctext or "...." in ctext):
+            continue
+        kb_chunks.append(ctext)
+    return kb_chunks
+
 # WhatsApp message length limits
 MAX_WHATSAPP_TEXT_LENGTH = 4000
 
@@ -54,12 +82,8 @@ def _sanitize_kb_query(query: str) -> str:
 def _is_new_user(wa_id: str) -> bool:
     """Check if this is the user's first interaction."""
     try:
-        from database import get_db_context
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM user_states WHERE wa_id = ?", (wa_id,)
-            ).fetchone()
-            return row is None
+        from db.mongo import Repository
+        return Repository("user_states").find_one({"wa_id": wa_id}) is None
     except Exception:
         return False
 
@@ -1023,27 +1047,12 @@ async def _fallback_to_rag(
     if not answer:
         kb_chunks = []  # Store chunks for fallback
         try:
-            import json as _json
             from kb.services.rag import search_kb_faiss
-            from database import get_db_context
             hits = search_kb_faiss(message, limit=5, tenant_id=tid)
             if hits:
-                with get_db_context() as conn:
-                    for top in hits:
-                        score = float(top.get("score") or top.get("similarity") or 0.0)
-                        if score < MIN_KB_SIMILARITY:
-                            continue
-                        row = conn.execute(
-                            "SELECT chunks_json FROM knowledge_base WHERE id=?",
-                            (top["doc_id"],),
-                        ).fetchone()
-                        if row and row[0]:
-                            chunks = _json.loads(row[0])
-                            ci = top.get("chunk_index")
-                            if isinstance(ci, int) and 0 <= ci < len(chunks):
-                                ctext = chunks[ci]
-                                if ". . . ." not in ctext and "...." not in ctext:
-                                    kb_chunks.append(ctext)
+                kb_chunks = _kb_chunk_texts_from_hits(
+                    hits, min_similarity=MIN_KB_SIMILARITY, filter_noise=True,
+                )
 
             if kb_chunks:
                 from faq.service import _generate_ollama_dynamic_response, _brand_context, _render_prompt, SYSTEM_PROMPT_TEMPLATE, _append_signature
@@ -1187,23 +1196,9 @@ async def _kb_answer(wa_id: str, query: str, tenant_id: str | None = None) -> st
         logger.warning(f"FAQ index lookup for '{query}' failed: {e}")
 
     try:
-        import json as _json
         from kb.services.rag import search_kb_faiss
-        from database import get_db_context
         hits = search_kb_faiss(query, limit=3, tenant_id=tenant_id)
-        kb_chunks = []
-        if hits:
-            with get_db_context() as conn:
-                for top in hits:
-                    row = conn.execute(
-                        "SELECT chunks_json FROM knowledge_base WHERE id=?",
-                        (top["doc_id"],),
-                    ).fetchone()
-                    if row and row[0]:
-                        chunks = _json.loads(row[0])
-                        ci = top.get("chunk_index")
-                        if isinstance(ci, int) and 0 <= ci < len(chunks):
-                            kb_chunks.append(chunks[ci])
+        kb_chunks = _kb_chunk_texts_from_hits(hits) if hits else []
 
         if kb_chunks:
             from faq.service import _generate_ollama_dynamic_response, _brand_context, _render_prompt, SYSTEM_PROMPT_TEMPLATE, _append_signature

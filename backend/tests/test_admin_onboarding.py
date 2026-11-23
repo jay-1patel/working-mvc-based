@@ -22,6 +22,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -33,6 +35,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import database
+from core.send2_auth import encode_send2_username
 from routes import auth as auth_routes
 from routes import onboarding_kits as kits_routes
 from routes import tenant_approvals as approvals_routes
@@ -40,7 +43,9 @@ from routes import tenants as tenants_routes
 from services.auto_bifurcator import AutoBifurcator
 from shared.tenancy import store as tenancy_store
 
-PASSWORD = "RootPass123!"
+
+def _headers(username: str, session_id: str) -> dict:
+    return {"username": username, "session_id": session_id}
 
 STAGED = {
     "status": "staged",
@@ -76,17 +81,11 @@ STAGED = {
 
 class AdminOnboardingTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "onboarding.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
-        # Same ADMIN_SECRET_KEY patch as test_role_panels (gate-env gap).
-        self.key_patch = patch.object(auth_routes, "ADMIN_SECRET_KEY", "test-admin-signing-key")
-        self.key_patch.start()
         database.init_db()
 
         self.app = FastAPI()
@@ -96,11 +95,14 @@ class AdminOnboardingTests(unittest.TestCase):
             self.app.include_router(module.router)
         self.client = TestClient(self.app, raise_server_exceptions=False)
 
-        first = self.client.post(
-            "/api/auth/first-admin", json={"username": "root", "password": PASSWORD}
+        self.root_session = "root-session"
+        database.create_admin(
+            encode_send2_username("root"),
+            role="super_admin",
+            permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
+            session_id=self.root_session,
         )
-        assert first.status_code == 200, first.text
-        self.root = self._login("root")
+        self.root = _headers("root", self.root_session)
 
         created = self.client.post(
             "/api/admin/tenants",
@@ -118,26 +120,16 @@ class AdminOnboardingTests(unittest.TestCase):
         self.leeway_admin = self._create_admin("leeway-admin", tenant_id="leeway")
 
     def tearDown(self):
-        self.key_patch.stop()
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     # ── helpers ────────────────────────────────────────────────────────
-
-    def _login(self, username):
-        res = self.client.post(
-            "/api/auth/login", json={"username": username, "password": PASSWORD}
-        )
-        assert res.status_code == 200, res.text
-        return {"Authorization": f"Bearer {res.json()['token']}"}
 
     def _create_admin(self, username, role="admin", tenant_id=None):
         res = self.client.post(
             "/api/auth/create",
             json={
                 "username": username,
-                "password": PASSWORD,
                 "role": role,
                 "permissions": None,
                 "email": None,
@@ -146,7 +138,7 @@ class AdminOnboardingTests(unittest.TestCase):
             headers=self.root,
         )
         assert res.status_code == 200, res.text
-        return self._login(username)
+        return _headers(username, res.json()["session_id"])
 
     # ── the premise: this admin really is still awaiting approval ──────
 
@@ -227,6 +219,29 @@ class AdminOnboardingTests(unittest.TestCase):
         self.assertEqual(res.status_code, 403, res.text)
         self.assertIn("view-only", res.json()["detail"])
 
+    def test_reupload_publish_uses_filename_as_replaceable_source(self):
+        captured = {}
+
+        def fake_apply(self, **kwargs):
+            captured.update(kwargs)
+            return {"status": "configured", "version": 2}
+
+        revised = dict(STAGED)
+        revised["source_files"] = ["../../company-revised.pdf"]
+        with patch.object(AutoBifurcator, "apply_bifurcation", fake_apply):
+            res = self.client.post(
+                "/api/admin/tenants/leeway/onboarding/publish",
+                json={"draft": revised},
+                headers=self.leeway_admin,
+            )
+
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["status"], "published")
+        # The basename is both the replacement key for a future re-upload and
+        # safe to persist as a source label.
+        self.assertEqual(captured["source_file"], "company-revised.pdf")
+        self.assertTrue(captured["auto_publish"])
+
     # ── the completion path the wizard submits ─────────────────────────
 
     def test_awaiting_approval_admin_completion_path(self):
@@ -257,7 +272,7 @@ class AdminOnboardingTests(unittest.TestCase):
                 ],
             },
         }
-        saved = self.client.put(
+        saved = self.client.post(
             "/api/admin/tenants/leeway/profile",
             json={"snapshot": snapshot},
             headers=self.leeway_admin,

@@ -2,31 +2,35 @@ import json
 import logging
 import re
 import secrets
-import uuid
+import hmac
+import base64
 import hashlib
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import bcrypt
-import jwt
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
+from core.send2_auth import (
+    admin_username_candidates,
+    decode_stored_username,
+    encode_send2_username,
+    normalize_login_username,
+)
 
-# SECURITY FIX: Token revocation list to invalidate compromised tokens
-REVOKED_TOKENS = set()
-
-from routing.config import ADMIN_SECRET_KEY, ADMIN_JWT_EXPIRY_HOURS, OTP_EXPIRY_MINUTES
 from database import (
+    count_admins,
+    create_admin as db_create_admin,
+    delete_admin,
+    get_admin_by_username,
     get_db_context,
     record_admin_audit_event,
-    get_admin_record,
     list_admin_records,
     count_admins_by_role,
-    count_tenant_admins,    set_admin_otp,
-    get_admin_otp,
-    clear_admin_otp,
+    update_admin as db_update_admin,
+    update_admin_email,
+    update_admin_record,
 )
+from db.core import use_mongodb
 
 logger = logging.getLogger("chiki_webhook")
 
@@ -55,8 +59,6 @@ limiter = Limiter(key_func=get_remote_address, enabled=RATE_LIMIT_ENABLED) if RA
 # SECURITY FIX: Password complexity requirements
 MIN_PASSWORD_LENGTH = 12
 MIN_PASSWORD_SCORE = 3  # 0-4 scale (zxcvbn)
-from services.emailer import send_otp_email, is_smtp_configured
-
 # Rate limit exception handler. Registered on the FastAPI app in main.py --
 # APIRouter has no exception_handler method.
 async def rate_limit_exceeded_handler(request: Request, exc):
@@ -68,10 +70,7 @@ async def rate_limit_exceeded_handler(request: Request, exc):
     )
 
 router = APIRouter(prefix="/api/auth")
-security = HTTPBearer(auto_error=False)
-
-# SECURITY FIX: Use strong bcrypt hashing with explicit work factor
-SALT_ROUNDS = 12  # Minimum 12 rounds for security (14-16 recommended for sensitive data)
+security = HTTPBasic(auto_error=False)
 
 ALL_PERMISSIONS = {
     "manage_admins": "Manage admins (add/edit/delete)",
@@ -208,6 +207,82 @@ def require_super_admin_permission(perm: str):
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+READ_ONLY_POST_PATHS = frozenset({
+    "/api/admin/dashboard/overview",
+    "/api/admin/errors",
+    "/api/admin/tenants/conversations/detail",
+    "/api/admin/tenants/chat/thread",
+    "/api/admin/tenants/chat-history",
+    "/api/admin/tenants/inbox",
+    "/api/admin/tenants/agents",
+    "/api/admin/tenants/complaints",
+    "/api/admin/tenants/customers",
+    "/api/admin/tenants/customers/export",
+    "/api/admin/tenants/resolved",
+    "/api/admin/tenants/crawl-runs",
+    "/api/admin/tenants/crawl-runs/staged",
+    "/api/admin/tenants/crawl-runs/export",
+    "/api/admin/tenants/files",
+    "/api/admin/tenants/files/preview",
+    "/api/admin/tenants/files/download",
+    "/api/admin/tenants/knowledge-gaps",
+    "/api/admin/onboarding-kits/list",
+    "/api/auth/admins",
+})
+
+BODY_TENANT_POST_PATHS = frozenset({
+    "/api/admin/tenants/conversations/detail",
+    "/api/admin/tenants/chat/thread",
+    "/api/admin/tenants/chat-history",
+    "/api/admin/tenants/inbox",
+    "/api/admin/tenants/inbox/handover",
+    "/api/admin/tenants/inbox/assign",
+    "/api/admin/tenants/inbox/resolve",
+    "/api/admin/tenants/inbox/reply",
+    "/api/admin/tenants/inbox/attach",
+    "/api/admin/tenants/agents",
+    "/api/admin/tenants/complaints",
+    "/api/admin/tenants/complaints/update",
+    "/api/admin/tenants/complaints/reply",
+    "/api/admin/tenants/complaints/delete",
+    "/api/admin/tenants/customers",
+    "/api/admin/tenants/customers/export",
+    "/api/admin/tenants/resolved",
+    "/api/admin/tenants/crawl",
+    "/api/admin/tenants/crawl-runs",
+    "/api/admin/tenants/crawl-runs/staged",
+    "/api/admin/tenants/crawl-runs/export",
+    "/api/admin/tenants/crawl-runs/approve",
+    "/api/admin/tenants/crawl-runs/reject",
+    "/api/admin/tenants/files",
+    "/api/admin/tenants/files/upload",
+    "/api/admin/tenants/files/bifurcate-existing",
+    "/api/admin/tenants/files/preview",
+    "/api/admin/tenants/files/download",
+    "/api/admin/tenants/files/delete",
+    "/api/admin/tenants/knowledge-gaps",
+    "/api/admin/tenants/knowledge-gaps/resolve",
+    "/api/admin/tenants/knowledge-gaps/create-faq",
+})
+
+
+# Path-param read POSTs that are not flat panel routes but must stay
+# view-only for super admins (profile page load).
+READ_ONLY_POST_PATH_PATTERNS = (
+    re.compile(r"^/api/admin/tenants/[^/]+/detail$"),
+    re.compile(r"^/api/admin/menus$"),
+    re.compile(r"^/api/admin/menus/[^/]+$"),
+    re.compile(r"^/api/admin/menus/[^/]+/settings$"),
+)
+
+
+def is_read_only_post(method: str, path: str) -> bool:
+    if (method or "").upper() != "POST":
+        return False
+    if (path or "") in READ_ONLY_POST_PATHS:
+        return True
+    return any(pattern.match(path or "") for pattern in READ_ONLY_POST_PATH_PATTERNS)
+
 SUPER_ADMIN_ALLOWED_WRITE_PATTERNS = (
     re.compile(r"^/api/auth(?:/.*)?$"),  # people management, own password, OTP
     re.compile(r"^/api/admin/tenants$"),  # POST: create a tenant
@@ -265,6 +340,8 @@ def is_tenant_data_write(method: str, path: str) -> bool:
     method = (method or "").upper()
     if method not in WRITE_METHODS:
         return False
+    if is_read_only_post(method, path):
+        return False
     if is_super_admin_allowed_write(method, path):
         return False
     return any((path or "").startswith(prefix) for prefix in TENANT_DATA_WRITE_PREFIXES)
@@ -286,81 +363,104 @@ def ensure_super_admin_view_only(admin: dict | None, method: str, path: str) -> 
 
 # ---------- helpers ----------
 
-def _hash_password(plain: str) -> str:
-    # SECURITY FIX: Use explicit work factor for strong hashing
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=SALT_ROUNDS)).decode()
+def _public_username(username: str | None) -> str:
+    """Return the plain username clients send/receive (login-page form).
+
+    DB rows store the Send2 Base64 form; API responses and session identity
+    always use the decoded plain name. Does not accept Base64 as a login input
+    path — use ``normalize_login_username`` for that.
+    """
+    return decode_stored_username(username)
 
 
-def _verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+def _resolve_admin_row(username: str) -> dict | None:
+    """Find an admin: plain input → Base64 → match ``admins.username``.
+
+    Callers must send the plain name (e.g. ``test_support_``). Base64 login
+    input is rejected. Lookup uses the encoded form only.
+    """
+    try:
+        candidates = admin_username_candidates(username)
+    except ValueError:
+        return None
+    for candidate in candidates:
+        row = get_admin_by_username(candidate)
+        if row:
+            return row
+    return None
 
 
-def _admin_signing_key() -> str:
-    if not isinstance(ADMIN_SECRET_KEY, str) or not ADMIN_SECRET_KEY.strip():
+def _stored_username(row: dict | None, fallback: str = "") -> str:
+    """Exact ``admins.username`` key for DB writes (may be Base64)."""
+    if row and row.get("username") is not None:
+        return str(row["username"])
+    return str(fallback or "")
+
+
+def _admin_from_pair(username: str, session_id: str, request: Request | None = None) -> dict:
+    """Authenticate one live username/session-id pair from the database.
+
+    Plain username only (same as ``/api/auth/login``): encode for DB lookup,
+    then expose the plain name on the returned principal. Base64 input fails.
+    """
+    row = _resolve_admin_row(username)
+    stored = str(row["session_id"] or "") if row else ""
+    supplied = str(session_id or "")
+    if not row or not stored or not hmac.compare_digest(stored, supplied):
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Admin authentication is not configured. Set ADMIN_SECRET_KEY "
-                "in routing/.env and restart the backend."
-            ),
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
         )
-    return ADMIN_SECRET_KEY
+    result = dict(row)
+    result.pop("session_id", None)
+    # DB stores Send2 Base64; session identity is always the plain name.
+    result["username"] = _public_username(result.get("username") or username)
+    result["role"] = result.get("role") or "sub_admin"
+    result["permissions"] = _effective_permissions(result.get("role"), result.get("permissions"))
+    if request is not None:
+        request.state.current_admin = result
+        request.state.error_tenant_id = result.get("tenant_id")
+        from core.context import error_context_var
+        trace_context = error_context_var.get()
+        if trace_context is not None:
+            trace_context["tenant_id"] = result.get("tenant_id")
+    return result
 
 
-def _create_token(username: str) -> str:
-    # SECURITY FIX: Add unique token ID (jti) for revocation
-    payload = {
-        "sub": username,
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(hours=ADMIN_JWT_EXPIRY_HOURS),
-        "jti": str(uuid.uuid4()),  # Unique token identifier for revocation
-    }
-    return jwt.encode(payload, _admin_signing_key(), algorithm="HS256")
+def authenticate_basic_header(request: Request) -> dict:
+    """Authenticate with username + session_id only (no Authorization required).
 
+    Accepted sources, in order:
+      1. Headers ``username`` + ``session_id``
+      2. JSON/form body fields ``username`` + ``session_id`` (set by middleware)
 
-def _decode_token(token: str) -> dict:
-    # SECURITY FIX: Check for revoked tokens and require specific claims
-    try:
-        payload = jwt.decode(
-            token,
-            _admin_signing_key(),
-            algorithms=["HS256"],  # Only allow HS256
-            options={"require": ["exp", "sub", "jti"]},  # Require these claims
-        )
-        
-        # Check if token has been revoked
-        if payload.get("jti") in REVOKED_TOKENS:
-            logger.warning(f"Revoked token used: jti={payload.get('jti')}")
-            raise HTTPException(status_code=401, detail="Token has been revoked")
-        
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except jwt.MissingRequiredClaimError as e:
-        logger.warning(f"Missing required JWT claim: {e}")
-        raise HTTPException(status_code=401, detail="Invalid token")
+    ``username`` must be the plain Send2/local name; lookup encodes it and
+    matches Base64 ``admins.username`` (same rule as login).
+    """
+    cached = getattr(request.state, "current_admin", None)
+    if cached:
+        return cached
 
+    username = (
+        str(request.headers.get("username") or "").strip()
+        or str(getattr(request.state, "auth_username", "") or "").strip()
+    )
+    session_id = (
+        str(request.headers.get("session_id") or "").strip()
+        or str(getattr(request.state, "auth_session_id", "") or "").strip()
+    )
+    if username and session_id:
+        return _admin_from_pair(username, session_id, request)
 
-def revoke_token(token: str) -> bool:
-    """Revoke a JWT token by adding its jti to the revocation list."""
-    try:
-        payload = jwt.decode(token, _admin_signing_key(), algorithms=["HS256"], options={"verify_exp": False})
-        jti = payload.get("jti")
-        if jti:
-            REVOKED_TOKENS.add(jti)
-            logger.info(f"Token revoked: jti={jti}")
-            return True
-    except Exception as e:
-        logger.warning(f"Failed to revoke token: {e}")
-    return False
+    raise HTTPException(
+        status_code=401,
+        detail="Not authenticated — send username and session_id (header or JSON body)",
+    )
 
 
 def _admin_count() -> int:
-    with get_db_context() as conn:
-        row = conn.execute("SELECT COUNT(*) as cnt FROM admins").fetchone()
-        return row["cnt"]
+    return count_admins()
 
 
 def scoped_tenant_id(admin: dict) -> str | None:
@@ -379,28 +479,38 @@ def scoped_tenant_id(admin: dict) -> str | None:
     return own
 
 
+def session_tenant_id(admin: dict | None = None, request: Request | None = None) -> str:
+    """Tenant bound to the authenticated username/session_id — never from the body.
+
+    Flat panel APIs resolve the working tenant only from the admin row matched
+    by username + session_id. Callers must not send tenant_id in the JSON body.
+    """
+    if admin is None:
+        if request is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        cached = getattr(request.state, "current_admin", None)
+        admin = cached or get_current_admin(request, None)
+    tid = str((admin or {}).get("tenant_id") or "").strip()
+    if not tid:
+        raise HTTPException(
+            status_code=403,
+            detail="No tenant assigned to this session — use a username/session_id bound to a tenant",
+        )
+    if request is not None:
+        request.state.error_tenant_id = tid
+    return tid
+
+
 def get_current_admin(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPBasicCredentials = Depends(security),
 ) -> dict:
-    token_str = None
-    if credentials and credentials.credentials:
-        token_str = credentials.credentials
-    else:
-        token_str = request.query_params.get("token")
-    if not token_str:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = _decode_token(token_str)
-    username = payload.get("sub")
-    with get_db_context() as conn:
-        admin = conn.execute(
-            "SELECT id, username, role, permissions, email, tenant_id FROM admins WHERE username = ?", (username,)
-        ).fetchone()
-    if not admin:
-        raise HTTPException(status_code=401, detail="Admin not found")
-    result = dict(admin) if hasattr(admin, "keys") else dict(admin)
-    result["permissions"] = _effective_permissions(result.get("role"), result.get("permissions"))
-    return result
+    cached = getattr(request.state, "current_admin", None)
+    if cached:
+        return cached
+    if not credentials:
+        return authenticate_basic_header(request)
+    return _admin_from_pair(credentials.username, credentials.password, request)
 
 
 def require_super_admin(current_admin: dict = Depends(get_current_admin)) -> dict:
@@ -419,15 +529,15 @@ def hash_tenant_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
-def _raw_bearer(request: Request, credentials) -> str | None:
-    if credentials and credentials.credentials:
-        return credentials.credentials
-    return request.query_params.get("token")
+def _raw_bearer(request: Request, credentials=None) -> str | None:
+    header = request.headers.get("authorization", "")
+    scheme, _, value = header.partition(" ")
+    return value if scheme.lower() == "bearer" and value else None
 
 
 def get_tenant_principal(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPBasicCredentials = Depends(security),
 ) -> dict | None:
     """Resolve the caller as a tenant principal, or None if not one.
 
@@ -449,8 +559,6 @@ def get_tenant_principal(
         "token_id": record["id"],
         "label": record.get("label", ""),
     }
-
-
 def require_tenant_access():
     """Dependency: the caller must be an admin or THIS tenant's token.
 
@@ -466,17 +574,26 @@ def require_tenant_access():
     def dependency(
         request: Request,
         tenant_id: str,
-        credentials: HTTPAuthorizationCredentials = Depends(security),
+        credentials: HTTPBasicCredentials = Depends(security),
     ) -> dict:
         target = str(tenant_id or "").strip()
         if not target:
             raise HTTPException(status_code=400, detail="tenant_id is required")
 
         raw = _raw_bearer(request, credentials)
-        if not raw:
-            raise HTTPException(status_code=401, detail="Not authenticated")
+        # username + session_id may arrive as headers or JSON body (middleware).
+        if not raw and not credentials and not getattr(request.state, "current_admin", None):
+            header_user = str(request.headers.get("username") or "").strip()
+            header_session = str(request.headers.get("session_id") or "").strip()
+            if header_user and header_session:
+                request.state.current_admin = _admin_from_pair(header_user, header_session, request)
+            else:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Not authenticated — send username and session_id (header or JSON body)",
+                )
 
-        principal = get_tenant_principal(request, credentials)
+        principal = get_tenant_principal(request, credentials) if raw else None
         if principal is not None:
             try:
                 from backend.services.audit_context import set_audit_actor
@@ -519,14 +636,14 @@ def require_tenant_access():
         # tenant (QA 2026-11-13). A bound sub admin may therefore READ; the
         # per-route view switches (view_files, view_products, chat_history,
         # ...) still apply on top of this gate. Writes keep the exact gate.
-        if request.method in WRITE_METHODS and not has_permission(admin, "manage_operations"):
+        if is_tenant_data_write(request.method, request.url.path) and not has_permission(admin, "manage_operations"):
             raise HTTPException(
                 status_code=403, detail="You do not have permission to manage tenant profiles"
             )
         # Enforce tenant scoping for non-super-admins
         role = admin.get("role")
         if role != "super_admin":
-            admin_tenant = admin.get("tenant_id")
+            admin_tenant = str(admin.get("tenant_id") or "").strip()
             if admin_tenant and admin_tenant != target:
                 raise HTTPException(
                     status_code=403, detail=f"Admin is scoped to tenant '{admin_tenant}'"
@@ -538,30 +655,46 @@ def require_tenant_access():
             "username": admin.get("username", ""),
             "role": admin.get("role", ""),
             "tenant_id": admin.get("tenant_id"),
+            "permissions": admin.get("permissions", {}),
         }
 
     return dependency
+
+
+def authorize_tenant_access(
+    request: Request,
+    tenant_id: str,
+    credentials: HTTPBasicCredentials = None,
+) -> dict:
+    """Authorize a tenant selected in a JSON body instead of a path param."""
+    target = str(tenant_id or "").strip()
+    request.state.error_tenant_id = target or None
+    try:
+        from core.context import error_context_var
+        context = error_context_var.get()
+        if context is not None:
+            context["tenant_id"] = target or None
+    except Exception:
+        pass
+    return require_tenant_access()(request, tenant_id, credentials)
 
 
 
 
 # ---------- request schemas ----------
 
-class FirstAdminRequest(BaseModel):
-    username: str
-    password: str
-    email: Optional[str] = None
-
-
 class LoginRequest(BaseModel):
+    # Plain Send2 / local username only (e.g. ``test_support_``). Backend
+    # Base64-encodes it and matches ``admins.username`` (Base64) + session_id.
+    # Base64 input is rejected.
     username: str
-    password: str
+    session_id: str
 
 
 class CreateAdminRequest(BaseModel):
     username: str
-    password: str
-    role: str = "sub_admin"
+    # Omitted → forced by creator role (super_admin→admin, admin→sub_admin).
+    role: Optional[str] = None
     permissions: Optional[dict] = None
     email: Optional[str] = None
     tenant_id: Optional[str] = None
@@ -574,25 +707,6 @@ class UpdateAdminRequest(BaseModel):
     tenant_id: Optional[str] = None
 
 
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-
-class RequestOtpRequest(BaseModel):
-    username: str
-
-
-class ResetPasswordRequest(BaseModel):
-    username: str
-    otp: str
-    new_password: str
-
-
-class ResetAdminPasswordRequest(BaseModel):
-    new_password: str
-
-
 # ---------- routes ----------
 
 @router.get("/status")
@@ -601,93 +715,76 @@ def auth_status():
     return {"has_admins": _admin_count() > 0}
 
 
-@router.post("/first-admin")
-# SECURITY FIX: Rate limiting - 5 requests per minute for first admin creation
-@limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
-async def create_first_admin(request: Request, body: FirstAdminRequest):
-    """Create the very first admin. Only works when zero admins exist."""
-    # SECURITY FIX: Validate password strength
-    _validate_password_strength(body.password)
-    
-    if _admin_count() > 0:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin already exists. Use /api/auth/create with an admin token.",
-        )
-
-    hashed = _hash_password(body.password)
-    role = "super_admin"
-    email = (body.email or "").strip() or None
-    with get_db_context() as conn:
-        cur = conn.execute(
-            "INSERT INTO admins (username, password_hash, role, permissions, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (body.username, hashed, role, json.dumps(SUPER_ADMIN_PERMISSIONS), email, None),
-        )
-        record_admin_audit_event(
-            conn,
-            action="first_admin_created",
-            actor={"id": cur.lastrowid, "username": body.username, "role": role},
-            resource_type="admin",
-            resource_id=cur.lastrowid,
-            target_username=body.username,
-            details={"role": role},
-        )
-
-    token = _create_token(body.username)
-    logger.info(f"First admin created (super admin): {body.username}")
-    return {
-        "status": "ok",
-        "token": token,
-        "username": body.username,
-        "role": role,
-        "permissions": dict(SUPER_ADMIN_PERMISSIONS),
-        "tenant_id": None,
-    }
-
-
 @router.post("/login")
 # SECURITY FIX: Rate limiting - 5 requests per minute for login attempts
 @limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
 async def admin_login(request: Request, body: LoginRequest):
-    """Authenticate an admin and return a JWT."""
-    with get_db_context() as conn:
-        admin = conn.execute(
-            "SELECT id, username, password_hash, role, permissions, tenant_id FROM admins WHERE username = ?",
-            (body.username,),
-        ).fetchone()
+    """Authenticate a plain username plus its live session ID.
 
-    if not admin or not _verify_password(body.password, admin["password_hash"]):
-        with get_db_context() as conn:
-            record_admin_audit_event(
-                conn,
-                action="login",
-                actor={"username": body.username[:100], "role": admin["role"] if admin else None},
-                outcome="failure",
-                resource_type="admin_session",
-                target_username=body.username[:100],
-                tenant_id=admin["tenant_id"] if admin else None,
-                details={"reason": "invalid_credentials"},
-            )
+    Callers must pass the decoded Send2 name (``test_support_``). The backend
+    Base64-encodes it and matches ``admins.username`` (Base64 only) together
+    with ``session_id``. Pasting an already-encoded username fails.
+    """
+    try:
+        username = normalize_login_username(body.username)
+    except ValueError:
+        # Keep Base64 / malformed input indistinguishable from an unknown
+        # account while still recording the failed attempt via audit.
+        username = ""
+    supplied_session = str(body.session_id or "").strip()
+    admin = _resolve_admin_row(username) if username else None
+
+    stored = str((admin or {}).get("session_id") or "")
+    session_matches = bool(stored and supplied_session and hmac.compare_digest(stored, supplied_session))
+
+    if not admin or not session_matches:
+        failure_audit = dict(
+            action="login",
+            actor={"username": username[:100], "role": admin.get("role") if admin else None},
+            outcome="failure",
+            resource_type="admin_session",
+            target_username=username[:100],
+            tenant_id=admin.get("tenant_id") if admin else None,
+            details={"reason": "invalid_credentials"},
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **failure_audit)
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **failure_audit)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     admin_dict = dict(admin)
-    with get_db_context() as conn:
-        record_admin_audit_event(
-            conn,
-            action="login",
-            actor={**admin_dict, "username": admin_dict["username"][:100]},
-            resource_type="admin_session",
-            target_username=admin_dict["username"][:100],
-            tenant_id=admin_dict.get("tenant_id"),
-        )
-    token = _create_token(admin_dict["username"])
+    admin_dict.pop("session_id", None)
+    # Always expose the plain username to the client / session store.
+    admin_dict["username"] = username
+    # Send2-synced rows sometimes omit role; default safely so login never 500s.
+    role = admin_dict.get("role") or "sub_admin"
+    admin_dict["role"] = role
+    permissions = _effective_permissions(role, admin_dict.get("permissions"))
+    admin_dict["permissions"] = permissions
+    success_audit = dict(
+        action="login",
+        actor={**admin_dict, "username": admin_dict["username"][:100]},
+        resource_type="admin_session",
+        target_username=admin_dict["username"][:100],
+        tenant_id=admin_dict.get("tenant_id"),
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **success_audit)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **success_audit)
     logger.info(f"Admin logged in: {admin_dict['username']}")
     return {
         "status": "ok",
-        "token": token,
+        "token": base64.b64encode(
+            f"{admin_dict['username']}:{stored}".encode("utf-8")
+        ).decode("ascii"),
         "username": admin_dict["username"],
-        "role": admin_dict["role"],
-        "permissions": _effective_permissions(admin_dict["role"], admin_dict["permissions"]),
+        "session_id": stored,
+        "role": role,
+        "permissions": permissions,
         "tenant_id": admin_dict.get("tenant_id"),
     }
 
@@ -706,28 +803,37 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
             detail="No admins exist yet. Use /api/auth/first-admin first.",
         )
 
-    # SECURITY FIX: Validate password strength for new admins
-    _validate_password_strength(body.password)
-    
-    # Normalize role
-    role = body.role or "sub_admin"
-    if role not in ("super_admin", "admin", "sub_admin"):
-        # Try to normalize
-        if role == "subadmin" or role == "sub-admin":
-            role = "sub_admin"
-        elif role == "superadmin" or role == "super-admin":
-            role = "super_admin"
-        else:
-            role = "sub_admin"
+    # Normalize an explicit role; omitted role is filled from the creator hierarchy.
+    role = (body.role or "").strip()
+    if role in ("subadmin", "sub-admin"):
+        role = "sub_admin"
+    elif role in ("superadmin", "super-admin"):
+        role = "super_admin"
 
     current_role = current_admin.get("role")
-    if role == "super_admin":
-        raise HTTPException(status_code=403, detail="There can be only one super admin")
-    if role == "admin" and current_role != "super_admin":
-        raise HTTPException(status_code=403, detail="Only a super admin can create a company admin")
-    # Hierarchy: superadmin creates company admins; only those admins create sub-admins.
-    if role == "sub_admin" and current_role != "admin":
-        raise HTTPException(status_code=403, detail="Only a company admin can create a sub admin")
+    # Hierarchy: superadmin creates company admins only; company admins create
+    # sub-admins only. Multiple company admins may share the same tenant_id.
+    if current_role == "super_admin":
+        if role == "sub_admin":
+            raise HTTPException(
+                status_code=403,
+                detail="A super admin can create company admins only",
+            )
+        if role == "super_admin":
+            raise HTTPException(status_code=403, detail="There can be only one super admin")
+        role = "admin"
+    elif current_role == "admin":
+        if role in ("admin", "super_admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="A company admin can create sub-admins only",
+            )
+        role = "sub_admin"
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Only a super admin or company admin can create accounts",
+        )
 
     # A new admin starts with every permission on (default_all=True); the
     # super admin can then edit the switches. Sub admins start with none.
@@ -747,42 +853,73 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
         # Only a super admin chooses the tenant; every other creator is
         # strictly scoped to their own tenant.
         tenant_id = current_admin.get("tenant_id")
-    # If super_admin creating super_admin, tenant_id is None
-
-    if role == "admin" and tenant_id and count_tenant_admins(tenant_id):
-        raise HTTPException(status_code=409, detail="This company already has an admin")
 
     try:
-        with get_db_context() as conn:
-            cur = conn.execute(
-                "INSERT INTO admins (username, password_hash, role, permissions, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (body.username, _hash_password(body.password), role, json.dumps(permissions), email, tenant_id),
-            )
-            record_admin_audit_event(
-                conn,
-                action="admin_created",
-                actor=current_admin,
-                resource_type="admin",
-                resource_id=cur.lastrowid,
-                target_username=body.username,
-                tenant_id=tenant_id,
-                details={"role": role, "created_admin": {"username": body.username, "role": role, "permissions": permissions, "email": email, "tenant_id": tenant_id}},
-            )
+        plain_username = normalize_login_username(body.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc) or "Invalid username") from exc
+
+    try:
+        session_id = secrets.token_urlsafe(32)
+        # Store the Send2 Base64 form so login (plain → encode → lookup) matches.
+        stored_username = encode_send2_username(plain_username)
+        admin_id = db_create_admin(
+            stored_username,
+            role=role,
+            permissions=permissions,
+            tenant_id=tenant_id,
+            session_id=session_id,
+            email=email,
+        )
+        audit_kwargs = dict(
+            action="admin_created",
+            actor=current_admin,
+            resource_type="admin",
+            resource_id=admin_id,
+            target_username=plain_username,
+            tenant_id=tenant_id,
+            details={
+                "role": role,
+                "created_admin": {
+                    "username": plain_username,
+                    "role": role,
+                    "permissions": permissions,
+                    "email": email,
+                    "tenant_id": tenant_id,
+                },
+            },
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **audit_kwargs)
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **audit_kwargs)
     except Exception:
         raise HTTPException(status_code=409, detail="Username already taken")
 
-    logger.info(f"Admin created by {current_admin['username']}: {body.username} ({role})")
-    return {"status": "ok", "username": body.username, "role": role, "permissions": permissions, "email": email, "tenant_id": tenant_id, "created_by": current_admin["username"]}
+    logger.info(f"Admin created by {current_admin['username']}: {plain_username} ({role})")
+    return {"status": "ok", "username": plain_username, "session_id": session_id,
+            "role": role, "permissions": permissions, "email": email,
+            "tenant_id": tenant_id, "created_by": current_admin["username"]}
 
 
 def _admin_target(username: str, current_admin: dict) -> dict | None:
-    """Resolve an admin target without exposing other tenants' accounts."""
+    """Resolve an admin target without exposing other tenants' accounts.
+
+    Path/body usernames arrive in plain form (same as login); match encoded or
+    plain ``admins.username`` rows, then enforce tenant scope.
+    """
+    row = _resolve_admin_row(username)
+    if not row:
+        return None
     if current_admin.get("role") == "super_admin":
-        return get_admin_record(username)
+        return row
     tenant_id = str(current_admin.get("tenant_id") or "").strip()
     if not tenant_id:
         return None
-    return get_admin_record(username, tenant_id=tenant_id)
+    if str(row.get("tenant_id") or "").strip() != tenant_id:
+        return None
+    return row
 
 
 def _admin_write_scope(current_admin: dict) -> tuple[str, list]:
@@ -813,13 +950,8 @@ def _ensure_super_not_touching_tenant_account(current_admin: dict, target: dict)
         )
 
 
-@router.get("/admins")
-def list_admins(current_admin: dict = Depends(require_permission("manage_admins"))):
-    """List the caller's tenant admins; super admins retain the global roster.
-
-    Super admins see every account. Tenant admins see only ``admin`` and
-    ``sub_admin`` accounts in their tenant — never ``super_admin`` rows.
-    """
+def _list_admins_payload(current_admin: dict) -> dict:
+    """Build the admin roster payload (plain usernames)."""
     if current_admin.get("role") == "super_admin":
         records = list_admin_records()
     else:
@@ -832,7 +964,7 @@ def list_admins(current_admin: dict = Depends(require_permission("manage_admins"
     result = []
     for a in records:
         result.append({
-            "username": a["username"],
+            "username": _public_username(a.get("username")),
             "email": a.get("email"),
             "role": a["role"],
             "permissions": _effective_permissions(a["role"], a["permissions"]),
@@ -840,6 +972,19 @@ def list_admins(current_admin: dict = Depends(require_permission("manage_admins"
             "tenant_id": a.get("tenant_id"),
         })
     return {"admins": result}
+
+
+@router.api_route("/admins", methods=["GET", "POST"])
+def list_admins(current_admin: dict = Depends(require_permission("manage_admins"))):
+    """List the caller's tenant admins; super admins retain the global roster.
+
+    Super admins see every account. Tenant admins see only ``admin`` and
+    ``sub_admin`` accounts in their tenant — never ``super_admin`` rows.
+
+    Panel clients should use ``POST /api/auth/admins`` with plain
+    ``username`` + ``session_id`` (same as login). GET remains for older tools.
+    """
+    return _list_admins_payload(current_admin)
 
 
 @router.patch("/admins/{username}")
@@ -860,9 +1005,10 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
     _ensure_super_not_touching_tenant_account(current_admin, target)
-    scope_sql, scope_params = _admin_write_scope(current_admin)
 
-    is_self = username == current_admin["username"]
+    stored_username = _stored_username(target, username)
+    public_username = _public_username(stored_username)
+    is_self = public_username == _public_username(current_admin.get("username"))
 
     if is_self and (body.role is not None or body.permissions is not None):
         raise HTTPException(
@@ -899,8 +1045,6 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     tenant_id = body.tenant_id if current_admin.get("role") == "super_admin" else None
 
     after_tenant = tenant_id if tenant_id is not None else target.get("tenant_id")
-    if new_role == "admin" and after_tenant and count_tenant_admins(after_tenant, exclude_username=username):
-        raise HTTPException(status_code=409, detail="This company already has an admin")
 
     before = {
         "role": target.get("role"),
@@ -909,52 +1053,47 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
         "email": target.get("email"),
     }
     email = body.email.strip() or None if body.email is not None else before["email"]
-    with get_db_context() as conn:
-        updates = {"role": new_role, "permissions": json.dumps(permissions)}
-        if tenant_id is not None:
-            updates["tenant_id"] = tenant_id
-        if body.email is not None:
-            updates["email"] = email
-        cursor = conn.execute(
-            f"UPDATE admins SET {', '.join(f'{field} = ?' for field in updates)}, updated_at = CURRENT_TIMESTAMP WHERE username = ?{scope_sql}",
-            [*updates.values(), username, *scope_params],
-        )
-        if cursor.rowcount != 1:
-            raise HTTPException(status_code=404, detail="Admin not found")
-        after_tenant = tenant_id if tenant_id is not None else before["tenant_id"]
-        changed_permissions = sorted(
-            key for key in set(before["permissions"]) | set(permissions)
-            if bool(before["permissions"].get(key)) != bool(permissions.get(key))
-        )
-        record_admin_audit_event(
-            conn,
-            action="admin_updated",
-            actor=current_admin,
-            resource_type="admin",
-            resource_id=target.get("id"),
-            target_username=username,
-            tenant_id=after_tenant,
-            details={
-                "changed_fields": [
-                    field for field, old, new in (
-                        ("role", before["role"], new_role),
-                        ("permissions", before["permissions"], permissions),
-                        ("tenant_id", before["tenant_id"], after_tenant),
-                        ("email", before["email"], email),
-                    ) if old != new and (field != "email" or body.email is not None)
-                ],
-                "role_before": before["role"],
-                "role_after": new_role,
-                "tenant_id_before": before["tenant_id"],
-                "tenant_id_after": after_tenant,
-                "permission_keys_changed": changed_permissions,
-                "permissions_before": before["permissions"],
-                "permissions_after": permissions,
-            },
-        )
+    after_tenant = tenant_id if tenant_id is not None else before["tenant_id"]
+    update_admin_record(stored_username, role=new_role, permissions=permissions, tenant_id=tenant_id)
+    if body.email is not None:
+        update_admin_email(stored_username, email)
+    changed_permissions = sorted(
+        key for key in set(before["permissions"]) | set(permissions)
+        if bool(before["permissions"].get(key)) != bool(permissions.get(key))
+    )
+    audit_kwargs = dict(
+        action="admin_updated",
+        actor=current_admin,
+        resource_type="admin",
+        resource_id=target.get("id"),
+        target_username=public_username,
+        tenant_id=after_tenant,
+        details={
+            "changed_fields": [
+                field for field, old, new in (
+                    ("role", before["role"], new_role),
+                    ("permissions", before["permissions"], permissions),
+                    ("tenant_id", before["tenant_id"], after_tenant),
+                    ("email", before["email"], email),
+                ) if old != new and (field != "email" or body.email is not None)
+            ],
+            "role_before": before["role"],
+            "role_after": new_role,
+            "tenant_id_before": before["tenant_id"],
+            "tenant_id_after": after_tenant,
+            "permission_keys_changed": changed_permissions,
+            "permissions_before": before["permissions"],
+            "permissions_after": permissions,
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
 
-    logger.info(f"Admin updated by {current_admin['username']}: {username} ({new_role})")
-    return {"status": "ok", "username": username, "role": new_role, "permissions": permissions}
+    logger.info(f"Admin updated by {current_admin['username']}: {public_username} ({new_role})")
+    return {"status": "ok", "username": public_username, "role": new_role, "permissions": permissions}
 
 
 @router.delete("/admins/{username}")
@@ -963,89 +1102,73 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
     if not has_permission(current_admin, "manage_admins"):
         raise HTTPException(status_code=403, detail="You do not have permission to manage admins")
 
-    if username == current_admin["username"]:
+    if _public_username(username) == _public_username(current_admin.get("username")):
         raise HTTPException(status_code=400, detail="You cannot delete your own account")
 
     target = _admin_target(username, current_admin)
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
     _ensure_super_not_touching_tenant_account(current_admin, target)
-    scope_sql, scope_params = _admin_write_scope(current_admin)
 
     if target["role"] == "super_admin":
         raise HTTPException(status_code=403, detail="Super admin accounts cannot be deleted")
 
-    with get_db_context() as conn:
-        cursor = conn.execute(
-            f"DELETE FROM admins WHERE username = ?{scope_sql}",
-            [username, *scope_params],
-        )
-        if cursor.rowcount != 1:
-            raise HTTPException(status_code=404, detail="Admin not found")
-        record_admin_audit_event(
-            conn,
-            action="admin_deleted",
-            actor=current_admin,
-            resource_type="admin",
-            resource_id=target.get("id"),
-            target_username=username,
-            tenant_id=target.get("tenant_id"),
-            details={"role": target.get("role"), "deleted_admin": dict(target)},
-        )
-    logger.info(f"Admin deleted by {current_admin['username']}: {username}")
-    return {"status": "ok", "username": username}
+    stored_username = _stored_username(target, username)
+    public_username = _public_username(stored_username)
+    delete_admin(stored_username)
+    deleted_admin = dict(target)
+    deleted_admin["username"] = public_username
+    audit_kwargs = dict(
+        action="admin_deleted",
+        actor=current_admin,
+        resource_type="admin",
+        resource_id=target.get("id"),
+        target_username=public_username,
+        tenant_id=target.get("tenant_id"),
+        details={"role": target.get("role"), "deleted_admin": deleted_admin},
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+    logger.info(f"Admin deleted by {current_admin['username']}: {public_username}")
+    return {"status": "ok", "username": public_username}
 
 
-@router.post("/admins/{username}/reset-password")
-def reset_admin_password(username: str, body: ResetAdminPasswordRequest, current_admin: dict = Depends(get_current_admin)):
-    """Reset another admin's password. Requires the manage_admins permission."""
-    if not has_permission(current_admin, "manage_admins"):
-        raise HTTPException(status_code=403, detail="You do not have permission to manage admins")
-
-    _validate_password_strength(body.new_password)
-
-    target = _admin_target(username, current_admin)
+@router.post("/admins/{username}/regenerate-session")
+def regenerate_admin_session(username: str, current_admin: dict = Depends(get_current_admin)):
+    """Replace a session id. Super admins may target anyone; others only self."""
+    public_request = _public_username(username)
+    if (
+        current_admin.get("role") != "super_admin"
+        and public_request != _public_username(current_admin.get("username"))
+    ):
+        raise HTTPException(status_code=403, detail="You may only regenerate your own session ID")
+    target = _resolve_admin_row(username)
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
-    _ensure_super_not_touching_tenant_account(current_admin, target)
-    scope_sql, scope_params = _admin_write_scope(current_admin)
-
-    if username == current_admin["username"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Use Change Password to reset your own password.",
-        )
-
-    # Hierarchy rules
-    current_role = current_admin.get("role")
-    target_role = target.get("role")
-    if target_role == "super_admin":
-        raise HTTPException(status_code=403, detail="Cannot change password of super admin")
-    if target_role == "admin" and current_role != "super_admin":
-        raise HTTPException(status_code=403, detail="Only a super admin can change password of an admin")
-    if target_role == "sub_admin" and current_role != "admin" and current_role != "super_admin":
-        raise HTTPException(status_code=403, detail="Only admin or super admin can change password of sub-admin")
-
-    hashed = _hash_password(body.new_password)
-    with get_db_context() as conn:
-        cursor = conn.execute(
-            f"UPDATE admins SET password_hash = ? WHERE username = ?{scope_sql}",
-            [hashed, username, *scope_params],
-        )
-        if cursor.rowcount != 1:
-            raise HTTPException(status_code=404, detail="Admin not found")
-        record_admin_audit_event(
-            conn,
-            action="admin_password_reset",
-            actor=current_admin,
-            resource_type="admin",
-            resource_id=target.get("id"),
-            target_username=username,
-            tenant_id=target.get("tenant_id"),
-        )
-
-    logger.info(f"Password reset for admin {username} by {current_admin['username']}")
-    return {"status": "ok", "message": "Password reset successfully"}
+    stored_username = _stored_username(target, username)
+    public_username = _public_username(stored_username)
+    session_id = secrets.token_urlsafe(32)
+    if not db_update_admin(stored_username, session_id=session_id):
+        raise HTTPException(status_code=404, detail="Admin not found")
+    audit_kwargs = dict(
+        action="admin_session_regenerated",
+        actor=current_admin,
+        resource_type="admin",
+        resource_id=target.get("id"),
+        target_username=public_username,
+        tenant_id=target.get("tenant_id"),
+        details={"changed_fields": ["session_id"]},
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+    logger.info("Admin session ID regenerated for %s by %s", public_username, current_admin["username"])
+    return {"status": "ok", "username": public_username, "session_id": session_id}
 
 
 def _onboarding_approved(admin: dict) -> bool:
@@ -1057,11 +1180,32 @@ def _onboarding_approved(admin: dict) -> bool:
     """
     if admin.get("role") != "admin":
         return True
+    # Session principal is plain; requests may have been stored plain or Base64.
+    plain = _public_username(admin.get("username"))
+    names: list[str] = []
+    if plain:
+        names.append(plain)
+        try:
+            encoded = encode_send2_username(plain)
+            if encoded not in names:
+                names.append(encoded)
+        except ValueError:
+            pass
+    if not names:
+        return False
+    if use_mongodb():
+        from db.mongo import Repository
+
+        row = Repository("tenant_change_requests").find_one(
+            {"requester_username": {"$in": names}, "status": "approved"}
+        )
+        return row is not None
+    placeholders = ",".join("?" for _ in names)
     with get_db_context() as conn:
         row = conn.execute(
             "SELECT 1 FROM tenant_change_requests "
-            "WHERE requester_username = ? AND status = 'approved' LIMIT 1",
-            (admin.get("username"),),
+            f"WHERE requester_username IN ({placeholders}) AND status = 'approved' LIMIT 1",
+            names,
         ).fetchone()
     return row is not None
 
@@ -1070,201 +1214,9 @@ def _onboarding_approved(admin: dict) -> bool:
 def admin_me(current_admin: dict = Depends(get_current_admin)):
     """Return the currently authenticated admin."""
     return {
-        "username": current_admin["username"],
+        "username": _public_username(current_admin.get("username")),
         "role": current_admin["role"],
         "permissions": current_admin["permissions"],
         "tenant_id": current_admin.get("tenant_id"),
         "onboarding_approved": _onboarding_approved(current_admin),
     }
-
-
-@router.post("/change-password")
-def change_password(body: ChangePasswordRequest, current_admin: dict = Depends(get_current_admin)):
-    """Change the current admin's password."""
-    with get_db_context() as conn:
-        admin = conn.execute(
-            "SELECT password_hash FROM admins WHERE username = ?",
-            (current_admin["username"],),
-        ).fetchone()
-
-    if not admin or not _verify_password(body.current_password, admin["password_hash"]):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-
-    if body.current_password == body.new_password:
-        raise HTTPException(status_code=400, detail="New password must be different")
-
-    # SECURITY FIX: Validate new password strength
-    _validate_password_strength(body.new_password)
-
-    hashed = _hash_password(body.new_password)
-    with get_db_context() as conn:
-        conn.execute(
-            "UPDATE admins SET password_hash = ? WHERE username = ?",
-            (hashed, current_admin["username"],),
-        )
-        record_admin_audit_event(
-            conn,
-            action="password_changed",
-            actor=current_admin,
-            resource_type="admin",
-            resource_id=current_admin.get("id"),
-            target_username=current_admin["username"],
-        )
-
-    logger.info(f"Password changed for admin: {current_admin['username']}")
-    return {"status": "ok", "message": "Password changed successfully"}
-
-
-def _validate_password_strength(password: str):
-    """Validate password meets security requirements. SECURITY FIX."""
-    if not password:
-        raise HTTPException(status_code=400, detail="Password is required")
-    
-    if len(password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters long"
-        )
-    
-    # Check for common patterns (simple check without external library)
-    if password.lower() in ['password', '12345678', 'qwerty', 'admin']:
-        raise HTTPException(
-            status_code=400,
-            detail="Password is too common"
-        )
-    
-    # Check for complexity
-    if not any(c.isupper() for c in password):
-        raise HTTPException(
-            status_code=400,
-            detail="Password must contain at least one uppercase letter"
-        )
-    if not any(c.islower() for c in password):
-        raise HTTPException(
-            status_code=400,
-            detail="Password must contain at least one lowercase letter"
-        )
-    if not any(c.isdigit() for c in password):
-        raise HTTPException(
-            status_code=400,
-            detail="Password must contain at least one digit"
-        )
-    if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in password):
-        raise HTTPException(
-            status_code=400,
-            detail="Password must contain at least one special character"
-        )
-
-
-def _mask_email(email: str) -> str:
-    if not email or "@" not in email:
-        return ""
-    local, domain = email.split("@", 1)
-    visible = local[:1] if len(local) > 1 else local[:1]
-    masked_local = visible + "*" * max(len(local) - 1, 1)
-    return f"{masked_local}@{domain}"
-
-
-@router.post("/request-otp")
-# SECURITY FIX: Rate limiting - 5 requests per minute for OTP requests
-@limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
-async def request_otp(request: Request, body: RequestOtpRequest):
-    """Generate a password-reset OTP and email it to the admin. No JWT required."""
-    with get_db_context() as conn:
-        admin = conn.execute(
-            "SELECT id, email FROM admins WHERE username = ?",
-            (body.username,),
-        ).fetchone()
-
-    if not admin:
-        raise HTTPException(status_code=404, detail="Admin not found")
-
-    email = admin["email"]
-    if not email:
-        raise HTTPException(
-            status_code=400,
-            detail="No email is linked to this admin. Ask a super admin to set one.",
-        )
-
-    otp = f"{secrets.randbelow(1000000):06d}"
-    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)).isoformat()
-    # Store only the hash. reset_password checks it with bcrypt, and the
-    # plaintext is emailed once.
-    otp_hash = bcrypt.hashpw(otp.encode(), bcrypt.gensalt()).decode()
-    set_admin_otp(body.username, otp_hash, expires_at)
-
-    if not send_otp_email(email, otp, OTP_EXPIRY_MINUTES):
-        raise HTTPException(
-            status_code=503,
-            detail="Failed to send OTP email. Check that SMTP is configured in the backend .env.",
-        )
-
-    with get_db_context() as conn:
-        try:
-            record_admin_audit_event(
-                conn,
-                action="otp_requested",
-                actor={"id": admin["id"], "username": body.username},
-                resource_type="admin",
-                resource_id=admin["id"],
-                target_username=body.username,
-                details={"email": _mask_email(email)}
-            )
-        except Exception as e:
-            logger.warning(f"Failed to record audit event for OTP request: {e}")
-
-    logger.info(f"OTP sent to admin: {body.username}")
-    return {
-        "status": "ok",
-        "message": "OTP sent to your email",
-        "email_masked": _mask_email(email),
-        "expires_minutes": OTP_EXPIRY_MINUTES,
-    }
-
-
-@router.post("/reset-password")
-# SECURITY FIX: Rate limiting - 5 requests per minute for password reset
-@limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
-async def reset_password(request: Request, body: ResetPasswordRequest):
-    """Reset an admin's password using an emailed OTP. No JWT required."""
-    record = get_admin_otp(body.username)
-    if not record:
-        raise HTTPException(status_code=400, detail="No OTP requested for this admin")
-
-    expires_at = datetime.fromisoformat(record["expires_at"])
-    if datetime.now(timezone.utc) > expires_at:
-        clear_admin_otp(body.username)
-        raise HTTPException(status_code=400, detail="OTP has expired. Request a new one.")
-
-    if not bcrypt.checkpw(body.otp.encode(), record["otp_code"].encode()):
-        raise HTTPException(status_code=403, detail="Invalid OTP")
-
-    _validate_password_strength(body.new_password)
-    hashed = _hash_password(body.new_password)
-    with get_db_context() as conn:
-        conn.execute(
-            "UPDATE admins SET password_hash = ? WHERE username = ?",
-            (hashed, body.username,),
-        )
-        target = conn.execute(
-            "SELECT id, role, tenant_id FROM admins WHERE username = ?", (body.username,)
-        ).fetchone()
-        record_admin_audit_event(
-            conn,
-            action="admin_password_reset_via_otp",
-            actor={
-                "id": target["id"] if target else None,
-                "username": body.username,
-                "role": target["role"] if target else None,
-                "tenant_id": target["tenant_id"] if target else None,
-            },
-            resource_type="admin",
-            resource_id=target["id"] if target else None,
-            target_username=body.username,
-            tenant_id=target["tenant_id"] if target else None,
-            details={"changed_fields": ["password_hash"]}
-        )
-    clear_admin_otp(body.username)
-
-    logger.info(f"Password reset for admin: {body.username}")
-    return {"status": "ok", "message": "Password reset successfully"}

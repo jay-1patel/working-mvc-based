@@ -111,15 +111,15 @@ function renderPanel(
 ) {
   let stagedStatus = 'staged'
   testState.respond('GET /api/auth/me', () => ({ body: identity }))
-  testState.respond('GET /api/admin/tenants/acme/crawl-runs', () => ({ body: runsBody }))
-  testState.respond('GET /api/admin/tenants/acme/crawl-runs/7/staged', () => ({
+  testState.respond('POST /api/admin/tenants/crawl-runs', () => ({ body: runsBody }))
+  testState.respond('POST /api/admin/tenants/crawl-runs/staged', () => ({
     body: stagedBody(stagedStatus),
   }))
-  testState.respond('POST /api/admin/tenants/acme/crawl-runs/7/approve', () => {
+  testState.respond('POST /api/admin/tenants/crawl-runs/approve', () => {
     stagedStatus = 'published'
     return { body: { ok: true, result: { status: 'published' } } }
   })
-  testState.respond('GET /api/admin/tenants/acme/crawl-runs/7/export', () => ({
+  testState.respond('POST /api/admin/tenants/crawl-runs/export', () => ({
     body: 'export-bytes',
   }))
   renderApp('#/tenants/acme/website-knowledge')
@@ -132,7 +132,7 @@ describe('Website Knowledge panel', () => {
     await renderPanel(ADMIN_IDENTITY)
 
     // Header + website from the resolved profile fixture.
-    expect(await screen.findByRole('heading', { name: 'Website Knowledge' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Website crawler' })).toBeTruthy()
     expect(screen.getAllByText(/acme\.example/).length).toBeGreaterThan(0)
 
     // Run row: status + pages. Crawls are unlimited, so a finished run that
@@ -183,7 +183,7 @@ describe('Website Knowledge panel', () => {
     await waitFor(() => {
       expect(
         testState.calls.some(
-          (c) => c.method === 'GET' && c.path.includes('/crawl-runs/7/export?format=csv'),
+          (c) => c.method === 'POST' && c.path.endsWith('/crawl-runs/export') && (c.body as any)?.format === 'csv',
         ),
       ).toBe(true)
     })
@@ -192,7 +192,7 @@ describe('Website Knowledge panel', () => {
     await waitFor(() => {
       expect(
         testState.calls.some(
-          (c) => c.method === 'GET' && c.path.includes('/crawl-runs/7/export?format=pdf'),
+          (c) => c.method === 'POST' && c.path.endsWith('/crawl-runs/export') && (c.body as any)?.format === 'pdf',
         ),
       ).toBe(true)
     })
@@ -201,7 +201,7 @@ describe('Website Knowledge panel', () => {
     await waitFor(() => {
       expect(
         testState.calls.some(
-          (c) => c.method === 'GET' && c.path.includes('/crawl-runs/7/export?format=json'),
+          (c) => c.method === 'POST' && c.path.endsWith('/crawl-runs/export') && (c.body as any)?.format === 'json',
         ),
       ).toBe(true)
     })
@@ -217,7 +217,7 @@ describe('Website Knowledge panel', () => {
     await waitFor(() => {
       expect(
         testState.calls.some(
-          (c) => c.method === 'POST' && c.path.endsWith('/crawl-runs/7/approve'),
+          (c) => c.method === 'POST' && c.path.endsWith('/crawl-runs/approve') && (c.body as any)?.run_id === 7,
         ),
       ).toBe(true)
     })
@@ -238,8 +238,8 @@ describe('Website Knowledge panel', () => {
   it('renders the yield report, page-text chunks and captured images', async () => {
     const user = userEvent.setup()
     testState.respond('GET /api/auth/me', () => ({ body: ADMIN_IDENTITY }))
-    testState.respond('GET /api/admin/tenants/acme/crawl-runs', () => ({ body: RUNS }))
-    testState.respond('GET /api/admin/tenants/acme/crawl-runs/7/staged', () => {
+    testState.respond('POST /api/admin/tenants/crawl-runs', () => ({ body: RUNS }))
+    testState.respond('POST /api/admin/tenants/crawl-runs/staged', () => {
       const body = stagedBody('staged')
       body.summary = {
         ...body.summary,
@@ -304,7 +304,7 @@ describe('Website Knowledge panel', () => {
 
   it('shows the empty state when there are no crawls', async () => {
     testState.respond('GET /api/auth/me', () => ({ body: ADMIN_IDENTITY }))
-    testState.respond('GET /api/admin/tenants/acme/crawl-runs', () => ({
+    testState.respond('POST /api/admin/tenants/crawl-runs', () => ({
       body: { ok: true, tenant_id: 'acme', latest: null, history: [], schedule: null },
     }))
     renderApp('#/tenants/acme/website-knowledge')

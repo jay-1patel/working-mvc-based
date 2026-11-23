@@ -449,7 +449,12 @@ def download_and_store_image(
                 f.write(resp.content)
 
             logger.info("STORED_PRODUCT_IMAGE | tenant=%s | file=%s", tenant_id, filename)
-            return f"/uploaded_files/product_images/{filename}"
+            rel = f"/uploaded_files/product_images/{filename}"
+            try:
+                from services.media_host import absolutize_upload_url
+            except ImportError:
+                from backend.services.media_host import absolutize_upload_url
+            return absolutize_upload_url(rel) or rel
     except Exception as e:
         logger.debug("Failed downloading image %s: %s", image_url, e)
         return image_url
@@ -1502,9 +1507,9 @@ CRITICAL INSTRUCTIONS:
             return 0
 
         import numpy as np
-        import sqlite3
-        from routing.config import DB_PATH, EMBEDDING_MODEL_PATH
+        from routing.config import EMBEDDING_MODEL_PATH
         from sentence_transformers import SentenceTransformer
+        from db.core import use_mongodb
 
         model = SentenceTransformer(EMBEDDING_MODEL_PATH)
 
@@ -1523,51 +1528,46 @@ CRITICAL INSTRUCTIONS:
         embeddings = model.encode(texts, batch_size=16, convert_to_numpy=True)
         embeddings = embeddings / (np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-10)
 
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
         count = 0
+        existing_keys = set()
         try:
-            # E2E D-E2E-6 (D-08): skip Q&As already live for this tenant
-            # (any source) and repeats inside this batch — keyed on the
-            # parsed, normalised question+answer.
-            existing_keys = set()
-            try:
-                for (existing_content,) in cur.execute(
-                    "SELECT content FROM faq_dataset WHERE tenant_id = ? AND content_type = 'qa'",
-                    (tenant_id,),
-                ).fetchall():
-                    _key = qa_key_from_content(existing_content)
-                    if _key:
-                        existing_keys.add(_key)
-            except Exception:
-                existing_keys = set()
-            for (q, qa_text, cat), emb in zip(qa_chunks, embeddings):
-                _key = qa_key_from_content(qa_text)
-                if _key and _key in existing_keys:
-                    continue
+            from db.mongo import Repository
+
+            repo = Repository("faq_dataset")
+            for row in repo.find_all(
+                {"tenant_id": tenant_id, "content_type": "qa"}, limit=None
+            ):
+                _key = qa_key_from_content(row.get("content"))
                 if _key:
                     existing_keys.add(_key)
-                emb_blob = emb.astype(np.float32).tobytes()
-                cur.execute("""
-                    INSERT INTO faq_dataset (
-                        source_file, content_type, content, page_number,
-                        embedding, media_url, media_type, module, tenant_id, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (
-                    f"website_faq_{cat.lower().replace(' ', '_')}.md",
-                    "qa",
-                    qa_text,
-                    1,
-                    emb_blob,
-                    None,
-                    None,
-                    "faq",
-                    tenant_id,
-                ))
-                count += 1
-            conn.commit()
-        finally:
-            conn.close()
+        except Exception:
+            existing_keys = set()
+
+        from datetime import datetime, timezone
+        from db.mongo import Repository
+
+        repo = Repository("faq_dataset")
+        now = datetime.now(timezone.utc)
+        for (q, qa_text, cat), emb in zip(qa_chunks, embeddings):
+            _key = qa_key_from_content(qa_text)
+            if _key and _key in existing_keys:
+                continue
+            if _key:
+                existing_keys.add(_key)
+            emb_blob = emb.astype(np.float32).tobytes()
+            repo.insert({
+                "source_file": f"website_faq_{cat.lower().replace(' ', '_')}.md",
+                "content_type": "qa",
+                "content": qa_text,
+                "page_number": 1,
+                "embedding": emb_blob,
+                "media_url": None,
+                "media_type": None,
+                "module": "faq",
+                "tenant_id": tenant_id,
+                "created_at": now,
+            })
+            count += 1
 
         logger.info("INGESTED_FAQS_DATASET | tenant=%s | count=%d", tenant_id, count)
         return count

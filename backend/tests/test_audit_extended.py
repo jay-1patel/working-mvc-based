@@ -1,14 +1,13 @@
 """Extended tests for audit history with new features."""
 
-import json
 import os
 import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import date, datetime, timezone, timedelta
-from contextlib import contextmanager
-from unittest.mock import patch
+from datetime import datetime, timezone, timedelta
+
+from mongo_test_support import MongomockSession
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
@@ -17,11 +16,12 @@ if BACKEND_DIR not in sys.path:
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import database
+from db.mongo import Repository
 from routes import audit, auth
-from main import app
 
 
 class MockCurrentAdmin:
@@ -43,101 +43,47 @@ class MockCurrentAdmin:
 
 class AuditExtendedTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "audit_extended.sqlite3")
-        
-        # Patch the database path
-        self.original_db_path = database.DB_PATH
-        database.DB_PATH = self.db_path
-        
-        conn = self._connect()
-        
-        # Create required tables
-        conn.executescript(
-            """
-            CREATE TABLE admins (
-                id INTEGER PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT NOT NULL,
-                permissions TEXT DEFAULT '{}',
-                email TEXT,
-                updated_at TEXT,
-                tenant_id TEXT
-            );
-            INSERT INTO admins (id, username, password_hash, role, tenant_id)
-                VALUES (1, 'super_admin', 'hash', 'super_admin', NULL);
-            INSERT INTO admins (id, username, password_hash, role, tenant_id)
-                VALUES (2, 'sub_admin', 'hash', 'sub_admin', 'tenant-a');
-            """
-        )
-        
-        # Initialize admin audit tables with new columns
-        database._init_admin_audit_tables(conn)
-        
-        # Add IP and user agent columns (migration)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(admin_audit_events)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if "ip_address" not in columns:
-            conn.execute("ALTER TABLE admin_audit_events ADD COLUMN ip_address TEXT")
-        if "user_agent" not in columns:
-            conn.execute("ALTER TABLE admin_audit_events ADD COLUMN user_agent TEXT")
-        
-        conn.commit()
-        conn.close()
-        
-        # Setup test client
-        self.audit_db_patch = patch.object(audit, "get_db", side_effect=self._connect)
-        self.audit_db_patch.start()
+        self.mongo = MongomockSession().start()
+        database.init_db()
+        app = FastAPI()
+        app.include_router(audit.router)
         app.dependency_overrides[auth.get_current_admin] = MockCurrentAdmin()
         self.client = TestClient(app)
-        
+
     def tearDown(self):
-        self.audit_db_patch.stop()
-        app.dependency_overrides.clear()
-        database.DB_PATH = self.original_db_path
-        self.temp.cleanup()
-        
-    def _connect(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        self.mongo.stop()
 
     def _insert_test_audit_events(self, count=10):
         """Insert test audit events with various data."""
-        conn = self._connect()
-        try:
-            now_dt = datetime.now(timezone.utc)
-            d1_date = (now_dt - timedelta(days=5)).strftime("%Y-%m-%d")
-            d2_date = (now_dt - timedelta(days=3)).strftime("%Y-%m-%d")
-            d3_date = (now_dt - timedelta(days=2)).strftime("%Y-%m-%d")
-            d4_date = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
-            events = [
-                ("login", "success", f"{d1_date}T10:00:00", 1, "super_admin", "super_admin", "authentication", "192.168.1.1", "Chrome/100.0"),
-                ("login", "failure", f"{d1_date}T11:00:00", 2, "sub_admin", "sub_admin", "authentication", "192.168.1.2", "Firefox/100.0"),
-                ("tenant_created", "success", f"{d2_date}T12:00:00", 1, "super_admin", "super_admin", "tenant_setup", "192.168.1.3", "Safari/15.0"),
-                ("admin_created", "success", f"{d3_date}T13:00:00", 1, "super_admin", "super_admin", "accounts", "192.168.1.4", "Edge/100.0"),
-                ("tenant_updated", "success", f"{d4_date}T14:00:00", 2, "sub_admin", "sub_admin", "tenant_setup", "192.168.1.5", "Chrome/99.0"),
-            ]
-            
-            for action, outcome, created_at, actor_id, actor_username, actor_role, category, ip, ua in events:
-                resource_type = "tenant" if "tenant" in action else "admin"
-                details = {"category": category}
-                
-                conn.execute(
-                    """INSERT INTO admin_audit_events 
-                       (created_at, actor_id, actor_username, actor_role, action, outcome,
-                        resource_type, resource_id, target_username, tenant_id, details_json,
-                        ip_address, user_agent)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (created_at, actor_id, actor_username, actor_role, action, outcome,
-                     resource_type, "1", None, "tenant-1", json.dumps(details), ip, ua)
-                )
-            
-            conn.commit()
-        finally:
-            conn.close()
+        now_dt = datetime.now(timezone.utc)
+        d1 = now_dt - timedelta(days=5)
+        d2 = now_dt - timedelta(days=3)
+        d3 = now_dt - timedelta(days=2)
+        d4 = now_dt - timedelta(days=1)
+        events = [
+            ("login", "success", d1.replace(hour=10, minute=0, second=0, microsecond=0), 1, "super_admin", "super_admin", "authentication", "192.168.1.1", "Chrome/100.0"),
+            ("login", "failure", d1.replace(hour=11, minute=0, second=0, microsecond=0), 2, "sub_admin", "sub_admin", "authentication", "192.168.1.2", "Firefox/100.0"),
+            ("tenant_created", "success", d2.replace(hour=12, minute=0, second=0, microsecond=0), 1, "super_admin", "super_admin", "tenant_setup", "192.168.1.3", "Safari/15.0"),
+            ("admin_created", "success", d3.replace(hour=13, minute=0, second=0, microsecond=0), 1, "super_admin", "super_admin", "accounts", "192.168.1.4", "Edge/100.0"),
+            ("tenant_updated", "success", d4.replace(hour=14, minute=0, second=0, microsecond=0), 2, "sub_admin", "sub_admin", "tenant_setup", "192.168.1.5", "Chrome/99.0"),
+        ]
+        repo = Repository("admin_audit_events")
+        for action, outcome, created_at, actor_id, actor_username, actor_role, category, ip, ua in events:
+            resource_type = "tenant" if "tenant" in action else "admin"
+            repo.insert({
+                "created_at": created_at,
+                "actor_id": actor_id,
+                "actor_username": actor_username,
+                "actor_role": actor_role,
+                "action": action,
+                "outcome": outcome,
+                "resource_type": resource_type,
+                "resource_id": "1",
+                "tenant_id": "tenant-1",
+                "details_json": {"category": category},
+                "ip_address": ip,
+                "user_agent": ua,
+            })
 
     def test_list_audit_history_with_sorting(self):
         """Test audit history listing with sorting parameters."""
@@ -251,23 +197,14 @@ class AuditExtendedTests(unittest.TestCase):
         """Test getting a specific audit event."""
         self._insert_test_audit_events(3)
         
-        # Get first event ID
-        conn = self._connect()
-        try:
-            cursor = conn.execute("SELECT id FROM admin_audit_events LIMIT 1")
-            event_id = cursor.fetchone()[0]
-            
-            response = self.client.get(f"/api/admin/audit-history/{event_id}")
-            self.assertEqual(response.status_code, 200)
-            
-            event = response.json()
-            self.assertIn("id", event)
-            self.assertEqual(event["id"], event_id)
-            self.assertIn("action", event)
-            self.assertIn("outcome", event)
-            
-        finally:
-            conn.close()
+        event_id = Repository("admin_audit_events").find_all(sort=[("id", 1)], limit=1)[0]["id"]
+        response = self.client.get(f"/api/admin/audit-history/{event_id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        event = response.json()
+        self.assertIn("id", event)
+        self.assertEqual(event["id"], event_id)
+        self.assertIn("action", event)
+        self.assertIn("outcome", event)
 
     def test_get_nonexistent_event(self):
         """Test getting a non-existent event."""
@@ -315,12 +252,12 @@ class AuditExtendedTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
 
+@unittest.skip("SQLite PRAGMA schema checks removed for MongoDB-only backend")
 class DatabaseSchemaTests(unittest.TestCase):
     """Test database schema updates."""
     
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "schema_test.sqlite3")
         
     def tearDown(self):
         self.temp.cleanup()

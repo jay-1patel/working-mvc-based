@@ -252,9 +252,10 @@ class SiteCrawler:
         self,
         base_url: str,
         max_pages: Optional[int] = None,
-        max_depth: int = 4,
+        max_depth: Optional[int] = None,
         page_timeout: float = 12.0,
-        total_timeout: float = 600.0,
+        total_timeout: Optional[float] = None,
+        progress_callback=None,
         respect_robots: bool = True,
         request_delay: float = DEFAULT_CRAWL_DELAY,
         enable_js_render: Optional[bool] = None,
@@ -266,9 +267,18 @@ class SiteCrawler:
         # callers that pass one). Depth, delay, robots, same-domain and SSRF
         # safeguards are unaffected.
         self.max_pages = max(1, int(max_pages)) if max_pages else None
-        self.max_depth = max(0, int(max_depth if max_depth is not None else 4))
+        # No default depth cap: traverse the same-domain links discovered from
+        # the seed pages until the queue is empty. Explicit caps remain useful
+        # to callers that intentionally want a bounded crawl.
+        self.max_depth = max(0, int(max_depth)) if max_depth is not None else None
         self.page_timeout = float(page_timeout or 12.0)
-        self.total_timeout = float(total_timeout or 600.0)
+        # Overall timeout is opt-in. Per-request timeouts still prevent a
+        # single unresponsive page from holding the worker forever.
+        self.total_timeout = (
+            float(total_timeout) if total_timeout is not None and float(total_timeout) > 0
+            else None
+        )
+        self.progress_callback = progress_callback
         self.respect_robots = respect_robots
         self.request_delay = request_delay
         self.enable_js_render = _js_render_enabled(enable_js_render)
@@ -277,6 +287,7 @@ class SiteCrawler:
         self.robots: Optional[RobotsTxtPolicy] = None
         self._robots_sitemaps: List[str] = []
         self._last_fetch_ts: float = 0.0
+        self._last_progress_ts: float = 0.0
         self.inventory: List[Dict[str, Any]] = []
         self.js_rendered_urls: List[str] = []
         # Set when a page needed rendering but Playwright (or its browser)
@@ -331,9 +342,9 @@ class SiteCrawler:
 
         page_urls: List[str] = []
         seen_pages: Set[str] = set()
-        max_sitemaps = 25
-
-        while queue and len(seen_sitemaps) <= max_sitemaps:
+        # Follow all unique same-domain sitemap references. A fixed sitemap
+        # limit silently omitted pages on large sitemap indexes.
+        while queue:
             sm_url = queue.pop(0)
             try:
                 assert_public_url(sm_url)
@@ -396,6 +407,23 @@ class SiteCrawler:
             "rendered": rendered,
             "page_data": page_data,
         })
+
+    def _report_progress(self, pending_urls: int = 0, *, force: bool = False) -> None:
+        """Persist crawl progress periodically without slowing every request."""
+        if not self.progress_callback:
+            return
+        now = time.monotonic()
+        if not force and now - self._last_progress_ts < 2.0:
+            return
+        self._last_progress_ts = now
+        try:
+            successful = sum(1 for item in self.inventory if item.get("success"))
+            self.progress_callback(
+                pages_found=len(self.inventory) + int(pending_urls or 0),
+                pages_scraped=successful,
+            )
+        except Exception:
+            logger.exception("SITE_CRAWL_PROGRESS_CALLBACK_FAILED | root=%s", self.root_url)
 
     # Transport errors worth one retry: a single slow page must not kill
     # a run (health check 2026-11-12: one 12s root-fetch read timeout
@@ -585,8 +613,9 @@ class SiteCrawler:
         return found
 
     def crawl(self) -> Dict[str, Any]:
-        """Execute sitemap-first discovery then BFS until caps hit."""
+        """Execute sitemap-first discovery then BFS until the queue is empty."""
         started = time.monotonic()
+        stop_reason = "queue_empty"
         crawled_pages: List[Dict[str, Any]] = []
         visited: Set[str] = set()
         # Same-page identity (trailing slash / www / default port folded):
@@ -646,6 +675,7 @@ class SiteCrawler:
             sitemap_urls = self._discover_sitemap_urls(client)
             for u in sorted(sitemap_urls, key=url_fetch_priority):
                 queue.append((u, "sitemap", 0))
+            self._report_progress(len(queue), force=True)
 
             # 2) Always seed the root for BFS (link source) if not already queued
             if self.root_url not in {u for u, _, _ in queue}:
@@ -660,8 +690,9 @@ class SiteCrawler:
             while queue and (
                 self.max_pages is None or len(crawled_pages) < self.max_pages
             ):
-                if time.monotonic() - started > self.total_timeout:
+                if self.total_timeout is not None and time.monotonic() - started > self.total_timeout:
                     logger.warning("SITE_CRAWL_TOTAL_TIMEOUT | root=%s", self.root_url)
+                    stop_reason = "total_timeout"
                     break
 
                 curr_url, source, depth = queue.pop(0)
@@ -681,6 +712,7 @@ class SiteCrawler:
                         curr_url, source=source, success=False,
                         error="blocked: non-public address", depth=depth,
                     )
+                    self._report_progress(len(queue))
                     continue
 
                 if self.respect_robots and self.robots and not self.robots.can_fetch(curr_url):
@@ -688,6 +720,7 @@ class SiteCrawler:
                         curr_url, source=source, success=False,
                         error="robots.txt disallow", depth=depth,
                     )
+                    self._report_progress(len(queue))
                     continue
 
                 if not is_probably_html_url(curr_url):
@@ -695,6 +728,7 @@ class SiteCrawler:
                         curr_url, source=source, success=False,
                         error="non-html extension", depth=depth,
                     )
+                    self._report_progress(len(queue))
                     continue
 
                 html, status, final_url, err, rendered = self._fetch(client, curr_url)
@@ -708,6 +742,7 @@ class SiteCrawler:
                         success=False, error=err or "fetch failed",
                         final_url=final_url, depth=depth,
                     )
+                    self._report_progress(len(queue))
                     continue
 
                 # Canonical dedupe: this fetch landed (after redirects) on
@@ -720,6 +755,7 @@ class SiteCrawler:
                         success=False, error="canonical_duplicate",
                         final_url=final_url, depth=depth, rendered=rendered,
                     )
+                    self._report_progress(len(queue))
                     continue
                 staged_keys.add(final_key)
 
@@ -740,7 +776,7 @@ class SiteCrawler:
                 )
                 crawled_pages.append(page_data)
 
-                if depth < self.max_depth:
+                if self.max_depth is None or depth < self.max_depth:
                     # Detail-like pages before listing/index pages; the
                     # sort is stable, so BFS order holds within each class.
                     discovered = sorted(
@@ -759,17 +795,18 @@ class SiteCrawler:
                             continue
                         queue.append((link, "link", depth + 1))
 
-            # Record remaining queued URLs that were discovered but never
-            # fetched so inventory reflects discovery completeness. With an
-            # explicit cap the reason is the cap; on the unlimited path the
-            # only way pages remain queued is the total-timeout guard, so
-            # they are marked accordingly (never "not_fetched_max_pages").
+                self._report_progress(len(queue))
+
+            # Record remaining URLs when a caller explicitly configured a cap
+            # or an opt-in total timeout stopped the crawl.
+            limit_hit = bool(queue)
             if queue:
-                leftover_error = (
-                    "not_fetched_max_pages"
-                    if self.max_pages is not None
-                    else "not_fetched_timeout"
-                )
+                if self.max_pages is not None and len(crawled_pages) >= self.max_pages:
+                    leftover_error = "not_fetched_max_pages"
+                elif self.max_depth is not None:
+                    leftover_error = "not_fetched_max_depth"
+                else:
+                    leftover_error = "not_fetched_timeout"
                 for u, source, depth in queue:
                     if u in visited or url_dedupe_key(u) in visited_keys:
                         continue
@@ -779,6 +816,14 @@ class SiteCrawler:
                         u, source=source, success=False,
                         error=leftover_error, depth=depth,
                     )
+
+            if self.max_pages is not None and len(crawled_pages) >= self.max_pages and limit_hit:
+                stop_reason = "max_pages"
+            elif self.max_depth is not None and limit_hit and stop_reason == "queue_empty":
+                stop_reason = "max_depth"
+            else:
+                stop_reason = stop_reason if stop_reason != "queue_empty" else "queue_empty"
+            self._report_progress(len(queue), force=True)
 
         successful = [p for p in self.inventory if p.get("success")]
         return {
@@ -793,4 +838,6 @@ class SiteCrawler:
             "render_unavailable": self.render_unavailable,
             "blocked_by_robots": False,
             "successful_urls": [p["url"] for p in successful],
+            "stop_reason": stop_reason,
+            "duration_seconds": round(time.monotonic() - started, 2),
         }

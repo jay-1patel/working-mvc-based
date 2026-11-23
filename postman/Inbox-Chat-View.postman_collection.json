@@ -1,0 +1,138 @@
+{
+  "info": {
+    "name": "Inbox Chat View (919876543210)",
+    "description": "APIs for the live inbox conversation screen: open queue, load thread, assign, give back to bot, reply, attach, resolve.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:9000" },
+    { "key": "username", "value": "cars" },
+    { "key": "session_id", "value": "cars-static-session" },
+    { "key": "wa_id", "value": "919876543210" }
+  ],
+  "item": [
+    {
+      "name": "1. Open inbox queue",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"include_resolved\": false\n}" },
+        "url": "{{base_url}}/api/admin/tenants/inbox"
+      }
+    },
+    {
+      "name": "2. Load chat thread (messages on screen)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"limit\": 300\n}" },
+        "url": "{{base_url}}/api/admin/tenants/conversations/detail"
+      }
+    },
+    {
+      "name": "3. List agents (Assign dropdown)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "{{base_url}}/api/admin/tenants/agents"
+      }
+    },
+    {
+      "name": "4. Assign to cars",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"agent_id\": \"cars\"\n}" },
+        "url": "{{base_url}}/api/admin/tenants/inbox/assign"
+      }
+    },
+    {
+      "name": "5. Give back to bot",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"mode\": \"bot\"\n}" },
+        "url": "{{base_url}}/api/admin/tenants/inbox/handover"
+      }
+    },
+    {
+      "name": "6. Take over as human again",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"mode\": \"human\"\n}" },
+        "url": "{{base_url}}/api/admin/tenants/inbox/handover"
+      }
+    },
+    {
+      "name": "7. Send reply",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"message\": \"Hello from Postman — agent reply\"\n}"
+        },
+        "url": "{{base_url}}/api/admin/tenants/inbox/reply"
+      }
+    },
+    {
+      "name": "8. Attach file (paperclip)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"filename\": \"note.txt\",\n  \"content\": \"SGVsbG8gZnJvbSBQb3N0bWFu\",\n  \"media_type\": \"text/plain\"\n}"
+        },
+        "url": "{{base_url}}/api/admin/tenants/inbox/attach"
+      }
+    },
+    {
+      "name": "9. Resolve chat",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "username", "value": "{{username}}" },
+          { "key": "session_id", "value": "{{session_id}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"wa_id\": \"{{wa_id}}\",\n  \"reply\": true\n}" },
+        "url": "{{base_url}}/api/admin/tenants/inbox/resolve"
+      }
+    }
+  ]
+}

@@ -21,6 +21,7 @@ import os
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from database import (
@@ -42,16 +43,65 @@ from routes.admin import (
     run_upload,
 )
 from routes.auth import (
+    authorize_tenant_access,
     ensure_super_admin_view_only,
     get_current_admin,
     get_tenant_principal,
     has_permission,
     require_tenant_access,
     security,
+    session_tenant_id,
 )
 
 logger = logging.getLogger("tenant_files")
 router = APIRouter(prefix="/api/admin/tenants/{tenant_id}", tags=["tenant-files"])
+flat_router = APIRouter(prefix="/api/admin/tenants", tags=["tenant-files"])
+
+
+class FilesListRequest(BaseModel):
+    module: str | None = None
+    search: str | None = None
+
+
+class FileUploadRequest(BaseModel):
+    filename: str
+    content: str
+    module: str = "faq"
+    url: str | None = None
+    media_type: str | None = None
+
+
+class FilesBifurcateRequest(BaseModel):
+    filenames: list[str] | None = None
+    auto_publish: bool = False
+
+
+class FilePreviewRequest(BaseModel):
+    filename: str
+
+
+class FileDownloadRequest(BaseModel):
+    filename: str
+
+
+class FileDeleteRequest(BaseModel):
+    filename: str
+
+
+class KnowledgeGapsRequest(BaseModel):
+    resolved: bool = False
+    limit: int = 50
+
+
+class KnowledgeGapResolveRequest(BaseModel):
+    gap_id: int
+    notes: str | None = None
+
+
+class KnowledgeGapCreateFaqRequest(BaseModel):
+    gap_id: int
+    question: str
+    answer: str
 
 
 def _require(perm: str):
@@ -78,6 +128,17 @@ def _require(perm: str):
         return principal
 
     return dependency
+
+
+def _flat_require(request: Request, credentials, perm: str) -> tuple[dict, str]:
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    if principal.get("type") == "tenant":
+        return principal, tenant_id
+    admin = get_current_admin(request, credentials)
+    if not has_permission(admin, perm):
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action")
+    return principal, tenant_id
 
 
 
@@ -137,13 +198,15 @@ def _resolve_uploader(
     return admin
 
 
-@router.get("/files")
+@flat_router.post("/files")
 def list_tenant_files(
-    tenant_id: str,
-    module: str = Query(None),
-    search: str = Query(None),
-    principal: dict = Depends(_require("view_files")),
+    body: FilesListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    module, search = body.module, body.search
+    principal, tenant_id = _flat_require(request, credentials, "view_files")
     db_tenant_id = _resolve_tenant_db_id(tenant_id)
     files = list_admin_files(tenant_id=db_tenant_id)
     if module:
@@ -154,17 +217,16 @@ def list_tenant_files(
     return {"files": files}
 
 
-@router.post("/files/upload")
+@flat_router.post("/files/upload")
 async def upload_tenant_file(
     request: Request,
-    tenant_id: str,
+    body: FileUploadRequest,
     background_tasks: BackgroundTasks,
-    module: str = Query("faq"),
-    url: str = Query(None),
-    media_type: str = Query(None),
-    principal: dict = Depends(require_tenant_access()),
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    module, url, media_type = body.module, body.url, body.media_type
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     uploader = _resolve_uploader(request, principal, credentials)
     return await run_upload(request, module, url, media_type, uploader, tenant_id=tenant_id, background_tasks=background_tasks)
 
@@ -237,19 +299,19 @@ async def auto_bifurcate_tenant_files(
         raise HTTPException(status_code=500, detail=f"Auto-bifurcation failed: {exc}")
 
 
-@router.post("/files/bifurcate-existing")
+@flat_router.post("/files/bifurcate-existing")
 async def auto_bifurcate_existing_files(
     request: Request,
-    tenant_id: str,
-    principal: dict = Depends(require_tenant_access()),
+    body: FilesBifurcateRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Run auto-bifurcation on files already uploaded to this tenant's library."""
     import base64
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     uploader = _resolve_uploader(request, principal, credentials)
-    body = await request.json() if "application/json" in request.headers.get("content-type", "") else {}
-    target_filenames = body.get("filenames")  # None means all files for tenant
-    auto_publish = body.get("auto_publish", False)
+    target_filenames = body.filenames  # None means all files for tenant
+    auto_publish = body.auto_publish
 
     # Resolve slug → numeric DB id so list_admin_files can find the rows
     db_tenant_id = _resolve_tenant_db_id(tenant_id)
@@ -304,12 +366,15 @@ async def auto_bifurcate_existing_files(
 
 
 
-@router.get("/files/{filename}/preview")
+@flat_router.post("/files/preview")
 def preview_tenant_file(
-    tenant_id: str,
-    filename: str,
-    principal: dict = Depends(_require("view_files")),
+    body: FilePreviewRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    filename = body.filename
+    principal, tenant_id = _flat_require(request, credentials, "view_files")
     # The metadata row is the tenancy check: a filename that exists on disk but
     # belongs to another tenant must not be readable through this path.
     if not get_admin_file(filename, tenant_id=tenant_id):
@@ -325,12 +390,15 @@ def preview_tenant_file(
     )
 
 
-@router.get("/files/{filename}/download")
+@flat_router.post("/files/download")
 def download_tenant_file(
-    tenant_id: str,
-    filename: str,
-    principal: dict = Depends(_require("view_files")),
+    body: FileDownloadRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    filename = body.filename
+    principal, tenant_id = _flat_require(request, credentials, "view_files")
     if not get_admin_file(filename, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="File not found for this tenant")
     filepath = _find_uploaded_file(filename)
@@ -345,12 +413,15 @@ def download_tenant_file(
     )
 
 
-@router.delete("/files/{filename}")
+@flat_router.post("/files/delete")
 def delete_tenant_file(
-    tenant_id: str,
-    filename: str,
-    principal: dict = Depends(_require("delete_files")),
+    body: FileDeleteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    filename = body.filename
+    principal, tenant_id = _flat_require(request, credentials, "delete_files")
     if not get_admin_file(filename, tenant_id=tenant_id):
         raise HTTPException(status_code=404, detail="File not found for this tenant")
     actor = {
@@ -389,9 +460,8 @@ async def upload_tenant_image(
 ):
     """Upload an image and return its public URL (tenant-scoped wrapper).
 
-    Used by the record form's Image column: the image is hosted externally
-    (imghippo) and the returned URL is what the record stores, so the bot can
-    send it to customers without the console having to serve files.
+    Used by the record form's Image column. The returned backend URL is what
+    the record stores.
     """
     try:
         from services.image_upload import _upload_to_imghippo
@@ -407,31 +477,38 @@ async def upload_tenant_image(
     if not url:
         raise HTTPException(
             status_code=502,
-            detail="Image hosting failed — check the imghippo API key.",
+            detail="Image hosting failed - check PUBLIC_BASE_URL and UPLOAD_DIR.",
         )
     try:
-        from database import get_db_context, record_admin_audit_event
+        from database import record_admin_audit_event
+        from db.core import use_mongodb
+
         actor = {
             **principal,
             "username": principal.get("username") or principal.get("label") or "tenant",
             "tenant_id": tenant_id,
         }
-        with get_db_context() as conn:
-            record_admin_audit_event(
-                conn,
-                action="file_uploaded",
-                actor=actor,
-                resource_type="file",
-                resource_id=file.filename or "image",
-                tenant_id=tenant_id,
-                details={
-                    "file_name": os.path.basename(file.filename or "image"),
-                    "file_ext": os.path.splitext(file.filename or "")[1].lower().lstrip("."),
-                    "module": "record_image",
-                    "file_size": len(content),
-                    "hosted": True,
-                },
-            )
+        audit = dict(
+            action="file_uploaded",
+            actor=actor,
+            resource_type="file",
+            resource_id=file.filename or "image",
+            tenant_id=tenant_id,
+            details={
+                "file_name": os.path.basename(file.filename or "image"),
+                "file_ext": os.path.splitext(file.filename or "")[1].lower().lstrip("."),
+                "module": "record_image",
+                "file_size": len(content),
+                "hosted": True,
+            },
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **audit)
+        else:
+            from database import get_db_context
+
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **audit)
     except Exception as exc:
         logger.error("Could not audit tenant image upload: %s", exc)
     logger.info("TENANT_IMAGE_UPLOADED | tenant=%s | name=%s | bytes=%s", tenant_id, file.filename, len(content))
@@ -440,31 +517,33 @@ async def upload_tenant_image(
 
 # ── Knowledge Gap Analytics & 1-Click FAQ Generation ────────────────────────
 
-@router.get("/knowledge-gaps")
+@flat_router.post("/knowledge-gaps")
 def get_tenant_knowledge_gaps(
-    tenant_id: str,
-    resolved: bool = Query(False),
-    limit: int = Query(50, ge=1, le=500),
-    principal: dict = Depends(require_tenant_access()),
+    body: KnowledgeGapsRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Retrieve unanswered customer queries and knowledge gap analytics for this tenant."""
+    tenant_id = session_tenant_id(request=request)
+    resolved, limit = body.resolved, body.limit
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     gaps = list_unanswered_queries(tenant_id=tenant_id, resolved=resolved, limit=limit)
     summary = get_knowledge_gaps_summary(tenant_id=tenant_id)
     return {"gaps": gaps, "summary": summary}
 
 
-@router.post("/knowledge-gaps/{gap_id}/resolve")
+@flat_router.post("/knowledge-gaps/resolve")
 async def resolve_tenant_knowledge_gap(
     request: Request,
-    tenant_id: str,
-    gap_id: int,
-    principal: dict = Depends(require_tenant_access()),
+    body: KnowledgeGapResolveRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Mark a knowledge gap as resolved without creating a FAQ."""
+    tenant_id = session_tenant_id(request=request)
+    gap_id = body.gap_id
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     uploader = _resolve_uploader(request, principal, credentials)
-    body = await request.json() if "application/json" in request.headers.get("content-type", "") else {}
-    notes = body.get("notes", "")
+    notes = body.notes or ""
     ok = resolve_unanswered_query(
         gap_id=gap_id,
         tenant_id=tenant_id,
@@ -476,19 +555,19 @@ async def resolve_tenant_knowledge_gap(
     return {"status": "ok", "gap_id": gap_id, "resolved": True}
 
 
-@router.post("/knowledge-gaps/{gap_id}/create-faq")
+@flat_router.post("/knowledge-gaps/create-faq")
 async def create_faq_from_knowledge_gap(
     request: Request,
-    tenant_id: str,
-    gap_id: int,
-    principal: dict = Depends(require_tenant_access()),
+    body: KnowledgeGapCreateFaqRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """1-Click turn an unanswered customer query into an indexed FAQ entry."""
+    tenant_id = session_tenant_id(request=request)
+    gap_id = body.gap_id
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     uploader = _resolve_uploader(request, principal, credentials)
-    body = await request.json() if "application/json" in request.headers.get("content-type", "") else {}
-    question = body.get("question", "").strip()
-    answer = body.get("answer", "").strip()
+    question = body.question.strip()
+    answer = body.answer.strip()
     if not question or not answer:
         raise HTTPException(status_code=400, detail="Both question and answer are required")
 

@@ -1049,7 +1049,7 @@ class PdfIntakeService:
         Merges into the tenant's existing draft — keys this PDF did not supply
         keep their current values, so a hand-tuned menu or flow list survives.
         """
-        from database import (get_db_context, list_products, record_admin_audit_event,
+        from database import (list_products, record_admin_audit_event,
                               save_chunks, save_product, update_product)
 
         summary: Dict[str, Any] = {
@@ -1071,36 +1071,35 @@ class PdfIntakeService:
         summary["warnings"] = warnings
         published_config = profile.model_dump() if profile is not None else None
 
-        self._publish_config(draft, published_config, summary, get_db_context)
-        self._place_products(draft, summary, list_products, save_product, update_product, get_db_context)
+        self._publish_config(draft, published_config, summary)
+        self._place_products(draft, summary, list_products, save_product, update_product)
         self._place_faqs(draft, summary, save_chunks)
         self._place_knowledge(draft, summary, background_tasks)
 
         try:
-            with get_db_context() as conn:
-                record_admin_audit_event(
-                    conn,
-                    action="tenant_pdf_intake_published",
-                    actor=self.actor,
-                    resource_type="tenant",
-                    resource_id=self.tenant_id,
-                    tenant_id=self.tenant_id,
-                    details={
-                        "products_created": summary["products_created"],
-                        "services_created": summary["services_created"],
-                        "faqs_created": summary["faqs_created"],
-                        "kb_chunks_indexed": summary["kb_chunks_indexed"],
-                        "menu_buttons_count": summary["menu_buttons_count"],
-                        "version": summary["version"],
-                    },
-                )
+            record_admin_audit_event(
+                None,
+                action="tenant_pdf_intake_published",
+                actor=self.actor,
+                resource_type="tenant",
+                resource_id=self.tenant_id,
+                tenant_id=self.tenant_id,
+                details={
+                    "products_created": summary["products_created"],
+                    "services_created": summary["services_created"],
+                    "faqs_created": summary["faqs_created"],
+                    "kb_chunks_indexed": summary["kb_chunks_indexed"],
+                    "menu_buttons_count": summary["menu_buttons_count"],
+                    "version": summary["version"],
+                },
+            )
         except Exception as exc:
             logger.warning("Audit event for pdf intake failed: %s", exc)
 
         return summary
 
     def _publish_config(self, draft: Dict[str, Any], published_config: Optional[dict],
-                        summary: Dict[str, Any], get_db_context) -> None:
+                        summary: Dict[str, Any]) -> None:
         """Merge the document's profile keys into the tenant's live config."""
         try:
             from shared.tenancy import cache as tenancy_cache
@@ -1159,28 +1158,29 @@ class PdfIntakeService:
                 merged_guardrails["never_state"] = never
                 draft_payload["guardrails"] = merged_guardrails
 
-            with get_db_context() as conn:
-                tenancy_store.save_draft(
-                    self.tenant_id, draft_payload,
-                    updated_by=self.actor.get("username", "admin"), conn=conn,
+            tenancy_store.save_draft(
+                self.tenant_id,
+                draft_payload,
+                updated_by=self.actor.get("username", "admin"),
+            )
+            try:
+                version = tenancy_store.publish_version(
+                    self.tenant_id,
+                    draft_payload,
+                    published_by=self.actor.get("username", "admin"),
                 )
-                try:
-                    version = tenancy_store.publish_version(
-                        self.tenant_id, draft_payload,
-                        published_by=self.actor.get("username", "admin"), conn=conn,
-                    )
-                    summary["version"] = version
-                    summary["published"] = True
-                    tenancy_cache.purge(self.tenant_id)
-                    logger.info("PDF_INTAKE_PUBLISHED | tenant=%s | v=%s", self.tenant_id, version)
-                except Exception as exc:
-                    summary["warnings"].append(f"Could not publish a config version: {exc}")
+                summary["version"] = version
+                summary["published"] = True
+                tenancy_cache.purge(self.tenant_id)
+                logger.info("PDF_INTAKE_PUBLISHED | tenant=%s | v=%s", self.tenant_id, version)
+            except Exception as exc:
+                summary["warnings"].append(f"Could not publish a config version: {exc}")
         except Exception as exc:
             logger.error("Config placement failed for %s: %s", self.tenant_id, exc, exc_info=True)
             summary["warnings"].append(f"Profile was not written: {exc}")
 
     def _place_products(self, draft: Dict[str, Any], summary: Dict[str, Any],
-                        list_products, save_product, update_product, get_db_context) -> None:
+                        list_products, save_product, update_product) -> None:
         """Products and services into the one `products` table, by category."""
         offerings = draft.get("offerings") or []
         if not offerings:

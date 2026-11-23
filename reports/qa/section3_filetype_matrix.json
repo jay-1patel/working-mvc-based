@@ -1,0 +1,104 @@
+[
+  {
+    "file": "clean_multi_page.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "same_content.docx",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "same_content.txt",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "same_content.md",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "same_content.csv",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "same_content.xlsx",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "UPPER.PDF",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "file with spaces.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "unsupported.exe",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "unsupported.zip",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "unsupported.mp4",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "file.pdf.exe",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "zero_byte.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "corrupted.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "password_protected.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "no_extension",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  },
+  {
+    "file": "lie_extension.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED"
+  }
+]

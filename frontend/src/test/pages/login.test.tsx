@@ -23,7 +23,7 @@ describe('login screen', () => {
     await waitForScreen()
     const user = userEvent.setup()
     await user.type(await screen.findByLabelText(/username/i), 'root')
-    await user.type(screen.getByLabelText(/password/i), 'secret-password')
+    await user.type(screen.getByLabelText(/session id/i), 'secret-session-id')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(
       () => {
@@ -41,7 +41,7 @@ describe('login screen', () => {
     await waitForScreen()
     const user = userEvent.setup()
     await user.type(await screen.findByLabelText(/username/i), 'root')
-    await user.type(screen.getByLabelText(/password/i), 'wrong')
+    await user.type(screen.getByLabelText(/session id/i), 'wrong')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(await screen.findByText('Bad credentials')).toBeInTheDocument()
   })

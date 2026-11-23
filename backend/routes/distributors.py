@@ -6,7 +6,17 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from database import get_db_context, record_admin_audit_event
+from database import (
+    count_distributors as count_tenant_distributors,
+    delete_distributor as remove_distributor,
+    distributor_exists_globally,
+    get_distributor,
+    insert_distributor,
+    list_distributors as list_tenant_distributors,
+    record_admin_audit_event,
+    update_distributor as patch_distributor,
+)
+from db.core import use_mongodb
 from routes.auth import require_permission, require_tenant_access
 from shared.tenancy.gating import is_enabled
 from shared.tenancy.schemas import is_valid_email, is_valid_phone
@@ -96,17 +106,6 @@ def _contact_errors(name=None, phone=None, email=None, wa_id=None):
     return errors
 
 
-def _row_to_dict(row) -> dict:
-    d = dict(row)
-    raw = d.get("product_interests", "[]")
-    if isinstance(raw, str):
-        try:
-            d["product_interests"] = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            d["product_interests"] = []
-    return d
-
-
 # ── Routes ─────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -118,31 +117,11 @@ def list_distributors(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """List this tenant's distributors, with optional search / filter."""
-    with get_db_context() as conn:
-        clauses, params = ["tenant_id = ?"], [tenant_id]
-
-        if q:
-            clauses.append(
-                "(wa_id LIKE ? OR name LIKE ? OR phone LIKE ? OR email LIKE ?)"
-            )
-            like = f"%{q}%"
-            params.extend([like, like, like, like])
-
-        if region:
-            clauses.append("region = ?")
-            params.append(region)
-
-        if tier:
-            clauses.append("tier = ?")
-            params.append(tier)
-
-        rows = conn.execute(
-            f"SELECT * FROM distributors WHERE {' AND '.join(clauses)} "
-            "ORDER BY name COLLATE NOCASE ASC",
-            params,
-        ).fetchall()
-
-    return {"distributors": [_row_to_dict(r) for r in rows]}
+    return {
+        "distributors": list_tenant_distributors(
+            tenant_id, q=q, region=region, tier=tier
+        )
+    }
 
 
 @router.get("/count")
@@ -156,27 +135,11 @@ def distributor_count(
     """Count this tenant's distributors matching optional segment filters.
     Used by Campaign Builder for the live 'target N distributors' preview.
     """
-    with get_db_context() as conn:
-        clauses, params = ["tenant_id = ?"], [tenant_id]
-
-        if region:
-            clauses.append("region = ?")
-            params.append(region)
-
-        if tier:
-            clauses.append("tier = ?")
-            params.append(tier)
-
-        if product_interest:
-            clauses.append("product_interests LIKE ?")
-            params.append(f"%{product_interest}%")
-
-        row = conn.execute(
-            f"SELECT COUNT(*) AS cnt FROM distributors WHERE {' AND '.join(clauses)}",
-            params,
-        ).fetchone()
-
-    return {"count": row["cnt"] if row else 0}
+    return {
+        "count": count_tenant_distributors(
+            tenant_id, region=region, tier=tier, product_interest=product_interest
+        )
+    }
 
 
 @router.get("/lookup/{wa_id}")
@@ -186,16 +149,10 @@ def lookup_distributor(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Fetch one of this tenant's distributors by WhatsApp ID."""
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT * FROM distributors WHERE wa_id = ? AND tenant_id = ?",
-            (wa_id, tenant_id),
-        ).fetchone()
-
+    row = get_distributor(tenant_id, wa_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"Distributor '{wa_id}' not found")
-
-    return _row_to_dict(row)
+    return row
 
 
 @router.post("")
@@ -214,57 +171,31 @@ def create_distributor(
     if errors:
         raise HTTPException(422, "; ".join(errors))
 
-    with get_db_context() as conn:
-        existing = conn.execute(
-            "SELECT 1 FROM distributors WHERE wa_id = ?", (wa_id,)
-        ).fetchone()
+    if distributor_exists_globally(wa_id):
+        raise HTTPException(409, f"Distributor with wa_id '{wa_id}' already exists")
 
-        if existing:
-            raise HTTPException(409, f"Distributor with wa_id '{wa_id}' already exists")
+    insert_distributor(tenant_id, body)
+    audit = dict(
+        action="distributor_created",
+        actor=current_admin,
+        resource_type="distributor",
+        resource_id=wa_id,
+        tenant_id=tenant_id,
+        details={
+            "wa_id": wa_id,
+            "name": str(body.name)[:100],
+            "phone": str(body.phone)[:30],
+            "region": str(body.region)[:50],
+            "tier": str(body.tier)[:30],
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit)
+    else:
+        from database import get_db_context
 
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-        conn.execute(
-            """INSERT INTO distributors
-                (wa_id, tenant_id, name, phone, email, region, city, address, service_area,
-                 tier, product_interests, sales_volume, last_order_value, outstanding_payments,
-                 notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                wa_id,
-                tenant_id,
-                body.name,
-                body.phone,
-                body.email,
-                body.region,
-                body.city,
-                body.address,
-                body.service_area,
-                body.tier,
-                json.dumps(body.product_interests),
-                body.sales_volume,
-                body.last_order_value,
-                body.outstanding_payments,
-                body.notes,
-                now,
-                now,
-            ),
-        )
-        record_admin_audit_event(
-            conn,
-            action="distributor_created",
-            actor=current_admin,
-            resource_type="distributor",
-            resource_id=wa_id,
-            tenant_id=tenant_id,
-            details={
-                "wa_id": wa_id,
-                "name": str(body.name)[:100],
-                "phone": str(body.phone)[:30],
-                "region": str(body.region)[:50],
-                "tier": str(body.tier)[:30],
-            },
-        )
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit)
 
     logger.info(f"DISTRIBUTOR_CREATED | tenant={tenant_id} | wa_id={wa_id} | name={body.name}")
     return {"ok": True, "wa_id": wa_id}
@@ -288,54 +219,33 @@ def update_distributor(
     if errors:
         raise HTTPException(422, "; ".join(errors))
 
-    fields, values = [], []
-
-    for field, value in updates.items():
-        if field == "product_interests":
-            value = json.dumps(value)
-        fields.append(f"{field} = ?")
-        values.append(value)
-
-    if not fields:
+    if not updates:
         raise HTTPException(400, "Nothing to update")
 
-    fields.append("updated_at = ?")
-    values.append(datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
-    values.extend([wa_id, tenant_id])
+    try:
+        _, changes = patch_distributor(tenant_id, wa_id, updates)
+    except LookupError:
+        raise HTTPException(404, f"Distributor '{wa_id}' not found")
 
-    with get_db_context() as conn:
-        before = conn.execute(
-            "SELECT name, phone, email, region, tier FROM distributors WHERE wa_id = ? AND tenant_id = ?",
-            (wa_id, tenant_id),
-        ).fetchone()
+    audit = dict(
+        action="distributor_updated",
+        actor=current_admin,
+        resource_type="distributor",
+        resource_id=wa_id,
+        tenant_id=tenant_id,
+        details={
+            "wa_id": wa_id,
+            "changed_fields": sorted(updates.keys()),
+            "changes": changes,
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit)
+    else:
+        from database import get_db_context
 
-        result = conn.execute(
-            f"UPDATE distributors SET {', '.join(fields)} WHERE wa_id = ? AND tenant_id = ?",
-            values,
-        )
-
-        if result.rowcount == 0:
-            raise HTTPException(404, f"Distributor '{wa_id}' not found")
-
-        changes = {}
-        if before:
-            for k in ("name", "phone", "email", "region", "tier"):
-                if k in updates and updates[k] is not None and before[k] != updates[k]:
-                    changes[k] = {"before": before[k], "after": updates[k]}
-
-        record_admin_audit_event(
-            conn,
-            action="distributor_updated",
-            actor=current_admin,
-            resource_type="distributor",
-            resource_id=wa_id,
-            tenant_id=tenant_id,
-            details={
-                "wa_id": wa_id,
-                "changed_fields": sorted(updates.keys()),
-                "changes": changes,
-            },
-        )
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit)
 
     logger.info(f"DISTRIBUTOR_UPDATED | tenant={tenant_id} | wa_id={wa_id}")
     return {"ok": True}
@@ -348,33 +258,29 @@ def delete_distributor(
     current_admin: dict = Depends(require_permission("manage_distributors")),
 ):
     """Delete one of this tenant's distributors."""
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT name, phone, region FROM distributors WHERE wa_id = ? AND tenant_id = ?",
-            (wa_id, tenant_id),
-        ).fetchone()
+    row = remove_distributor(tenant_id, wa_id)
+    if not row:
+        raise HTTPException(404, f"Distributor '{wa_id}' not found")
 
-        result = conn.execute(
-            "DELETE FROM distributors WHERE wa_id = ? AND tenant_id = ?",
-            (wa_id, tenant_id),
-        )
+    audit = dict(
+        action="distributor_deleted",
+        actor=current_admin,
+        resource_type="distributor",
+        resource_id=wa_id,
+        tenant_id=tenant_id,
+        details={
+            "wa_id": wa_id,
+            "name": (row.get("name") or "")[:100],
+            "phone": (row.get("phone") or "")[:30],
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit)
+    else:
+        from database import get_db_context
 
-        if result.rowcount == 0:
-            raise HTTPException(404, f"Distributor '{wa_id}' not found")
-
-        record_admin_audit_event(
-            conn,
-            action="distributor_deleted",
-            actor=current_admin,
-            resource_type="distributor",
-            resource_id=wa_id,
-            tenant_id=tenant_id,
-            details={
-                "wa_id": wa_id,
-                "name": (row["name"] if row else "")[:100],
-                "phone": (row["phone"] if row else "")[:30],
-            },
-        )
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit)
 
     logger.info(f"DISTRIBUTOR_DELETED | tenant={tenant_id} | wa_id={wa_id}")
     return {"ok": True}

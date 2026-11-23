@@ -23,11 +23,8 @@ GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 
 def generate_google_meet_link() -> str:
-    """Generate a clean Google Meet meeting link formatted as https://meet.google.com/xxx-yyyy-zzz."""
-    part1 = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(3))
-    part2 = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(4))
-    part3 = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(3))
-    return f"https://meet.google.com/{part1}-{part2}-{part3}"
+    """Deprecated: Meet URLs must come from Google Calendar API responses."""
+    raise RuntimeError("Synthetic Google Meet links are not supported")
 
 
 def generate_gcal_add_url(
@@ -99,9 +96,7 @@ def refresh_access_token_sync(tenant_id: str, refresh_token: str) -> Optional[st
                 logger.info(f"Google OAuth token refreshed successfully for tenant {tenant_id}")
                 return new_access_token
             else:
-                logger.error(
-                    f"Failed to refresh Google token for tenant {tenant_id}: status={resp.status_code} body={resp.text}"
-                )
+                logger.error("Failed to refresh Google token for tenant %s: status=%s", tenant_id, resp.status_code)
     except Exception as exc:
         logger.error(f"Exception refreshing Google token for tenant {tenant_id}: {exc}")
     return None
@@ -147,9 +142,7 @@ async def refresh_access_token_async(tenant_id: str, refresh_token: str) -> Opti
                 logger.info(f"Google OAuth token refreshed successfully for tenant {tenant_id}")
                 return new_access_token
             else:
-                logger.error(
-                    f"Failed to refresh Google token for tenant {tenant_id}: status={resp.status_code} body={resp.text}"
-                )
+                logger.error("Failed to refresh Google token for tenant %s: status=%s", tenant_id, resp.status_code)
     except Exception as exc:
         logger.error(f"Exception refreshing Google token for tenant {tenant_id}: {exc}")
     return None
@@ -180,10 +173,7 @@ async def get_valid_access_token_async(tenant_id: str) -> Optional[str]:
     """Get a valid access token for the tenant asynchronously, refreshing if needed."""
     token_info = get_token(tenant_id)
     if not token_info:
-        if tenant_id != "leewaysoftech":
-            token_info = get_token("leewaysoftech")
-        if not token_info:
-            return None
+        return None
 
     access_token = token_info.get("access_token")
     expires_at = token_info.get("expires_at", 0)
@@ -367,9 +357,7 @@ def create_meeting_sync(
                                     "calendar_id": calendar_id,
                                     "oauth_connected": True,
                                 }
-                logger.error(
-                    f"Google Calendar API error for tenant {tenant_id}: status={resp.status_code} body={resp.text}"
-                )
+                logger.error("Google Calendar API error for tenant %s: status=%s", tenant_id, resp.status_code)
         except Exception as exc:
             logger.error(f"Error calling Google Calendar API for tenant {tenant_id}: {exc}")
 
@@ -384,21 +372,18 @@ def create_meeting_sync(
             sa_res["oauth_connected"] = True
             return sa_res
 
-    # 3. No OAuth configured: generate standard Google Meet space link + calendar add URL
-    meet_link = generate_google_meet_link()
-    cal_url = generate_gcal_add_url(title, description, s_utc, e_utc, meet_link)
-    logger.info(
-        f"Google OAuth not configured for tenant {tenant_id}. Generated standard Google Meet link: {meet_link}"
-    )
+    # No configured tenant integration: never manufacture a Meet URL.
+    logger.warning("Google Calendar/Meet unavailable for tenant %s", tenant_id)
     return {
-        "ok": True,
-        "event_id": f"evt_{secrets.token_hex(8)}",
-        "meet_link": meet_link,
-        "calendar_add_url": cal_url,
-        "html_link": cal_url,
+        "ok": False,
+        "event_id": None,
+        "meet_link": None,
+        "calendar_add_url": "",
+        "html_link": None,
         "start": start_time,
         "end": end_time,
         "oauth_connected": False,
+        "error": "google_integration_unavailable",
     }
 
 
@@ -480,21 +465,17 @@ async def create_meeting(
             sa_res["oauth_connected"] = True
             return sa_res
 
-    # Fallback when OAuth is not configured: generate standard Google Meet space link + calendar add URL
-    meet_link = generate_google_meet_link()
-    cal_url = generate_gcal_add_url(title, description, s_utc, e_utc, meet_link)
-    logger.info(
-        f"Google OAuth not configured for tenant {tenant_id}. Generated standard Google Meet link: {meet_link}"
-    )
+    logger.warning("Google Calendar/Meet unavailable for tenant %s", tenant_id)
     return {
-        "ok": True,
-        "event_id": f"evt_{secrets.token_hex(8)}",
-        "meet_link": meet_link,
-        "calendar_add_url": cal_url,
-        "html_link": cal_url,
+        "ok": False,
+        "event_id": None,
+        "meet_link": None,
+        "calendar_add_url": "",
+        "html_link": None,
         "start": start_time,
         "end": end_time,
         "oauth_connected": False,
+        "error": "google_integration_unavailable",
     }
 
 

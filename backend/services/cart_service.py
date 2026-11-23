@@ -15,7 +15,7 @@ import logging
 import re
 import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # shared.tenancy lives at the repo root, not next to this file.
@@ -68,6 +68,143 @@ def _tenant_for(wa_id: str):
         return None
 
 
+def _use_mongodb():
+    from db.core import use_mongodb
+    return use_mongodb()
+
+
+def _as_sql_ts(value) -> str:
+    """Normalize SQLite or Mongo datetimes to comparable YYYY-MM-DD HH:MM:SS."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        base = value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+        return _ts(base)
+    text = str(value).strip()
+    if "T" in text:
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if dt.tzinfo:
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return _ts(dt)
+        except ValueError:
+            pass
+    return text[:19] if len(text) >= 19 else text
+
+
+def _cart_expired(expires_at) -> bool:
+    return bool(expires_at) and _as_sql_ts(expires_at) <= _ts(_utcnow())
+
+
+def _mongo_repos():
+    from db.mongo import Repository, get_database
+    database = get_database()
+    return {
+        "carts": Repository("carts", database=database),
+        "cart_items": Repository("cart_items", database=database),
+        "checkout": Repository("checkout_sessions", database=database),
+        "products": Repository("products", database=database),
+        "orders": Repository("orders", database=database),
+    }
+
+
+def _mongo_find_cart(wa_id: str):
+    repos = _mongo_repos()
+    tid = _tenant_for(wa_id)
+    row = repos["carts"].find_one({"tenant_id": tid, "wa_id": wa_id}) if tid else None
+    if not row:
+        row = repos["carts"].find_one({"wa_id": wa_id})
+    return row
+
+
+def _mongo_delete_cart(cart_id: int) -> None:
+    repos = _mongo_repos()
+    repos["cart_items"].delete_many({"cart_id": cart_id})
+    repos["carts"].delete_one({"id": cart_id})
+
+
+def _mongo_item_list(cart_id: int, *, with_added_at: bool = False) -> list:
+    repos = _mongo_repos()
+    rows = repos["cart_items"].find_all(
+        {"cart_id": cart_id}, sort=[("added_at", 1), ("id", 1)], limit=None,
+    )
+    out = []
+    for it in rows:
+        name = "Product"
+        pid = it.get("product_id")
+        if pid is not None:
+            prod = repos["products"].find_one({"id": pid})
+            if prod and prod.get("name"):
+                name = prod["name"]
+        entry = {
+            "product_id": pid,
+            "name": name,
+            "qty": it.get("qty"),
+            "price_at_add": it.get("price_at_add"),
+        }
+        if with_added_at:
+            entry["added_at"] = _as_sql_ts(it.get("added_at"))
+        out.append(entry)
+    return out
+
+
+def _mongo_upsert_cart_row(wa_id: str) -> int:
+    repos = _mongo_repos()
+    now = _utcnow()
+    expires = now + timedelta(days=CART_TTL_DAYS)
+    tid = _tenant_for(wa_id) or "default"
+    filters = {"tenant_id": tid, "wa_id": wa_id}
+    existing = repos["carts"].find_one(filters)
+    payload = {
+        "tenant_id": tid,
+        "wa_id": wa_id,
+        "updated_at": now,
+        "expires_at": expires,
+    }
+    if existing:
+        if _cart_expired(existing.get("expires_at")):
+            _mongo_delete_cart(existing["id"])
+            row = repos["carts"].upsert(filters, {**payload, "created_at": now})
+        else:
+            row = repos["carts"].upsert(filters, payload)
+    else:
+        legacy = repos["carts"].find_one({"wa_id": wa_id})
+        if legacy and not _cart_expired(legacy.get("expires_at")):
+            row = repos["carts"].upsert({"id": legacy["id"]}, {**payload, "created_at": legacy.get("created_at") or now})
+        else:
+            if legacy:
+                _mongo_delete_cart(legacy["id"])
+            row = repos["carts"].upsert(filters, {**payload, "created_at": now})
+    return int(row["id"])
+
+
+def _mongo_touch_cart(wa_id: str) -> None:
+    row = _mongo_find_cart(wa_id)
+    if not row:
+        return
+    repos = _mongo_repos()
+    now = _utcnow()
+    repos["carts"].update(
+        {"id": row["id"]},
+        {"updated_at": now, "expires_at": now + timedelta(days=CART_TTL_DAYS)},
+    )
+
+
+def _mongo_checkout_row_to_dict(row: dict) -> dict:
+    result = dict(row)
+    draft = result.get("order_draft_json")
+    snap = result.get("cart_snapshot_json")
+    if isinstance(draft, str):
+        result["order_draft_json"] = json.loads(draft or "{}")
+    elif draft is None:
+        result["order_draft_json"] = {}
+    if isinstance(snap, str):
+        result["cart_snapshot_json"] = json.loads(snap or "[]")
+    elif snap is None:
+        result["cart_snapshot_json"] = []
+    return result
+
+
 # ── Price parsing (products.price is TEXT) ──────────────────────────────────
 
 _NUM_RE = re.compile(r"[\d,]+(?:\.\d+)?")
@@ -92,6 +229,18 @@ def parse_price(value) -> float:
 
 def get_cart(wa_id: str) -> list:
     """Return items as [{product_id, name, qty, price_at_add}] (empty if none/expired)."""
+    if _use_mongodb():
+        try:
+            row = _mongo_find_cart(wa_id)
+            if not row:
+                return []
+            if _cart_expired(row.get("expires_at")):
+                _mongo_delete_cart(row["id"])
+                return []
+            return _mongo_item_list(row["id"])
+        except Exception as e:
+            logger.error(f"CART_READ_FAIL | wa_id={wa_id} | {e}")
+            return []
     db = _db()
     try:
         with db.get_db_context() as conn:
@@ -135,6 +284,21 @@ def get_or_create_active_cart(wa_id: str) -> dict:
     blocked = _gate(wa_id)
     if blocked:
         return blocked
+    if _use_mongodb():
+        try:
+            cart_id = _mongo_upsert_cart_row(wa_id)
+            row = _mongo_repos()["carts"].find_one({"id": cart_id})
+            return {
+                "id": cart_id,
+                "wa_id": wa_id,
+                "status": "active",
+                "created_at": _as_sql_ts(row.get("created_at")),
+                "updated_at": _as_sql_ts(row.get("updated_at")),
+                "expires_at": _as_sql_ts(row.get("expires_at")),
+            }
+        except Exception as e:
+            logger.error(f"CART_GET_OR_CREATE_FAIL | wa_id={wa_id} | {e}")
+            return {"status": "error", "error": str(e)}
     db = _db()
     try:
         with db.get_db_context() as conn:
@@ -211,6 +375,12 @@ def get_or_create_active_cart(wa_id: str) -> dict:
 
 def get_cart_items(cart_id: int) -> list:
     """Return cart items for a specific cart_id."""
+    if _use_mongodb():
+        try:
+            return _mongo_item_list(cart_id, with_added_at=True)
+        except Exception as e:
+            logger.error(f"CART_GET_ITEMS_FAIL | cart_id={cart_id} | {e}")
+            return []
     db = _db()
     try:
         with db.get_db_context() as conn:
@@ -241,6 +411,38 @@ def add_to_cart(wa_id: str, product: dict, quantity: int = 1) -> dict:
     blocked = _gate(wa_id)
     if blocked:
         return blocked
+    product_id = product.get("id")
+    if _use_mongodb():
+        if product_id is None:
+            return {"ok": False, "error": "missing_product_id"}
+        qty = max(1, int(quantity or 1))
+        price = parse_price(product.get("price"))
+        try:
+            cart_id = _mongo_upsert_cart_row(wa_id)
+            repos = _mongo_repos()
+            tid = _tenant_for(wa_id)
+            existing = repos["cart_items"].find_one({"cart_id": cart_id, "product_id": product_id})
+            if existing:
+                new_qty = int(existing.get("qty") or 0) + qty
+                repos["cart_items"].update(
+                    {"cart_id": cart_id, "product_id": product_id},
+                    {"qty": new_qty, "price_at_add": price, "added_at": _utcnow()},
+                )
+                final_qty = new_qty
+            else:
+                repos["cart_items"].insert({
+                    "cart_id": cart_id,
+                    "product_id": product_id,
+                    "qty": qty,
+                    "price_at_add": price,
+                    "added_at": _utcnow(),
+                    "tenant_id": tid,
+                })
+                final_qty = qty
+            return {"ok": True, "item": {"product_id": product_id, "qty": final_qty}}
+        except Exception as e:
+            logger.error(f"CART_ADD_FAIL | wa_id={wa_id} | product={product_id} | {e}")
+            return {"ok": False, "error": str(e)}
     db = _db()
     product_id = product.get("id")
     if product_id is None:
@@ -274,6 +476,25 @@ def set_qty(wa_id: str, product_id: int, qty: int) -> dict:
     blocked = _gate(wa_id)
     if blocked:
         return blocked
+    if _use_mongodb():
+        try:
+            row = _mongo_find_cart(wa_id)
+            if not row:
+                return {"ok": True, "removed": True}
+            repos = _mongo_repos()
+            if qty is None or int(qty) <= 0:
+                repos["cart_items"].delete_one({"cart_id": row["id"], "product_id": product_id})
+            else:
+                if repos["cart_items"].find_one({"cart_id": row["id"], "product_id": product_id}):
+                    repos["cart_items"].update(
+                        {"cart_id": row["id"], "product_id": product_id},
+                        {"qty": int(qty)},
+                    )
+            _mongo_touch_cart(wa_id)
+            return {"ok": True}
+        except Exception as e:
+            logger.error(f"CART_SETQTY_FAIL | wa_id={wa_id} | product={product_id} | {e}")
+            return {"ok": False, "error": str(e)}
     db = _db()
     try:
         with db.get_db_context() as conn:
@@ -307,6 +528,18 @@ def clear_cart(wa_id: str) -> int:
     """Clear the user's cart. Returns number of items removed."""
     if _gate(wa_id):
         return 0
+    if _use_mongodb():
+        try:
+            row = _mongo_find_cart(wa_id)
+            if not row:
+                return 0
+            repos = _mongo_repos()
+            count = repos["cart_items"].delete_many({"cart_id": row["id"]})
+            repos["carts"].delete_one({"id": row["id"]})
+            return count
+        except Exception as e:
+            logger.error(f"CART_CLEAR_FAIL | wa_id={wa_id} | {e}")
+            return 0
     db = _db()
     try:
         with db.get_db_context() as conn:
@@ -371,20 +604,38 @@ def start_checkout(wa_id: str) -> dict:
     blocked = _gate(wa_id)
     if blocked:
         return blocked
-    db = _db()
     items = get_cart(wa_id)
     if not items:
         return {"ok": False, "error": "empty_cart"}
     session_id = str(uuid.uuid4())
     now = _utcnow()
-    expires = _ts(now + timedelta(minutes=CHECKOUT_TTL_MINUTES))
+    expires = now + timedelta(minutes=CHECKOUT_TTL_MINUTES)
+    if _use_mongodb():
+        try:
+            _mongo_repos()["checkout"].insert({
+                "id": session_id,
+                "wa_id": wa_id,
+                "cart_snapshot_json": items,
+                "order_draft_json": {},
+                "status": "active",
+                "state": "name",
+                "created_at": now,
+                "expires_at": expires,
+                "tenant_id": _tenant_for(wa_id),
+            })
+            return {"ok": True, "session": {"id": session_id, "state": "name"}, "snapshot": {"items": items}}
+        except Exception as e:
+            logger.error(f"CHECKOUT_START_FAIL | wa_id={wa_id} | {e}")
+            return {"ok": False, "error": str(e)}
+    db = _db()
+    expires_sql = _ts(expires)
     try:
         with db.get_db_context() as conn:
             conn.execute(
                 """INSERT INTO checkout_sessions
                        (id, wa_id, cart_snapshot_json, status, state, created_at, expires_at, tenant_id)
                    VALUES (?, ?, ?, 'active', 'name', ?, ?, ?)""",
-                (session_id, wa_id, json.dumps(items), _ts(now), expires, _tenant_for(wa_id)),
+                (session_id, wa_id, json.dumps(items), _ts(now), expires_sql, _tenant_for(wa_id)),
             )
         return {"ok": True, "session": {"id": session_id, "state": "name"}, "snapshot": {"items": items}}
     except Exception as e:
@@ -393,6 +644,13 @@ def start_checkout(wa_id: str) -> dict:
 
 
 def get_session(session_id: str) -> dict | None:
+    if _use_mongodb():
+        try:
+            row = _mongo_repos()["checkout"].find_one({"id": session_id})
+            return _mongo_checkout_row_to_dict(row) if row else None
+        except Exception as e:
+            logger.error(f"CHECKOUT_GET_FAIL | session={session_id} | {e}")
+            return None
     db = _db()
     try:
         with db.get_db_context() as conn:
@@ -412,6 +670,17 @@ def get_session(session_id: str) -> dict | None:
 
 def get_active_checkout(wa_id: str) -> dict | None:
     """Get the active checkout session for a user."""
+    if _use_mongodb():
+        try:
+            rows = _mongo_repos()["checkout"].find(
+                {"wa_id": wa_id, "status": "active"}, sort=[("created_at", -1)], limit=1,
+            )
+            if rows:
+                return _mongo_checkout_row_to_dict(rows[0])
+            return None
+        except Exception as e:
+            logger.error(f"CHECKOUT_GET_ACTIVE_FAIL | wa_id={wa_id} | {e}")
+            return None
     db = _db()
     try:
         with db.get_db_context() as conn:
@@ -434,13 +703,25 @@ def get_active_checkout(wa_id: str) -> dict | None:
 
 def update_checkout(wa_id: str, state: str = None, order_draft: dict = None) -> dict | None:
     """Update checkout session state and/or order_draft."""
-    db = _db()
     try:
+        session = get_active_checkout(wa_id)
+        if not session:
+            return None
+        if state is None and order_draft is None:
+            if isinstance(session.get("order_draft_json"), str):
+                session["order_draft_json"] = json.loads(session.get("order_draft_json") or "{}")
+            return session
+        if _use_mongodb():
+            changes = {}
+            if state is not None:
+                changes["state"] = state
+            if order_draft is not None:
+                changes["order_draft_json"] = order_draft
+            _mongo_repos()["checkout"].update({"id": session["id"]}, changes)
+            row = _mongo_repos()["checkout"].find_one({"id": session["id"]})
+            return _mongo_checkout_row_to_dict(row) if row else None
+        db = _db()
         with db.get_db_context() as conn:
-            session = get_active_checkout(wa_id)
-            if not session:
-                return None
-            
             updates = []
             params = []
             if state is not None:
@@ -449,18 +730,11 @@ def update_checkout(wa_id: str, state: str = None, order_draft: dict = None) -> 
             if order_draft is not None:
                 updates.append("order_draft_json = ?")
                 params.append(json.dumps(order_draft))
-            
-            if not updates:
-                # Return session with parsed order_draft_json
-                session["order_draft_json"] = json.loads(session.get("order_draft_json") or "{}")
-                return session
-            
             params.append(session["id"])
             conn.execute(
                 f"UPDATE checkout_sessions SET {', '.join(updates)} WHERE id = ?",
                 params,
             )
-            
             row = conn.execute(
                 "SELECT * FROM checkout_sessions WHERE id = ?", (session["id"],)
             ).fetchone()
@@ -475,13 +749,19 @@ def update_checkout(wa_id: str, state: str = None, order_draft: dict = None) -> 
 
 
 def cancel_session(session_id: str, reason: str = "cancelled") -> None:
-    db = _db()
     try:
-        with db.get_db_context() as conn:
-            conn.execute(
-                "UPDATE checkout_sessions SET status='cancelled' WHERE id = ? AND status='active'",
-                (session_id,),
+        if _use_mongodb():
+            _mongo_repos()["checkout"].update(
+                {"id": session_id, "status": "active"},
+                {"status": "cancelled"},
             )
+        else:
+            db = _db()
+            with db.get_db_context() as conn:
+                conn.execute(
+                    "UPDATE checkout_sessions SET status='cancelled' WHERE id = ? AND status='active'",
+                    (session_id,),
+                )
         logger.info(f"CHECKOUT_CANCELLED | session={session_id} | reason={reason}")
     except Exception as e:
         logger.error(f"CHECKOUT_CANCEL_FAIL | session={session_id} | {e}")
@@ -589,20 +869,20 @@ def confirm_order(
 
 def revalidate_prices(wa_id: str) -> dict:
     """Revalidate cart item prices against current products table."""
-    db = _db()
     items = get_cart(wa_id)
     if not items:
         return {"ok": True, "changed": False, "items": []}
     
     changed_items = []
     try:
-        with db.get_db_context() as conn:
+        if _use_mongodb():
+            repos = _mongo_repos()
+            cart = _mongo_find_cart(wa_id)
+            cart_id = cart["id"] if cart else None
             for it in items:
-                row = conn.execute(
-                    "SELECT price FROM products WHERE id = ?", (it["product_id"],)
-                ).fetchone()
-                if row:
-                    current_price = parse_price(row["price"])
+                prod = repos["products"].find_one({"id": it["product_id"]})
+                if prod:
+                    current_price = parse_price(prod.get("price"))
                     if abs(current_price - it["price_at_add"]) > 0.001:
                         changed_items.append({
                             "product_id": it["product_id"],
@@ -611,12 +891,32 @@ def revalidate_prices(wa_id: str) -> dict:
                             "new_price": current_price,
                             "qty": it["qty"],
                         })
-                        # Update the cart item with new price
-                        conn.execute(
-                            "UPDATE cart_items SET price_at_add = ? WHERE cart_id = (SELECT id FROM carts WHERE wa_id = ?) AND product_id = ?",
-                            (current_price, wa_id, it["product_id"]),
-                        )
-        
+                        if cart_id is not None:
+                            repos["cart_items"].update(
+                                {"cart_id": cart_id, "product_id": it["product_id"]},
+                                {"price_at_add": current_price},
+                            )
+        else:
+            db = _db()
+            with db.get_db_context() as conn:
+                for it in items:
+                    row = conn.execute(
+                        "SELECT price FROM products WHERE id = ?", (it["product_id"],)
+                    ).fetchone()
+                    if row:
+                        current_price = parse_price(row["price"])
+                        if abs(current_price - it["price_at_add"]) > 0.001:
+                            changed_items.append({
+                                "product_id": it["product_id"],
+                                "name": it["name"],
+                                "old_price": it["price_at_add"],
+                                "new_price": current_price,
+                                "qty": it["qty"],
+                            })
+                            conn.execute(
+                                "UPDATE cart_items SET price_at_add = ? WHERE cart_id = (SELECT id FROM carts WHERE wa_id = ?) AND product_id = ?",
+                                (current_price, wa_id, it["product_id"]),
+                            )
         if changed_items:
             return {"ok": True, "changed": True, "items": changed_items}
         return {"ok": True, "changed": False, "items": []}
@@ -627,6 +927,21 @@ def revalidate_prices(wa_id: str) -> dict:
 
 def get_user_orders(wa_id: str, limit: int = 5) -> list:
     """Get user's recent orders."""
+    if _use_mongodb():
+        try:
+            rows = _mongo_repos()["orders"].find(
+                {"wa_id": wa_id}, sort=[("created_at", -1), ("id", -1)], limit=limit,
+            )
+            return [
+                {k: row.get(k) for k in (
+                    "order_number", "items", "total_amount", "status",
+                    "payment_status", "created_at", "idempotency_key",
+                )}
+                for row in rows
+            ]
+        except Exception as e:
+            logger.error(f"ORDER_LIST_FAIL | wa_id={wa_id} | {e}")
+            return []
     db = _db()
     try:
         with db.get_db_context() as conn:
@@ -686,14 +1001,28 @@ def parse_shop_button(button_id: str):
 
 def expire_stale_checkouts() -> int:
     """Expire checkout sessions older than CHECKOUT_TTL_MINUTES. Returns count."""
+    now = _utcnow()
+    if _use_mongodb():
+        try:
+            repos = _mongo_repos()
+            stale = repos["checkout"].find_all({"status": "active"}, limit=None)
+            count = 0
+            for row in stale:
+                if _cart_expired(row.get("expires_at")):
+                    if repos["checkout"].update({"id": row["id"], "status": "active"}, {"status": "expired"}):
+                        count += 1
+            return count
+        except Exception as e:
+            logger.error(f"EXPIRE_STALE_CHECKOUTS_FAIL | {e}")
+            return 0
     db = _db()
-    now = _ts(_utcnow())
+    now_sql = _ts(now)
     try:
         with db.get_db_context() as conn:
             count = conn.execute(
                 "UPDATE checkout_sessions SET status='expired' "
                 "WHERE status='active' AND expires_at <= ?",
-                (now,),
+                (now_sql,),
             ).rowcount
         return count
     except Exception as e:
@@ -703,9 +1032,23 @@ def expire_stale_checkouts() -> int:
 
 def cleanup_expired() -> dict:
     """Delete expired carts and expire stale checkout sessions. Returns counts."""
+    counts = {"carts": 0, "checkouts": 0}
+    if _use_mongodb():
+        try:
+            repos = _mongo_repos()
+            for row in repos["carts"].find_all({}, limit=None):
+                if _cart_expired(row.get("expires_at")):
+                    _mongo_delete_cart(row["id"])
+                    counts["carts"] += 1
+            for row in repos["checkout"].find_all({"status": "active"}, limit=None):
+                if _cart_expired(row.get("expires_at")):
+                    if repos["checkout"].update({"id": row["id"], "status": "active"}, {"status": "expired"}):
+                        counts["checkouts"] += 1
+        except Exception as e:
+            logger.error(f"CART_CLEANUP_FAIL | {e}")
+        return counts
     db = _db()
     now = _ts(_utcnow())
-    counts = {"carts": 0, "checkouts": 0}
     try:
         with db.get_db_context() as conn:
             counts["carts"] = conn.execute(

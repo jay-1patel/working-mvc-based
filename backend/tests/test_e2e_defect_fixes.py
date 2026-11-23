@@ -17,6 +17,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 for _p in (BACKEND_DIR, PROJECT_ROOT):
@@ -154,9 +156,15 @@ class QaDedupeKeyTests(unittest.TestCase):
 
 class MenuAndCatalogExtractionTests(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
+        self.temp = tempfile.TemporaryDirectory()
         from services.auto_bifurcator import AutoBifurcator
 
         self.bifurcator = AutoBifurcator("demo")
+
+    def tearDown(self):
+        self.mongo.stop()
+        self.temp.cleanup()
 
     def test_track_order_survives_split_underscore(self):
         rows = [
@@ -391,14 +399,13 @@ class PublishPipelineTests(unittest.TestCase):
         from shared.tenancy import store as tenancy_store
 
         self.database = database
+        self.mongo = MongomockSession().start()
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.db_path = os.path.join(self.temp.name, "e2efix.sqlite3")
         self.clients_root = root / "clients"
         self.clients_root.mkdir()
 
         self.patches = [
-            patch.object(database, "DB_PATH", self.db_path),
             patch("shared.tenancy.paths.CLIENTS_DIR", self.clients_root),
             patch(
                 "shared.tenancy.resolver.resolve_default_tenant",
@@ -417,27 +424,25 @@ class PublishPipelineTests(unittest.TestCase):
         )
 
     def tearDown(self):
+        self.mongo.stop()
+        self.temp.cleanup()
         for p in self.patches:
             try:
                 p.stop()
             except Exception:
                 pass
-        self.temp.cleanup()
 
     def _faq_rows(self):
-        with self.database.get_db_context() as conn:
-            return conn.execute(
-                "SELECT source_file, content FROM faq_dataset "
-                "WHERE tenant_id = ? AND content_type = 'qa'",
-                (self.TENANT,),
-            ).fetchall()
+        from db.mongo import Repository
+
+        return Repository("faq_dataset").find_all(
+            {"tenant_id": self.TENANT, "content_type": "qa"}
+        )
 
     def _product_rows(self):
-        with self.database.get_db_context() as conn:
-            return conn.execute(
-                "SELECT name, price, mrp, is_active FROM products WHERE tenant_id = ?",
-                (self.TENANT,),
-            ).fetchall()
+        from db.mongo import Repository
+
+        return Repository("products").find_all({"tenant_id": self.TENANT})
 
     def _bifurcation(self):
         return {

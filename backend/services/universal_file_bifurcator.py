@@ -96,7 +96,12 @@ def _save_image(blob: bytes, tenant_id: str, suffix: str) -> dict:
             w, h = img.size
     except Exception:
         w, h = 0, 0
-    return {"url": f"/uploaded_files/product_images/{filename}", "width": w, "height": h}
+    rel = f"/uploaded_files/product_images/{filename}"
+    try:
+        from services.media_host import absolutize_upload_url
+    except ImportError:
+        from backend.services.media_host import absolutize_upload_url
+    return {"url": absolutize_upload_url(rel) or rel, "width": w, "height": h}
 
 
 def _extract_pdf(data: bytes, tenant_id: str) -> Tuple[str, List[dict]]:

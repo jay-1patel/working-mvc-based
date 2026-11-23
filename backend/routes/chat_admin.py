@@ -9,7 +9,7 @@ from database import (
     save_admin_chat_message,
     get_admin_chat_history,
     get_all_admins_except,
-    get_db_context,
+    get_chat_last_message,
     soft_delete_message_for_user,
     soft_delete_message_for_everyone,
 )
@@ -140,15 +140,18 @@ def list_chat_users(current_admin: dict = Depends(require_permission("chat_histo
     result = []
     for admin in admins:
         cid = make_chat_id(username, admin)
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT username, message, created_at FROM admin_chat_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1",
-                (cid,),
-            ).fetchone()
+        row = get_chat_last_message(cid)
+        last = None
+        if row:
+            last = {
+                "username": row.get("username"),
+                "message": row.get("message") or row.get("text"),
+                "created_at": row.get("created_at"),
+            }
         result.append({
             "username": admin,
             "chat_id": cid,
-            "last_message": dict(row) if row else None,
+            "last_message": last,
         })
 
     return {"users": result}

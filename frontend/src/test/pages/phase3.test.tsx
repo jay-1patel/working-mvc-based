@@ -41,7 +41,7 @@ describe('phase 3 — comms views in the remake skin', () => {
   })
 
   it('help requests: no complaints in the data, no strip', async () => {
-    testState.respond('GET /api/admin/tenants/acme/complaints', () => ({
+    testState.respond('POST /api/admin/tenants/complaints', () => ({
       body: { complaints: [], count: 0, open_count: 0 },
     }))
     await renderView(`#/tenants/${T}/complaints`)

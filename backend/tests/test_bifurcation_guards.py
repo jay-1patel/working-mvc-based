@@ -153,6 +153,11 @@ class BrandContactValidationTests(unittest.TestCase):
         for url in ("https://sbi.co.in", "http://www.example.com/rates.html", "sbi.co.in"):
             self.assertTrue(_require_url(url, "brand.website"))
 
+    def test_ipv4_urls_pass_through(self):
+        ip_url = "http://10.100.100.43:9000/uploaded_files/media/doc_p3_0.jpg"
+        self.assertEqual(_require_url(ip_url, "brand.website"), ip_url)
+        self.assertEqual(extract_first_url(ip_url), ip_url)
+
     def test_garbage_url_still_raises(self):
         with self.assertRaises(ValueError):
             _require_url("not a url at all", "brand.website")

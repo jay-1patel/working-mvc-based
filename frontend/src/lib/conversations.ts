@@ -9,6 +9,7 @@
 import { api } from './api'
 import type { Attachment } from './attachments'
 import type { Agent, ChatTurn, Complaint, ConversationThread, InboxItem } from './types'
+import { isMockMode, mockAgents, mockInbox, mockTurns } from './mock'
 
 const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -41,10 +42,14 @@ export const conversationsApi = {
       )
       .then((r) => r.conversations),
 
+  // Chats / Live inbox — flat session APIs (not path-tenant URLs).
+  // Use /chat/thread — /conversations/detail collides with
+  // POST /tenants/{tenant_id}/conversations/{wa_id} when ordered wrong.
   thread: (tenantId: string, waId: string, limit = 300, signal?: AbortSignal) =>
-    api.get<{ wa_id: string; messages: ChatTurn[] }>(
-      `${base(tenantId)}/conversations/${encodeURIComponent(waId)}${query({ limit })}`,
-      signal,
+    isMockMode() ? Promise.resolve({ wa_id: waId, messages: mockTurns }) : api.post<{ wa_id: string; messages: ChatTurn[] }>(
+      '/api/admin/tenants/chat/thread',
+      { wa_id: waId, limit },
+      { signal },
     ),
 
   history: (
@@ -53,59 +58,99 @@ export const conversationsApi = {
     signal?: AbortSignal,
   ) =>
     api
-      .get<{ history: ChatTurn[] }>(`${base(tenantId)}/chat-history${query(opts)}`, signal)
+      .post<{ history: ChatTurn[] }>('/api/admin/tenants/chat-history', {
+        days: opts.days,
+        search: opts.search,
+        wa_id: opts.waId,
+        limit: opts.limit,
+      }, { signal })
       .then((r) => r.history),
 
-  inbox: (tenantId: string, includeResolved = false, signal?: AbortSignal) =>
-    api.get<{ queue: InboxItem[]; count: number; handoff_count: number }>(
-      `${base(tenantId)}/inbox${query({ include_resolved: includeResolved })}`,
-      signal,
+  inbox: (tenantId: string, includeResolved = true, signal?: AbortSignal) =>
+    isMockMode() ? Promise.resolve({ queue: mockInbox, count: mockInbox.length, handoff_count: 1 }) : api.post<{ queue: InboxItem[]; count: number; handoff_count: number }>(
+      '/api/admin/tenants/inbox',
+      { include_resolved: includeResolved },
+      { signal },
     ),
 
   setHandover: (tenantId: string, waId: string, mode: 'bot' | 'human') =>
-    api.put<{ status: string }>(`${base(tenantId)}/inbox/handover/${encodeURIComponent(waId)}`, { mode }),
+    isMockMode()
+      ? Promise.resolve().then(() => {
+          const item = mockInbox.find((conversation) => conversation.wa_id === waId)
+          if (item) {
+            item.handover_mode = mode
+            item.resolved = false
+          }
+          return { status: 'ok' }
+        })
+      : api.post<{ status: string }>('/api/admin/tenants/inbox/handover', { wa_id: waId, mode }),
 
   assign: (tenantId: string, waId: string, agentId: string) =>
-    api.post<{ status: string }>(`${base(tenantId)}/inbox/assign`, { wa_id: waId, agent_id: agentId }),
+    isMockMode() ? Promise.resolve({ status: 'ok' }) : api.post<{ status: string }>('/api/admin/tenants/inbox/assign', { wa_id: waId, agent_id: agentId }),
 
   resolve: (tenantId: string, waId: string, reply = true) =>
-    api.post<{ status: string; notified: boolean }>(
-      `${base(tenantId)}/inbox/resolve/${encodeURIComponent(waId)}${query({ reply })}`,
-    ),
+    isMockMode()
+      ? Promise.resolve().then(() => {
+          const item = mockInbox.find((conversation) => conversation.wa_id === waId)
+          if (item) {
+            item.handover_mode = 'bot'
+            item.resolved = true
+          }
+          return { status: 'ok', notified: false }
+        })
+      : api.post<{ status: string; notified: boolean }>(
+          '/api/admin/tenants/inbox/resolve',
+          { wa_id: waId, reply },
+        ),
 
   reply: (tenantId: string, waId: string, message: string, attachment?: Attachment | null) =>
-    api.post<{ status: string; sent: boolean }>(
-      `${base(tenantId)}/inbox/${encodeURIComponent(waId)}/reply`,
-      { message, attachment: attachment ?? undefined },
-    ),
+    isMockMode()
+      ? Promise.resolve().then(() => {
+          const item = mockInbox.find((conversation) => conversation.wa_id === waId)
+          if (item) {
+            item.handover_mode = 'human'
+            item.resolved = false
+          }
+          return { status: 'ok', sent: true }
+        })
+      : api.post<{ status: string; sent: boolean }>(
+          '/api/admin/tenants/inbox/reply',
+          { wa_id: waId, message, attachment: attachment ?? undefined },
+        ),
 
   agents: (tenantId: string, signal?: AbortSignal) =>
-    api.get<{ agents: Agent[] }>(`${base(tenantId)}/agents`, signal).then((r) => r.agents),
+    isMockMode() ? Promise.resolve(mockAgents) : api.post<{ agents: Agent[] }>('/api/admin/tenants/agents', {}, { signal }).then((r) => r.agents),
 
   complaints: (
     tenantId: string,
     opts: { status?: string; limit?: number } = {},
     signal?: AbortSignal,
   ) =>
-    api.get<{ complaints: Complaint[]; count: number; open_count: number }>(
-      `${base(tenantId)}/complaints${query(opts)}`,
-      signal,
+    api.post<{ complaints: Complaint[]; count: number; open_count: number }>(
+      '/api/admin/tenants/complaints',
+      { status: opts.status, limit: opts.limit },
+      { signal },
     ),
 
   updateComplaint: (
     tenantId: string,
     ticketId: string,
     body: { status?: string; priority?: string; assigned_to?: string },
-  ) => api.put<{ status: string }>(`${base(tenantId)}/complaints/${encodeURIComponent(ticketId)}`, body),
+  ) => api.post<{ status: string }>('/api/admin/tenants/complaints/update', {
+    ticket_id: ticketId,
+    ...body,
+  }),
 
   replyComplaint: (tenantId: string, ticketId: string, message: string, status?: string) =>
     api.post<{ status: string; sent: boolean; new_status: string | null }>(
-      `${base(tenantId)}/complaints/${encodeURIComponent(ticketId)}/reply`,
-      { message, status },
+      '/api/admin/tenants/complaints/reply',
+      { ticket_id: ticketId, message, status },
     ),
 
   deleteComplaint: (tenantId: string, ticketId: string) =>
-    api.del<{ status: string }>(`${base(tenantId)}/complaints/${encodeURIComponent(ticketId)}`),
+    api.post<{ status: string }>('/api/admin/tenants/complaints/delete', {
+      ticket_id: ticketId,
+    }),
 }
 
 export const COMPLAINT_STATUSES = ['open', 'in_progress', 'awaiting_info', 'resolved', 'closed']

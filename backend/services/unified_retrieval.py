@@ -86,20 +86,28 @@ async def search_kb_index(query: str, k: int = 20, tenant_id: Optional[str] = No
             doc_id = hit.get("doc_id")
             chunk_index = hit.get("chunk_index")
             
-            # Fetch full chunk text from database
-            with get_db_context() as conn:
-                row = conn.execute(
-                    "SELECT chunks_json, tenant_id FROM knowledge_base WHERE id=?", (doc_id,)
-                ).fetchone()
-            
-            if row and row[0]:
+            from db.core import use_mongodb
+            if use_mongodb():
+                from db.mongo import Repository
+                row = Repository("knowledge_base").find_one({"id": doc_id})
+                chunks_json = row.get("chunks_json") if row else None
+                row_tenant = row.get("tenant_id") if row else None
+            else:
+                with get_db_context() as conn:
+                    row = conn.execute(
+                        "SELECT chunks_json, tenant_id FROM knowledge_base WHERE id=?", (doc_id,)
+                    ).fetchone()
+                chunks_json = row[0] if row else None
+                row_tenant = row[1] if row else None
+
+            if chunks_json:
                 import json as _json
                 from shared.tenancy import store
                 record = store.get_tenant(str(tenant_id)) if tenant_id else None
                 allowed_tenants = {str(tenant_id or ""), str((record or {}).get("id") or ""), str((record or {}).get("slug") or "")}
-                if str(row[1] or "") not in allowed_tenants:
+                if str(row_tenant or "") not in allowed_tenants:
                     continue
-                chunks_data = _json.loads(row[0])
+                chunks_data = chunks_json if isinstance(chunks_json, list) else _json.loads(chunks_json)
                 if isinstance(chunk_index, int) and 0 <= chunk_index < len(chunks_data):
                     chunk_text = chunks_data[chunk_index]
                     chunks.append({

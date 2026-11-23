@@ -17,6 +17,8 @@ if BACKEND_DIR not in sys.path:
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from mongo_test_support import MongomockSession
+
 import database
 from backend.services import dedup
 from backend.services import incoming_listener
@@ -167,36 +169,37 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
         tasks.add_task.assert_not_called()
 
     def test_database_dedup_blocks_repeats_across_local_caches(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = os.path.join(temp_dir, "dedup.sqlite3")
-            with patch.object(database, "DB_PATH", db_path):
-                database.init_db()
-                # A second initialization must remain safe and preserve the table.
-                database.init_db()
-                dedup._l1_cache.clear()
+        mongo = MongomockSession().start()
+        try:
+            database.init_db()
+            # A second initialization must remain safe and preserve the table.
+            database.init_db()
+            dedup._l1_cache.clear()
 
-                self.assertFalse(dedup.is_duplicate("wamid.shared", "919512777899"))
-                # Simulate a different worker with an empty process-local cache.
-                dedup._l1_cache.clear()
-                self.assertTrue(dedup.is_duplicate("wamid.shared", "919512777899"))
-                self.assertFalse(dedup.is_duplicate("", "919512777899"))
-
-        dedup._l1_cache.clear()
+            self.assertFalse(dedup.is_duplicate("wamid.shared", "919512777899"))
+            # Simulate a different worker with an empty process-local cache.
+            dedup._l1_cache.clear()
+            self.assertTrue(dedup.is_duplicate("wamid.shared", "919512777899"))
+            self.assertFalse(dedup.is_duplicate("", "919512777899"))
+        finally:
+            mongo.stop()
+            dedup._l1_cache.clear()
 
     def test_content_dedup_collapses_cross_channel_hi(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = os.path.join(temp_dir, "dedup_content.sqlite3")
-            with patch.object(database, "DB_PATH", db_path):
-                database.init_db()
-                dedup._l1_cache.clear()
-                dedup._content_cache.clear()
-                self.assertFalse(dedup.is_duplicate_content("919512777899", "hi"))
-                self.assertTrue(dedup.is_duplicate_content("919512777899", "Hi"))
-                self.assertTrue(dedup.try_claim_message("wamid.poll-hi", "919512777899"))
-                dedup._l1_cache.clear()
-                self.assertFalse(dedup.try_claim_message("wamid.poll-hi", "919512777899"))
-        dedup._l1_cache.clear()
-        dedup._content_cache.clear()
+        mongo = MongomockSession().start()
+        try:
+            database.init_db()
+            dedup._l1_cache.clear()
+            dedup._content_cache.clear()
+            self.assertFalse(dedup.is_duplicate_content("919512777899", "hi"))
+            self.assertTrue(dedup.is_duplicate_content("919512777899", "Hi"))
+            self.assertTrue(dedup.try_claim_message("wamid.poll-hi", "919512777899"))
+            dedup._l1_cache.clear()
+            self.assertFalse(dedup.try_claim_message("wamid.poll-hi", "919512777899"))
+        finally:
+            mongo.stop()
+            dedup._l1_cache.clear()
+            dedup._content_cache.clear()
 
     async def test_greeting_short_circuits_before_intent(self):
         menu = {
@@ -258,10 +261,9 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
         # The ignore decision happens after a user_states read, so the test
         # needs its own database. No tenant is assigned, and the message
         # must not be processed.
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = os.path.join(temp_dir, "orch.sqlite3")
+        mongo = MongomockSession().start()
+        try:
             with (
-                patch.object(database, "DB_PATH", db_path),
                 patch(
                     "shared.tenancy.resolver.resolve_effective_tenant_id",
                     return_value=None,
@@ -271,6 +273,8 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
                 result = await orchestrator.process_incoming_message(
                     "919500000000", "hello", capture_only=True
                 )
+        finally:
+            mongo.stop()
 
         self.assertEqual(result["status"], "ignored")
         self.assertEqual(result["messages"], [])
@@ -278,26 +282,27 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
     def test_tenant_lookup_rejects_prefix_false_positives(self):
         from shared.tenancy import store as tenancy_store
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = os.path.join(temp_dir, "tenants.sqlite3")
-            with patch.object(database, "DB_PATH", db_path):
-                database.init_db()
-                tenancy_store.ensure_tenant(
-                    "leeway-softech", slug="leeway-softech",
-                    vertical="it_software", display_name="Leeway Softech",
-                )
-                tenancy_store.ensure_tenant(
-                    "ltfinance", slug="ltfinance",
-                    vertical="finance", display_name="L&T Finance",
-                )
-                # Bare "l" must NOT resolve to leeway-softech / ltfinance
-                self.assertIsNone(tenancy_store.get_tenant("l"))
-                self.assertEqual(
-                    tenancy_store.get_tenant("leewaysoftech")["slug"], "leeway-softech"
-                )
-                self.assertEqual(
-                    tenancy_store.get_tenant("leeway-softech")["slug"], "leeway-softech"
-                )
+        mongo = MongomockSession().start()
+        try:
+            database.init_db()
+            tenancy_store.ensure_tenant(
+                "leeway-softech", slug="leeway-softech",
+                vertical="it_software", display_name="Leeway Softech",
+            )
+            tenancy_store.ensure_tenant(
+                "ltfinance", slug="ltfinance",
+                vertical="finance", display_name="L&T Finance",
+            )
+            # Bare "l" must NOT resolve to leeway-softech / ltfinance
+            self.assertIsNone(tenancy_store.get_tenant("l"))
+            self.assertEqual(
+                tenancy_store.get_tenant("leewaysoftech")["slug"], "leeway-softech"
+            )
+            self.assertEqual(
+                tenancy_store.get_tenant("leeway-softech")["slug"], "leeway-softech"
+            )
+        finally:
+            mongo.stop()
 
     async def test_listener_processes_each_polled_message_id_once(self):
         response = SimpleNamespace(
@@ -356,37 +361,25 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
     async def test_orchestrator_capture_only_prevents_listener_double_send(self):
         from services import orchestrator
 
-        class FakeDb:
-            @staticmethod
-            def execute(query, params=()):
-                if query.startswith("SELECT state"):
-                    return SimpleNamespace(fetchone=lambda: None)
-                if query.startswith("SELECT 1 FROM distributors"):
-                    return SimpleNamespace(fetchone=lambda: (1,))
-                return SimpleNamespace(fetchone=lambda: None)
+        mongo = MongomockSession().start()
+        try:
+            database.init_db()
+            with (
+                patch("shared.tenancy.store.get_tenant", return_value={
+                    "id": "tenant-a", "slug": "tenant-a", "status": "active",
+                }),
+                patch("kb.services.whatsapp.send_whatsapp_message") as live_send,
+            ):
+                result = await orchestrator.process_incoming_message(
+                    "919512777899", "distributor order inquiry", capture_only=True,
+                    tenant_id="tenant-a",
+                )
+        finally:
+            mongo.stop()
 
-        @contextmanager
-        def fake_db_context():
-            yield FakeDb()
-
-        async def b2b_reply(*_args):
-            await whatsapp_sender.send_text_message("919512777899", "one reply")
-            return {"status": "processed"}
-
-        with (
-            patch.object(orchestrator, "get_db_context", fake_db_context),
-            patch("shared.tenancy.store.get_tenant", return_value={
-                "id": "tenant-a", "slug": "tenant-a", "status": "active",
-            }),
-            patch("bots.distributor_b2b.workflows.handle_b2b_message", new=b2b_reply),
-            patch("kb.services.whatsapp.send_whatsapp_message") as live_send,
-        ):
-            result = await orchestrator.process_incoming_message(
-                "919512777899", "distributor order inquiry", capture_only=True,
-                tenant_id="tenant-a",
-            )
-
-        self.assertEqual(result["messages"], [{"type": "text", "text": "one reply", "sent_live": False}])
+        self.assertEqual(result["status"], "processed")
+        self.assertTrue(result["messages"])
+        self.assertTrue(all(message.get("sent_live") is False for message in result["messages"]))
         live_send.assert_not_called()
 
     async def test_capture_only_records_without_live_send(self):

@@ -729,6 +729,11 @@ def promote_images_to_product_dir(
         if not target.exists():
             shutil.copy2(src, target)
         served = f"/uploaded_files/product_images/{filename}"
+        try:
+            from services.media_host import absolutize_upload_url
+        except ImportError:
+            from backend.services.media_host import absolutize_upload_url
+        served = absolutize_upload_url(served) or served
         mapping[img["source_url"]] = served
         if sha:
             seen_sha[sha] = served

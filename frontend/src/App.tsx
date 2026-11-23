@@ -28,8 +28,7 @@ import { DistributorsPanel } from '@/components/tenants/distributors-panel'
 import { ChatHistoryPanel } from '@/components/tenants/chat-history-panel'
 import { CallbacksPanel } from '@/components/tenants/callbacks-panel'
 import { ComplaintsPanel } from '@/components/tenants/complaints-panel'
-import { UploadsPanel } from '@/components/tenants/uploads-panel'
-import { WebsiteKnowledgePanel } from '@/components/tenants/website-knowledge-panel'
+import { WebsiteCrawlerPanel } from '@/components/tenants/website-crawler-panel'
 import { AdminChatPanel } from '@/components/tenants/admin-chat'
 
 import { IntentsEditor } from '@/components/tenants/intents-editor'
@@ -213,9 +212,14 @@ function Router() {
       {route.view === 'inbox' && <ChatsPanel tenantId={route.tenantId} />}
       {route.view === 'complaints' && <ComplaintsPanel tenantId={route.tenantId} />}
       {route.view === 'callbacks' && <CallbacksPanel tenantId={route.tenantId} />}
-      {route.view === 'uploads' && <UploadsPanel tenantId={route.tenantId} />}
-      {route.view === 'website-knowledge' && (
-        <WebsiteKnowledgePanel tenantId={route.tenantId} />
+      {(route.view === 'website-crawler' ||
+        route.view === 'uploads' ||
+        route.view === 'website-knowledge') && (
+        <WebsiteCrawlerPanel
+          key={route.view === 'uploads' ? 'files' : 'crawl'}
+          tenantId={route.tenantId}
+          initialTab={route.view === 'uploads' ? 'files' : 'crawl'}
+        />
       )}
       {route.view === 'chat' && <AdminChatPanel tenantId={route.tenantId} />}
       {route.view === 'versions' && <VersionsPanel tenantId={route.tenantId} />}
@@ -267,6 +271,7 @@ const KNOWN_VIEWS = [
   'technologies',
   'careers',
   'benefits',
+  'website-crawler',
   'uploads',
   'website-knowledge',
   'chat',

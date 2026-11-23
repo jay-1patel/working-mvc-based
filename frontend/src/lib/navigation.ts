@@ -15,11 +15,12 @@
  *   chat-history      → Past chats               (was: Knowledge / Website knowledge / Files)
  *   complaints        → Help requests
  *   callbacks         → Callbacks                customers → Customers
- *   menu              → WhatsApp menu            orders    → Orders
+ *   menu              → WhatsApp menu (under WhatsApp dropdown)
+ *   profile-menu      → Profile menu (hours + notifications, under WhatsApp dropdown)
  *   distributors      → Partners                 campaigns → Send an offer
  *   intents           → Questions the bot understands
  *   versions          → Versions                 tokens    → Connections
- *   profile           → Profile (below Chats; brand / company data)
+ *   profile           → Profile (below Chats; brand only)
  *   menu-edit         → Menu editor (Advanced)
  *   layers            → Layers (Advanced)        api-access → API access (Advanced)
  *   chat              → Admin chat (Advanced)    test      → Test & smoke (Advanced)
@@ -31,6 +32,7 @@ import {
   AlertTriangle,
   Briefcase,
   ClipboardList,
+  Clock,
   Cpu,
   FolderOpen,
   Gift,
@@ -40,6 +42,7 @@ import {
   Inbox,
   KeyRound,
   LayoutGrid,
+  ListTree,
   Megaphone,
   MessageCircle,
   Package,
@@ -212,22 +215,18 @@ export function buildTenantNav(opts: {
       showsCount: true,
     },
 
-    // Your business data
+    // Your business data — company console core:
+    // WhatsApp dropdown → Website crawler → Customers
     {
-      id: 'menu',
-      label: 'WhatsApp menu',
+      id: 'whatsapp',
+      label: 'WhatsApp',
       icon: MessageCircle,
       group: 'Your business data',
       permissions: ['manage_operations'],
-    },
-    {
-      id: 'records',
-      label: `${content.label} & prices`,
-      icon: Package,
-      group: 'Your business data',
-      permissions: ['view_products'],
-      feature: 'offerings',
-      showsCount: true,
+      children: [
+        { id: 'menu', label: 'WhatsApp menu', icon: ListTree, permissions: ['manage_operations'] },
+        { id: 'profile-menu', label: 'Profile menu', icon: Clock, permissions: ['manage_operations'] },
+      ],
     },
     {
       // One door for crawl + document knowledge + raw files (was three
@@ -238,8 +237,17 @@ export function buildTenantNav(opts: {
       group: 'Your business data',
       permissions: uploadPermissions,
     },
-    ...companyInfo,
     { id: 'customers', label: 'Customers', icon: Users, group: 'Your business data', permissions: ['view_customers'] },
+    {
+      id: 'records',
+      label: `${content.label} & prices`,
+      icon: Package,
+      group: 'Your business data',
+      permissions: ['view_products'],
+      feature: 'offerings',
+      showsCount: true,
+    },
+    ...companyInfo,
     {
       id: 'orders',
       label: 'Orders',

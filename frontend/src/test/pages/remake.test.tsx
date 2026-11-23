@@ -66,11 +66,12 @@ describe('remake — grouped navigation', () => {
       'Your business data',
       'Grow',
       'Manage',
-      'Settings → Advanced',
     ])
     const labels = nav.map((i) => i.label)
     expect(labels).toContain('Chats')
-    expect(labels).toContain('Bot menu')
+    expect(labels).toContain('WhatsApp menu')
+    const whatsapp = nav.find((i) => i.id === 'whatsapp')
+    expect(whatsapp?.children?.map((c) => c.label)).toEqual(['WhatsApp menu', 'Profile menu'])
     expect(labels).toContain('Connections')
     expect(labels).toContain('Questions the bot understands')
     expect(labels).not.toContain('Live inbox')
@@ -137,9 +138,10 @@ describe('remake — shell in the app', () => {
   it('renders the flat tenant nav and the super-admin platform group', async () => {
     renderApp('#/tenants/acme/overview')
     await waitForScreen()
-    for (const group of ['Talk to customers', 'Your business data', 'Grow', 'Manage', 'Settings → Advanced']) {
+    for (const group of ['Talk to customers', 'Your business data', 'Grow', 'Manage']) {
       expect(screen.queryByText(group)).not.toBeInTheDocument()
     }
+    expect(await screen.findByRole('button', { name: /whatsapp menu/i })).toBeInTheDocument()
     expect((await screen.findAllByText('Chats')).length).toBeGreaterThan(0)
     expect(await screen.findByRole('button', { name: /businesses/i })).toBeInTheDocument()
     // Super admin inside a tenant: the view-only banner keeps its wording.

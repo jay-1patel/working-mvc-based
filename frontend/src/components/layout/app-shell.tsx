@@ -27,7 +27,6 @@ import { getVertical } from '@/lib/verticals'
 import { cn } from '@/lib/cn'
 import { CountBadge } from '@/components/remake/ui'
 import { VerticalGlyph } from '@/components/vertical-icon'
-import { disableMockMode, isMockMode } from '@/lib/mock'
 
 /**
  * Views with a split pane own the full height of the content area. The panes
@@ -57,6 +56,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const [switcherOpen, setSwitcherOpen] = useState(false)
   // Below `lg` the sidebar lives behind a hamburger; this tracks that drawer.
   const [navOpen, setNavOpen] = useState(false)
+  /** Sidebar dropdown parents the admin has expanded (auto-opens when a child is active). */
+  const [openNavDropdowns, setOpenNavDropdowns] = useState<Record<string, boolean>>({})
 
   // Any navigation collapses the drawer so it never covers the page asked for.
   useEffect(() => {
@@ -107,11 +108,11 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
     let alive = true
     const load = () =>
       conversationsApi
-        .inbox(route.tenantId!, true)
+        .inbox(route.tenantId!, false)
         .then((r) => {
           if (alive) {
             setWaitingChats(
-              r.handoff_count ?? r.queue.filter((q) => q.handover_mode === 'human' && !q.resolved).length,
+              r.handoff_count ?? r.queue.filter((q) => q.handover_mode === 'human').length,
             )
           }
         })
@@ -126,10 +127,70 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
 
   const navItem = (item: NavItem) => {
     const Icon = item.icon
+    const childActive = Boolean(item.children?.some((child) => route.view === child.id))
     const isActive =
       route.view === item.id ||
+      childActive ||
       (item.id === 'website-crawler' &&
         (route.view === 'uploads' || route.view === 'website-knowledge'))
+
+    if (item.children?.length) {
+      const expanded = childActive || Boolean(openNavDropdowns[item.id])
+      return (
+        <div key={`${item.id}-${item.label}`} className="space-y-0.5">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => {
+              if (childActive) return
+              setOpenNavDropdowns((prev) => ({
+                ...prev,
+                [item.id]: !prev[item.id],
+              }))
+            }}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+              isActive
+                ? 'font-medium text-acc'
+                : 'text-txmuted hover:bg-paper hover:text-tx',
+            )}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+            <ChevronDown
+              className={cn('h-4 w-4 shrink-0 text-txmuted transition', expanded && 'rotate-180')}
+            />
+          </button>
+          {expanded && (
+            <div className="ml-3 space-y-0.5 border-l border-line pl-2">
+              {item.children.map((child) => {
+                const ChildIcon = child.icon
+                const childIsActive = route.view === child.id
+                return (
+                  <button
+                    key={`${child.id}-${child.label}`}
+                    type="button"
+                    onClick={() =>
+                      navigate(`/tenants/${encodeURIComponent(route.tenantId!)}/${child.id}`)
+                    }
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
+                      childIsActive
+                        ? 'font-medium text-acc'
+                        : 'text-txmuted hover:bg-paper hover:text-tx',
+                    )}
+                  >
+                    <ChildIcon className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-left">{child.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )
+    }
+
     return (
       <button
         key={`${item.id}-${item.label}`}
@@ -441,18 +502,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               <LogOut className="h-4 w-4" />
             </button>
           </div>
-          {isMockMode() && (
-            <button
-              type="button"
-              onClick={() => {
-                disableMockMode()
-                window.location.reload()
-              }}
-              className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-xs font-medium text-txmuted transition hover:bg-paper hover:text-tx"
-            >
-              Exit mock preview
-            </button>
-          )}
         </div>
       </aside>
 

@@ -15,11 +15,12 @@
  *   chat-history      → Past chats               (was: Knowledge / Website knowledge / Files)
  *   complaints        → Help requests
  *   callbacks         → Callbacks                customers → Customers
- *   menu              → Bot menu                 orders    → Orders
+ *   menu              → WhatsApp menu (dropdown) orders    → Orders
  *   distributors      → Partners                 campaigns → Send an offer
  *   intents           → Questions the bot understands
  *   versions          → Versions                 tokens    → Connections
- *   profile           → Profile (Advanced)       menu-edit → Menu editor (Advanced)
+ *   profile           → Profile menu (under WhatsApp dropdown)
+ *   menu-edit         → Menu editor (Advanced)
  *   layers            → Layers (Advanced)        api-access → API access (Advanced)
  *   chat              → Admin chat (Advanced)    test      → Test & smoke (Advanced)
  *   whatsapp-tester   → WhatsApp Tester (Advanced)
@@ -41,6 +42,7 @@ import {
   LayoutGrid,
   ListTree,
   Megaphone,
+  MessageCircle,
   Package,
   Phone,
   ScrollText,
@@ -52,8 +54,22 @@ import {
 import type { FeatureFlag, Features } from './types'
 import { getVertical } from './verticals'
 
-export interface NavItem {
+export interface NavChild {
   /** Route view id: `#/tenants/<tenant>/<id>`. */
+  id: string
+  label: string
+  icon: LucideIcon
+  /** Visible when the admin holds any of these. Undefined is ungated. */
+  permissions?: string[]
+  /** Visible when the tenant has this feature on. Undefined is ungated. */
+  feature?: FeatureFlag
+}
+
+export interface NavItem {
+  /**
+   * Route view id: `#/tenants/<tenant>/<id>`.
+   * For dropdown parents this is a sidebar key only (not a route).
+   */
   id: string
   label: string
   icon: LucideIcon
@@ -65,6 +81,8 @@ export interface NavItem {
   feature?: FeatureFlag
   /** True when the sidebar should show the tenant's record count. */
   showsCount?: boolean
+  /** Nested items rendered as a sidebar dropdown under this parent. */
+  children?: NavChild[]
 }
 
 export type NavGroup =
@@ -185,7 +203,17 @@ export function buildTenantNav(opts: {
     },
 
     // Your business data
-    { id: 'menu', label: 'Bot menu', icon: ListTree, group: 'Your business data', permissions: ['manage_operations'] },
+    {
+      id: 'whatsapp',
+      label: 'WhatsApp menu',
+      icon: MessageCircle,
+      group: 'Your business data',
+      permissions: ['manage_operations'],
+      children: [
+        { id: 'menu', label: 'WhatsApp menu', icon: ListTree, permissions: ['manage_operations'] },
+        { id: 'profile', label: 'Profile menu', icon: ScrollText, permissions: ['manage_operations'] },
+      ],
+    },
     {
       id: 'records',
       label: `${content.label} & prices`,
@@ -244,27 +272,34 @@ export function buildTenantNav(opts: {
     { id: 'versions', label: 'Versions', icon: ClipboardList, group: 'Manage', permissions: ['manage_operations'] },
     { id: 'tokens', label: 'Connections', icon: KeyRound, group: 'Manage', permissions: ['manage_operations'] },
 
-    // Settings → Advanced: the technical screens, kept reachable but out
-    // of the daily path.
-    { id: 'profile', label: 'Profile', icon: ScrollText, group: 'Settings → Advanced', permissions: ['manage_operations'] },
-    // The remaining advanced tools still have routes and implementations, but
-    // are intentionally hidden from the admin panel for now.
+    // Settings → Advanced tools still have routes and implementations, but
+    // are intentionally hidden from the admin panel for now. Profile lives
+    // under the WhatsApp menu dropdown above.
   ]
-  return items.filter((item) => {
-    if (
-      hideSuperAdminOnly &&
-      (SUPER_ADMIN_ONLY_NAV_GROUPS.includes(item.group) ||
-        (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(item.id))
-    ) {
-      return false
-    }
-    return isVisible(item, opts.can, features)
-  })
+  return items
+    .map((item) => {
+      if (!item.children?.length) return item
+      return {
+        ...item,
+        children: item.children.filter((child) => isVisible(child, opts.can, features)),
+      }
+    })
+    .filter((item) => {
+      if (
+        hideSuperAdminOnly &&
+        (SUPER_ADMIN_ONLY_NAV_GROUPS.includes(item.group) ||
+          (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(item.id))
+      ) {
+        return false
+      }
+      if (item.children) return item.children.length > 0 && isVisible(item, opts.can, features)
+      return isVisible(item, opts.can, features)
+    })
 }
 
 /** Whether one item passes its permission and feature gates. */
 export function isVisible(
-  item: NavItem,
+  item: Pick<NavItem, 'permissions' | 'feature'>,
   can: (permission: string) => boolean,
   features: Features | null,
 ): boolean {
@@ -275,5 +310,7 @@ export function isVisible(
 
 /** The ids a known view can resolve to — used to decide "unknown view". */
 export function knownViews(vertical?: string | null): string[] {
-  return buildTenantNav({ vertical, features: null, can: () => true }).map((i) => i.id)
+  return buildTenantNav({ vertical, features: null, can: () => true }).flatMap((item) =>
+    item.children?.length ? item.children.map((child) => child.id) : [item.id],
+  )
 }

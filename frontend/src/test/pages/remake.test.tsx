@@ -113,6 +113,9 @@ describe('remake — grouped navigation', () => {
     expect(adminNav.map((i) => i.label)).not.toContain('Help requests')
     expect(adminNav.map((i) => i.label)).not.toContain('Callbacks')
     expect(adminNav.map((i) => i.label).some((l) => l.endsWith('& prices'))).toBe(false)
+    expect(adminNav.map((i) => i.label)).not.toContain('Layers')
+    expect(adminNav.map((i) => i.label)).not.toContain('Test & smoke')
+    expect(adminNav.map((i) => i.label)).not.toContain('WhatsApp Tester')
     expect(adminNav.map((i) => i.label)).toContain('Chats')
 
     const autoNav = buildTenantNav({ ...base, vertical: 'automotive', isSuperAdmin: false })
@@ -128,6 +131,9 @@ describe('remake — grouped navigation', () => {
     expect(superNav.map((i) => i.label)).toContain('Help requests')
     expect(superNav.map((i) => i.label)).toContain('Callbacks')
     expect(superNav.map((i) => i.label).some((l) => l.endsWith('& prices'))).toBe(true)
+    expect(superNav.map((i) => i.label)).toContain('Layers')
+    expect(superNav.map((i) => i.label)).toContain('Test & smoke')
+    expect(superNav.map((i) => i.label)).toContain('WhatsApp Tester')
 
     const superAuto = buildTenantNav({ ...base, vertical: 'automotive', isSuperAdmin: true })
     expect(superAuto.map((i) => i.label)).toContain('Models & prices')

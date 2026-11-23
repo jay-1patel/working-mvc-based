@@ -39,10 +39,14 @@ describe('Send2Digital role workspaces', () => {
         expect(navigation.getByRole('button', { name: 'Help requests' })).toBeInTheDocument()
         expect(navigation.getByRole('button', { name: 'Callbacks' })).toBeInTheDocument()
         expect(navigation.getByRole('button', { name: /& prices/ })).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'Layers' })).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'Test & smoke' })).toBeInTheDocument()
+        expect(navigation.getByRole('button', { name: 'WhatsApp Tester' })).toBeInTheDocument()
       } else {
         expect(navigation.queryByRole('button', { name: 'Businesses' })).not.toBeInTheDocument()
         expect(screen.queryByText(/View-only — changes come from/)).not.toBeInTheDocument()
-        // Grow / Manage / Past chats / Help requests / Callbacks / & prices are super-admin-only.
+        // Grow / Manage / Past chats / Help requests / Callbacks / & prices /
+        // Layers / Test & smoke / WhatsApp Tester are super-admin-only.
         expect(navigation.queryByText('Grow')).not.toBeInTheDocument()
         expect(navigation.queryByRole('button', { name: 'Questions the bot understands' })).not.toBeInTheDocument()
         expect(navigation.queryByRole('button', { name: 'Versions' })).not.toBeInTheDocument()
@@ -51,6 +55,9 @@ describe('Send2Digital role workspaces', () => {
         expect(navigation.queryByRole('button', { name: 'Help requests' })).not.toBeInTheDocument()
         expect(navigation.queryByRole('button', { name: 'Callbacks' })).not.toBeInTheDocument()
         expect(navigation.queryByRole('button', { name: /& prices/ })).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'Layers' })).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'Test & smoke' })).not.toBeInTheDocument()
+        expect(navigation.queryByRole('button', { name: 'WhatsApp Tester' })).not.toBeInTheDocument()
       }
       if (role === 'sub_admin') {
         expect(screen.queryByRole('button', { name: 'Register a tenant' })).not.toBeInTheDocument()

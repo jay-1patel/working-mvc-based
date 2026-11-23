@@ -182,7 +182,6 @@ export function buildTenantNav(opts: {
       icon: Inbox,
       group: 'Talk to customers',
       permissions: ['view_inbox'],
-      feature: 'human_handover',
     },
     {
       id: 'profile',

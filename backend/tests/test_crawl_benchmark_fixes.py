@@ -399,6 +399,8 @@ class LogoHeuristicTests(unittest.TestCase):
 
 class ImageCapRemovalTests(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
+        self.temp = tempfile.TemporaryDirectory()
         self.upload = Path(self.temp.name) / "uploads"
         self.upload.mkdir()
         self.env_patch = patch.dict(os.environ, {
@@ -421,6 +423,8 @@ class ImageCapRemovalTests(unittest.TestCase):
         self.server.shutdown()
         self.env_patch.stop()
         self.resolver_patch.stop()
+        self.mongo.stop()
+        self.temp.cleanup()
 
     def test_more_than_100_images_stored(self):
         self.assertIsNone(crawl_images_mod.MAX_IMAGES_PER_CRAWL)

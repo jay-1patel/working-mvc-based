@@ -6,7 +6,6 @@ import {
   Building2,
   ChevronDown,
   ClipboardCheck,
-  KeyRound,
   LayoutGrid,
   LogOut,
   Menu,
@@ -15,7 +14,6 @@ import {
   Send,
   ShieldCheck,
   UserRound,
-  Users,
   X,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
@@ -24,7 +22,7 @@ import { useOfferingsCount } from '@/lib/offerings'
 import { buildTenantNav, NAV_GROUP_ORDER, type NavItem } from '@/lib/navigation'
 import { conversationsApi } from '@/lib/conversations'
 import { navigate, type RouteMatch } from '@/lib/router'
-import { isOnboardingLocked, TEAM_PERMISSION, TENANT_PERMISSION, usePermissions } from '@/lib/permissions'
+import { isOnboardingLocked, TENANT_PERMISSION, usePermissions } from '@/lib/permissions'
 import { getVertical } from '@/lib/verticals'
 import { cn } from '@/lib/cn'
 import { CountBadge } from '@/components/remake/ui'
@@ -477,38 +475,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
           )}
 
-          {!locked && !isSuperAdmin && identity && (can('manage_operations') || identity.role === 'admin') && (
-            <div className="space-y-0.5 border-t border-line pt-3">
-              <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
-                Manage
-              </p>
-              {globalItem('dashboard', 'Dashboard', LayoutGrid, '/dashboard', 'dashboard')}
-              {identity.role === 'admin' && (
-                <>
-                  {globalItem('audit-history', 'Activity log', ScrollText, '/audit-history', 'audit-history')}
-                  {globalItem('errors', 'Errors & health', AlertTriangle, '/errors', 'errors')}
-                </>
-              )}
-              {identity.tenant_id &&
-                globalItem(
-                  'api-access',
-                  'API access',
-                  KeyRound,
-                  `/tenants/${encodeURIComponent(identity.tenant_id)}/api-access`,
-                  'api-access',
-                )}
-              {globalItem('tenant-requests', 'My change requests', Send, '/tenant-requests', 'tenant-requests')}
-            </div>
-          )}
-
-          {can(TEAM_PERMISSION) && !locked && (
-            <div className="space-y-0.5 border-t border-line pt-3">
-              <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
-                Manage
-              </p>
-              {globalItem('team', 'People', Users, '/team', 'team')}
-            </div>
-          )}
         </nav>
 
         <div className="border-t border-line p-3">

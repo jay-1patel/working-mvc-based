@@ -51,9 +51,15 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
   const [draft, setDraft] = useState('')
   const [attachment, setAttachment] = useState<Attachment | null>(null)
   const [failed, setFailed] = useState<Record<string, FailedSend[]>>({})
+  /** Optimistic resolved flags so the UI updates before the next inbox poll. */
+  const [resolvedOverride, setResolvedOverride] = useState<Record<string, boolean>>({})
   const failedSeq = useRef(0)
 
   const inbox = useAsync((s) => conversationsApi.inbox(tenantId, true, s), [tenantId])
+  // The live inbox can be empty when no conversation is currently waiting for
+  // handover. Keep the Chats screen useful by loading the tenant's stored
+  // conversations as a fallback.
+  const conversations = useAsync((s) => conversationsApi.threads(tenantId, { limit: 500 }, s), [tenantId])
   const agents = useAsync((s) => conversationsApi.agents(tenantId, s), [tenantId])
   const thread = useAsync(
     (s) =>
@@ -68,12 +74,35 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
     return map
   }, [agents.data])
 
-  // The inbox breathes: new handovers appear without a manual refresh.
+  // Drop optimistic flags once the server queue agrees (or the chat left the queue).
   useEffect(() => {
-    const t = window.setInterval(() => void inbox.reload(), 12_000)
+    const queue = inbox.data?.queue
+    if (!queue) return
+    setResolvedOverride((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const waId of Object.keys(next)) {
+        const row = queue.find((item) => item.wa_id === waId)
+        if (!row || row.resolved === next[waId]) {
+          delete next[waId]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [inbox.data])
+
+  // Keep the full chat list and open thread fresh so bot conversations keep
+  // updating even after a human handoff was resolved.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      void inbox.reload()
+      void conversations.reload()
+      if (selected) void thread.reload()
+    }, 12_000)
     return () => window.clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId])
+  }, [tenantId, selected])
 
   // The stream makes inbound WhatsApp messages and inbox actions visible
   // immediately. Polling above remains the recovery path for reconnects and
@@ -106,6 +135,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
             try {
               const event = JSON.parse(data.slice(5).trim()) as { wa_id?: string }
               inbox.reload()
+              conversations.reload()
               if (event.wa_id && event.wa_id === selected) thread.reload()
             } catch {
               // A malformed event should not tear down the live inbox.
@@ -125,11 +155,47 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
       controller.abort()
       if (retryTimer !== undefined) window.clearTimeout(retryTimer)
     }
-  }, [tenantId, selected, inbox.reload, thread.reload])
+  }, [tenantId, selected, inbox.reload, conversations.reload, thread.reload])
 
   const queue = useMemo(() => {
-    const items = [...(inbox.data?.queue ?? [])]
+    // Merge inbox + stored threads so ongoing bot chats never disappear just
+    // because a handoff was resolved (or the live queue is briefly empty).
+    const byWa = new Map<string, InboxItem>()
+    for (const item of conversations.data ?? []) {
+      byWa.set(item.wa_id, {
+        wa_id: item.wa_id,
+        name: item.name,
+        last_message: item.last_message,
+        last_message_at: item.last_at,
+        turns: item.turns,
+        bot_state: item.bot_state,
+        handover_mode: item.handover ? 'human' : 'bot',
+        assigned_agent_id: null,
+        resolved: resolvedOverride[item.wa_id] ?? false,
+      })
+    }
+    for (const item of inbox.data?.queue ?? []) {
+      const prev = byWa.get(item.wa_id)
+      byWa.set(item.wa_id, {
+        ...item,
+        // Prefer the freshest activity timestamp when both sources have the chat.
+        last_message_at:
+          !prev?.last_message_at ||
+          new Date(item.last_message_at ?? 0).getTime() >= new Date(prev.last_message_at).getTime()
+            ? item.last_message_at
+            : prev.last_message_at,
+        last_message:
+          !prev?.last_message_at ||
+          new Date(item.last_message_at ?? 0).getTime() >= new Date(prev.last_message_at).getTime()
+            ? item.last_message
+            : prev.last_message,
+        turns: Math.max(item.turns ?? 0, prev?.turns ?? 0),
+        resolved: resolvedOverride[item.wa_id] ?? item.resolved,
+      })
+    }
+    const items = [...byWa.values()]
     items.sort((a, b) => {
+      // Waiting humans first; everyone else (including resolved→bot) by latest activity.
       const ah = a.handover_mode === 'human' ? 0 : 1
       const bh = b.handover_mode === 'human' ? 0 : 1
       if (ah !== bh) return ah - bh
@@ -145,7 +211,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
         (i.name ?? '').toLowerCase().includes(q) ||
         (i.last_message ?? '').toLowerCase().includes(q),
     )
-  }, [inbox.data, search])
+  }, [inbox.data, conversations.data, search, resolvedOverride])
 
   // Match the reference inbox: open the first (human-waiting first) chat as
   // soon as the queue arrives, while preserving an explicit user selection.
@@ -208,6 +274,9 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
     if (!selected) return
     const res = await action.run(() => conversationsApi.setHandover(tenantId, selected, mode))
     if (res) {
+      if (mode === 'human') {
+        setResolvedOverride((prev) => ({ ...prev, [selected]: false }))
+      }
       toast.push(mode === 'bot' ? 'Conversation handed back to the bot' : 'You are handling this chat')
       void inbox.reload()
     }
@@ -217,6 +286,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
     if (!selected) return
     const res = await action.run(() => conversationsApi.resolve(tenantId, selected))
     if (res) {
+      setResolvedOverride((prev) => ({ ...prev, [selected]: true }))
       toast.push('Conversation resolved')
       void inbox.reload()
     }
@@ -239,7 +309,8 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
       <header className="mb-5 shrink-0">
         <h1 className="text-xl font-semibold text-tx">Chats</h1>
         <p className="mt-1 text-sm text-txmuted">
-          Live WhatsApp conversations. Chats waiting for a human are first.
+          Live WhatsApp conversations. Waiting for a human first; bot chats stay in the list after
+          resolve.
           {isSuperAdmin ? ' View-only — replies and handovers are disabled.' : ''}
         </p>
       </header>
@@ -269,7 +340,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
               />
             </label>
           </div>
-          {inbox.loading ? (
+          {inbox.loading && conversations.loading && queue.length === 0 ? (
             <LoadingBlock label="Loading conversations…" />
           ) : queue.length === 0 ? (
             <EmptyState
@@ -295,16 +366,13 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                         <span className="truncate text-sm font-medium text-tx">
                           {item.name || item.wa_id}
                         </span>
-                        {item.resolved ? (
-                          <span className="shrink-0 rounded-full bg-chipdefbg px-2 py-0.5 text-[11px] font-medium text-txmuted">
-                            Resolved
-                          </span>
-                        ) : human ? (
+                        {human ? (
                           <span className="shrink-0 rounded-full bg-badbg px-2 py-0.5 text-[11px] font-semibold text-badink">
                             {wait ?? 'Waiting'}
                           </span>
                         ) : (
-                          <span className="shrink-0 rounded-full bg-accsoft px-2 py-0.5 text-[11px] font-medium text-acc">
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accsoft px-2 py-0.5 text-[11px] font-medium text-acc">
+                            <Bot className="h-3 w-3" />
                             Bot
                           </span>
                         )}
@@ -314,6 +382,7 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                       </span>
                       <span className="mt-0.5 block text-[11px] text-txfaint">
                         {item.turns} messages
+                        {!human && item.resolved ? ' · human help resolved' : ''}
                         {item.assigned_agent_id
                           ? ` · with ${agentNames.get(item.assigned_agent_id) ?? item.assigned_agent_id}`
                           : ''}
@@ -338,14 +407,32 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
             <>
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-linesoft px-4 py-3">
                 <div>
-                  <p className="text-sm font-semibold text-tx">{current?.name || selected}</p>
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-tx">
+                    {current?.name || selected}
+                    {current?.handover_mode === 'human' ? (
+                      <span className="rounded-full bg-badbg px-2 py-0.5 text-[11px] font-semibold text-badink">
+                        Waiting
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-accsoft px-2 py-0.5 text-[11px] font-medium text-acc">
+                        <Bot className="h-3 w-3" />
+                        Bot active
+                      </span>
+                    )}
+                    {current?.resolved && current.handover_mode !== 'human' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-oksoft px-2 py-0.5 text-[11px] font-semibold text-ok">
+                        <CheckCheck className="h-3 w-3" />
+                        Human help resolved
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-txmuted">
                     {selected}
-                    {current?.resolved
-                      ? ' · resolved'
-                      : current?.handover_mode === 'human'
+                    {current?.handover_mode === 'human'
                       ? ' · a human is handling this chat'
-                      : ' · the bot is handling this chat'}
+                      : current?.resolved
+                        ? ' · bot is handling this chat · human help was resolved'
+                        : ' · the bot is handling this chat'}
                     {current?.assigned_agent_id
                       ? ` · assigned to ${agentNames.get(current.assigned_agent_id) ?? current.assigned_agent_id}`
                       : ''}
@@ -377,11 +464,30 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                       <UserRound className="h-4 w-4" /> Take over
                     </GhostButton>
                   )}
-                  <GhostButton disabled={!canWrite} onClick={() => void resolve()}>
-                    <CheckCheck className="h-4 w-4" /> Resolve
-                  </GhostButton>
+                  {current?.resolved && current.handover_mode !== 'human' ? (
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-ok/30 bg-oksoft px-2.5 py-1.5 text-xs font-semibold text-ok"
+                      title="Human help for this conversation was resolved; the bot is still active"
+                    >
+                      <CheckCheck className="h-4 w-4" /> Resolved
+                    </span>
+                  ) : (
+                    <GhostButton disabled={!canWrite} onClick={() => void resolve()}>
+                      <CheckCheck className="h-4 w-4" /> Resolve
+                    </GhostButton>
+                  )}
                 </div>
               </div>
+
+              {current?.resolved && current.handover_mode !== 'human' && (
+                <div className="shrink-0 border-b border-ok/20 bg-oksoft px-4 py-2.5 text-sm text-ok">
+                  <p className="font-medium">Human help resolved — bot chat continues</p>
+                  <p className="mt-0.5 text-xs text-ok/80">
+                    This conversation stays in the list. The bot keeps answering; take over anytime if a
+                    person needs to step in again.
+                  </p>
+                </div>
+              )}
 
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
                 {thread.error && (
@@ -497,8 +603,9 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                 </div>
                 {current?.handover_mode !== 'human' && canWrite && (
                   <p className="mt-2 text-[11px] text-txmuted">
-                    The bot is answering this chat. Take over before replying if you do not want the bot to
-                    keep answering.
+                    The bot is answering this chat
+                    {current?.resolved ? ' (human help was resolved)' : ''}. Take over before replying if
+                    you do not want the bot to keep answering.
                   </p>
                 )}
               </div>
@@ -507,9 +614,13 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
         </section>
       </div>
 
-      {inbox.data && (
+      {(inbox.data || conversations.data) && (
         <p className="mt-3 shrink-0 text-xs text-txfaint">
-          {inbox.data.count} conversations · {inbox.data.handoff_count} waiting for a human
+          {queue.length} conversations · {queue.filter((item) => item.handover_mode !== 'human').length}{' '}
+          with bot · {inbox.data?.handoff_count ?? 0} waiting for a human
+          {queue.some((item) => item.resolved)
+            ? ` · ${queue.filter((item) => item.resolved).length} human-help resolved`
+            : ''}
         </p>
       )}
     </div>

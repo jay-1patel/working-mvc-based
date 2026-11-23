@@ -123,6 +123,13 @@ class FeatureGatingTests(unittest.TestCase):
 
     def test_vertical_privilege_matrix(self):
         """Banking, Finance, and Tours & Travels have campaigns enabled, but orders/distributors blocked."""
+        from shared.tenancy import cache as tenancy_cache
+
+        # Earlier tests can cache a generic fallback for these file-backed
+        # clients at version 0. Drop that cache so the client packs load.
+        for tid in ("meridianbank", "northwindcapital", "wanderly", "troogood"):
+            tenancy_cache.purge(tid)
+            tenancy_store.invalidate(tid)
         for tid in ("meridianbank", "northwindcapital", "wanderly"):
             self.assertTrue(is_enabled(tid, "campaigns"), f"{tid} must have campaigns enabled")
             self.assertFalse(is_enabled(tid, "orders"), f"{tid} must not have orders")

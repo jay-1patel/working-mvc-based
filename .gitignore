@@ -1,0 +1,51 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+routing/.env
+
+# Local tooling / scratch
+.tools/
+tools/
+scratchpad/
+.idea/
+.vscode/
+*.log
+
+# Runtime / generated data (do not commit)
+backend/uploaded_files/
+backend/media_server_*.log
+backups/
+exports/
+kb/__pycache__/
+bots/__pycache__/
+shared/__pycache__/
+postman/__pycache__/
+scripts/__pycache__/
+
+# Local dumps / archives / copies
+*.zip
+*.pdf
+*.db
+faq - Copy.db
+api.txt
+wa_send.json
+a_server_live_today/
+a_sk/
+backend/kk/
+docs/admin_api_curl_inventory.csv
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

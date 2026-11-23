@@ -206,6 +206,8 @@ def check_state_expiry(wa_id: str, context: dict, checkout_states: list,
 # Same table, same version column, same CAS write. Flows get no parallel store.
 
 def _loads_collected(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
     if not raw:
         return {}
     try:

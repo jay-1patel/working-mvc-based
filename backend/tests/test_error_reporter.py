@@ -118,6 +118,7 @@ class ErrorReporterTests(unittest.TestCase):
                   request_id_var.set('req_shared'), error_tenant_var.set('acme'))
         handler = self.er.PersistentErrorHandler()
         log = logging.getLogger('test.background')
+        log.propagate = False
         log.addHandler(handler)
         try:
             try:

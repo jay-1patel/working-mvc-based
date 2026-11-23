@@ -170,7 +170,18 @@ def initialize_indexes(database):
             if signature in seen:
                 continue
             seen.add(signature)
-            collection.create_index([tuple(key) for key in index['keys']], **index['options'])
+            index_name = (index.get("options") or {}).get("name")
+            existing_names = {item.get("name") for item in collection.list_indexes()}
+            if index_name and index_name in existing_names:
+                continue
+            try:
+                collection.create_index([tuple(key) for key in index['keys']], **index['options'])
+            except Exception as exc:
+                # A second init_db (and mongomock) must not fail when the index exists.
+                message = str(exc).lower()
+                if "exist" in message or "duplicate" in message:
+                    continue
+                raise
         if any(c['name'] == 'tenant_id' for c in definition['columns']) and not any(
             list(index['key'].items()) == [('tenant_id', 1)] and not index.get('partialFilterExpression')
             for index in collection.list_indexes()

@@ -62,37 +62,35 @@ class TestDestinationIsolationAndRAG(unittest.TestCase):
     def test_route_tag_stripping_in_recent_history(self):
         # Route tags are stripped and the transcript is oldest-first, which
         # is the order a follow-up prompt consumes.
-        import sqlite3
-        from contextlib import contextmanager
+        from datetime import datetime, timedelta, timezone
 
-        import db.chat as chat_db
+        from db.mongo import Repository
+        from mongo_test_support import MongomockSession
 
-        conn = sqlite3.connect(":memory:")
-        conn.row_factory = sqlite3.Row
-        conn.execute(
-            "CREATE TABLE chat_history (id INTEGER PRIMARY KEY, wa_id TEXT, message TEXT, response TEXT, created_at TEXT)"
-        )
-        conn.execute(
-            "INSERT INTO chat_history (wa_id, message, response, created_at) VALUES (?, ?, ?, datetime('now', '-1 minute'))",
-            ("919512777899", "[send2] In my Gujarat package", "Sure, what would you like to know?"),
-        )
-        conn.execute(
-            "INSERT INTO chat_history (wa_id, message, response, created_at) VALUES (?, ?, ?, datetime('now'))",
-            ("919512777899", "[webhook] Which hotel ????", "Hotels are assigned based on category."),
-        )
-
-        @contextmanager
-        def _open():
-            yield conn
-
-        with (
-            patch.object(chat_db, "get_db_context", _open),
-            patch.object(chat_db, "_resolve_tenant", return_value=None),
-        ):
-            history = get_recent_history("919512777899", limit=5)
-            self.assertEqual(len(history), 2)
-            self.assertEqual(history[0]["user"], "In my Gujarat package")
-            self.assertEqual(history[1]["user"], "Which hotel ????")
+        now = datetime.now(timezone.utc)
+        mongo = MongomockSession().start()
+        try:
+            repo = Repository("chat_history")
+            repo.insert({
+                "wa_id": "919512777899",
+                "message": "[send2] In my Gujarat package",
+                "response": "Sure, what would you like to know?",
+                "tenant_id": "hist-tenant",
+                "created_at": now - timedelta(minutes=1),
+            })
+            repo.insert({
+                "wa_id": "919512777899",
+                "message": "[webhook] Which hotel ????",
+                "response": "Hotels are assigned based on category.",
+                "tenant_id": "hist-tenant",
+                "created_at": now,
+            })
+            history = get_recent_history("919512777899", limit=5, tenant_id="hist-tenant")
+        finally:
+            mongo.stop()
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["user"], "In my Gujarat package")
+        self.assertEqual(history[1]["user"], "Which hotel ????")
 
 
 if __name__ == "__main__":

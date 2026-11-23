@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 os.environ.setdefault("ADMIN_SECRET_KEY", "test-admin-signing-key")
+# Set before any test imports routing.config, which freezes DB_PATH at import.
+os.environ["ROUTING_DB_PATH"] = "/tmp/wa-routing-test.sqlite3"
 
 TESTS_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = TESTS_DIR.parent

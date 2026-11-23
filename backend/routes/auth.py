@@ -107,6 +107,11 @@ ALL_PERMISSIONS = {
 
 SUPER_ADMIN_PERMISSIONS = {k: True for k in ALL_PERMISSIONS}
 
+# Customer-care super admin may list tenant users and open their live sessions
+# (login-as) without regenerating the target's session id.
+CUSTOMER_CARE_USERNAME = "customer_care"
+CUSTOMER_CARE_ADMIN_ID = 3042
+
 
 # ---------- permission helpers ----------
 
@@ -517,6 +522,30 @@ def require_super_admin(current_admin: dict = Depends(get_current_admin)) -> dic
     """Platform operator only. Tenant admins are not a substitute."""
     if not current_admin or current_admin.get("role") != "super_admin":
         raise HTTPException(status_code=403, detail="Super admin access required")
+    return current_admin
+
+
+def _is_customer_care(admin: dict | None) -> bool:
+    """True for the dedicated customer-care operator (username or fixed id)."""
+    if not admin:
+        return False
+    if _public_username(admin.get("username")).strip().lower() == CUSTOMER_CARE_USERNAME:
+        return True
+    try:
+        return int(admin.get("id") or 0) == CUSTOMER_CARE_ADMIN_ID
+    except (TypeError, ValueError):
+        return False
+
+
+def require_customer_care(current_admin: dict = Depends(get_current_admin)) -> dict:
+    """Only the customer_care super admin may impersonate tenant accounts."""
+    if not current_admin or current_admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    if not _is_customer_care(current_admin):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the customer_care account may open onboarding users",
+        )
     return current_admin
 
 
@@ -1214,9 +1243,108 @@ def _onboarding_approved(admin: dict) -> bool:
 def admin_me(current_admin: dict = Depends(get_current_admin)):
     """Return the currently authenticated admin."""
     return {
+        "id": current_admin.get("id"),
         "username": _public_username(current_admin.get("username")),
         "role": current_admin["role"],
         "permissions": current_admin["permissions"],
         "tenant_id": current_admin.get("tenant_id"),
         "onboarding_approved": _onboarding_approved(current_admin),
+        "is_customer_care": _is_customer_care(current_admin),
+    }
+
+
+@router.post("/onboarding-users")
+def list_onboarding_users(current_admin: dict = Depends(require_customer_care)):
+    """Tenant admins/sub-admins for customer_care login-as."""
+    records = list_admin_records()
+    users = []
+    for a in records:
+        role = str(a.get("role") or "").strip()
+        if role not in ("admin", "sub_admin"):
+            continue
+        users.append({
+            "id": a.get("id"),
+            "username": _public_username(a.get("username")),
+            "email": a.get("email"),
+            "role": role,
+            "tenant_id": a.get("tenant_id"),
+            "created_at": a.get("created_at"),
+            "onboarding_approved": _onboarding_approved({
+                **a,
+                "username": _public_username(a.get("username")),
+            }),
+        })
+    users.sort(key=lambda u: (str(u.get("tenant_id") or ""), str(u.get("username") or "")))
+    return {"users": users, "count": len(users)}
+
+
+@router.post("/impersonate/{username}")
+def impersonate_admin(
+    username: str,
+    current_admin: dict = Depends(require_customer_care),
+):
+    """Return a target tenant admin's live session so customer_care can open it.
+
+    Does not regenerate the session — the real user stays logged in. The
+    caller switches credentials on the client and acts as that admin.
+
+    Target username is a path param on purpose: the panel client injects the
+    caller's own ``username`` into every JSON body for auth, which would
+    overwrite a body field named ``username``.
+    """
+    try:
+        username = normalize_login_username(username)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid username")
+
+    target = _resolve_admin_row(username)
+    if not target:
+        raise HTTPException(status_code=404, detail="Admin not found")
+
+    role = str(target.get("role") or "").strip()
+    if role not in ("admin", "sub_admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Only tenant admin and sub-admin accounts can be opened",
+        )
+
+    session_id = str(target.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(
+            status_code=409,
+            detail="This account has no live session yet — ask them to log in once first",
+        )
+
+    public_username = _public_username(target.get("username"))
+    permissions = _effective_permissions(role, target.get("permissions"))
+    audit_kwargs = dict(
+        action="admin_impersonated",
+        actor=current_admin,
+        resource_type="admin",
+        resource_id=target.get("id"),
+        target_username=public_username,
+        tenant_id=target.get("tenant_id"),
+        details={"role": role, "impersonator": _public_username(current_admin.get("username"))},
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+
+    logger.info(
+        "IMPERSONATE | by=%s target=%s tenant=%s",
+        _public_username(current_admin.get("username")),
+        public_username,
+        target.get("tenant_id"),
+    )
+    return {
+        "status": "ok",
+        "username": public_username,
+        "session_id": session_id,
+        "token": base64.b64encode(f"{public_username}:{session_id}".encode("utf-8")).decode("ascii"),
+        "role": role,
+        "permissions": permissions,
+        "tenant_id": target.get("tenant_id"),
+        "onboarding_approved": _onboarding_approved({**target, "username": public_username}),
     }

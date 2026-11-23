@@ -429,6 +429,8 @@ export interface AdminIdentity {
   permissions: Record<string, boolean>
   tenant_id?: string | null
   onboarding_approved?: boolean
+  /** True for the dedicated customer_care operator (login-as). */
+  is_customer_care?: boolean
 }
 
 export interface PublishResult {

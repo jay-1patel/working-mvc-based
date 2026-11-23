@@ -7,22 +7,37 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { api, getToken, setCredentials, setToken, setUnauthorizedHandler } from './api'
+import { api, getSessionId, getToken, getUsername, setCredentials, setToken, setUnauthorizedHandler } from './api'
 import { navigate } from './router'
 import type { AdminIdentity } from './types'
 import { isMockMode, mockIdentity } from './mock'
+import {
+  clearImpersonator,
+  getImpersonatedUsername,
+  getImpersonator,
+  isImpersonating as readImpersonating,
+  saveImpersonator,
+} from './impersonation'
+import { adminsApi, isCustomerCareIdentity } from './admins'
 
 interface AuthState {
   loading: boolean
   /** The server has no admin accounts yet — the UI offers first-run setup. */
   needsSetup: boolean
   identity: AdminIdentity | null
+  /** True while customer_care is acting as a tenant admin. */
+  impersonating: boolean
+  impersonatedUsername: string | null
   login: (username: string, sessionId: string) => Promise<void>
   setup: (username: string, password: string, email?: string) => Promise<void>
   logout: () => void
   can: (permission: string) => boolean
   /** Re-read the current admin (e.g. to notice an onboarding approval). */
   refreshIdentity: () => Promise<AdminIdentity | null>
+  /** customer_care: open a tenant admin's live session. */
+  loginAsUser: (username: string) => Promise<void>
+  /** Restore the customer_care session saved before login-as. */
+  exitImpersonation: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -31,11 +46,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [needsSetup, setNeedsSetup] = useState(false)
   const [identity, setIdentity] = useState<AdminIdentity | null>(null)
+  const [impersonating, setImpersonating] = useState(() => readImpersonating())
+  const [impersonatedUsername, setImpersonatedUsername] = useState<string | null>(() =>
+    getImpersonatedUsername(),
+  )
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
       setToken(null)
       setIdentity(null)
+      clearImpersonator()
+      setImpersonating(false)
+      setImpersonatedUsername(null)
     })
   }, [])
 
@@ -88,9 +110,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setNeedsSetup(false)
     // Everyone lands on the graphical overview first.
     // Tenant admins open their tenant Today (charts + needs-you).
-    // Super admins open the platform dashboard.
+    // customer_care opens the onboarding-users roster; other super admins
+    // open the platform dashboard.
     if (me.role !== 'super_admin' && me.tenant_id) {
       navigate(`/tenants/${encodeURIComponent(me.tenant_id)}/overview`)
+    } else if (isCustomerCareIdentity(me)) {
+      navigate('/onboarding-users')
     } else {
       navigate('/dashboard')
     }
@@ -112,6 +137,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setToken(null)
     setIdentity(null)
+    clearImpersonator()
+    setImpersonating(false)
+    setImpersonatedUsername(null)
   }, [])
 
   const refreshIdentity = useCallback(async () => {
@@ -123,6 +151,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* leave the last known identity in place */
       return null
     }
+  }, [])
+
+  const loginAsUser = useCallback(async (username: string) => {
+    const operatorUser = getUsername()
+    const operatorSession = getSessionId()
+    if (!operatorUser || !operatorSession) {
+      throw new Error('Your customer_care session is missing — log in again')
+    }
+    const result = await adminsApi.impersonate(username)
+    saveImpersonator(operatorUser, operatorSession, result.username)
+    setCredentials(result.username, result.session_id)
+    setImpersonating(true)
+    setImpersonatedUsername(result.username)
+    const me = await api.get<AdminIdentity>('/api/auth/me')
+    setIdentity(me)
+    if (me.tenant_id) {
+      navigate(`/tenants/${encodeURIComponent(me.tenant_id)}/overview`)
+    } else {
+      navigate('/dashboard')
+    }
+  }, [])
+
+  const exitImpersonation = useCallback(async () => {
+    const operator = getImpersonator()
+    if (!operator) {
+      clearImpersonator()
+      setImpersonating(false)
+      setImpersonatedUsername(null)
+      return
+    }
+    setCredentials(operator.username, operator.sessionId)
+    clearImpersonator()
+    setImpersonating(false)
+    setImpersonatedUsername(null)
+    const me = await api.get<AdminIdentity>('/api/auth/me')
+    setIdentity(me)
+    navigate('/onboarding-users')
   }, [])
 
   const can = useCallback(
@@ -137,8 +202,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ loading, needsSetup, identity, login, setup, logout, can, refreshIdentity }),
-    [loading, needsSetup, identity, login, setup, logout, can, refreshIdentity],
+    () => ({
+      loading,
+      needsSetup,
+      identity,
+      impersonating,
+      impersonatedUsername,
+      login,
+      setup,
+      logout,
+      can,
+      refreshIdentity,
+      loginAsUser,
+      exitImpersonation,
+    }),
+    [
+      loading,
+      needsSetup,
+      identity,
+      impersonating,
+      impersonatedUsername,
+      login,
+      setup,
+      logout,
+      can,
+      refreshIdentity,
+      loginAsUser,
+      exitImpersonation,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

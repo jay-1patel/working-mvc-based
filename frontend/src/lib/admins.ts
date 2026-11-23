@@ -10,9 +10,55 @@ export interface AdminRecord {
   tenant_id?: string | null
 }
 
+export interface OnboardingUser {
+  id: number | null
+  username: string
+  email: string | null
+  role: 'admin' | 'sub_admin' | string
+  tenant_id: string | null
+  created_at: string | null
+  onboarding_approved: boolean
+}
+
+export interface ImpersonateResult {
+  status: string
+  username: string
+  session_id: string
+  token: string
+  role: string
+  permissions: Record<string, boolean>
+  tenant_id: string | null
+  onboarding_approved: boolean
+}
+
+/** Dedicated customer-care operator who may open tenant accounts. */
+export function isCustomerCareIdentity(identity: {
+  username?: string | null
+  id?: number | null
+  is_customer_care?: boolean
+} | null): boolean {
+  if (!identity) return false
+  if (identity.is_customer_care) return true
+  if ((identity.username || '').trim().toLowerCase() === 'customer_care') return true
+  return Number(identity.id) === 3042
+}
+
 export const adminsApi = {
   list: () =>
     api.post<{ admins: AdminRecord[] }>('/api/auth/admins', {}).then((r) => r.admins),
+
+  onboardingUsers: (signal?: AbortSignal) =>
+    api
+      .post<{ users: OnboardingUser[]; count: number }>('/api/auth/onboarding-users', {}, { signal })
+      .then((r) => r.users),
+
+  impersonate: (username: string) =>
+    // Path param — not body `username` — because every panel POST injects the
+    // caller's own username into the JSON body for session auth.
+    api.post<ImpersonateResult>(
+      `/api/auth/impersonate/${encodeURIComponent(username)}`,
+      {},
+    ),
 
   create: (body: {
     username: string

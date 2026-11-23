@@ -14,9 +14,11 @@ import {
   Send,
   ShieldCheck,
   UserRound,
+  Users,
   X,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
+import { isCustomerCareIdentity } from '@/lib/admins'
 import { useTenantProfile, useTenants } from '@/lib/tenants'
 import { useOfferingsCount } from '@/lib/offerings'
 import { buildTenantNav, NAV_GROUP_ORDER, type NavItem } from '@/lib/navigation'
@@ -42,9 +44,10 @@ const FLUSH_VIEWS = new Set(['chat-history', 'inbox'])
  * `@/lib/navigation`.
  */
 export function AppShell({ route, children }: { route: RouteMatch; children: ReactNode }) {
-  const { identity, logout } = useAuth()
+  const { identity, logout, impersonating, impersonatedUsername, exitImpersonation } = useAuth()
   const { can } = usePermissions()
   const { tenants, active, setActive } = useTenants()
+  const showOnboardingUsers = isCustomerCareIdentity(identity) && !impersonating
 
   // The page follows the hash. The switcher must follow the same tenant,
   // otherwise the sidebar describes a different brand than the screen.
@@ -475,6 +478,15 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
           )}
 
+          {!locked && showOnboardingUsers && (
+            <div className="space-y-0.5 border-t border-line pt-3">
+              <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
+                Onboarding
+              </p>
+              {globalItem('onboarding-users', 'Onboarding users', Users, '/onboarding-users', 'onboarding-users')}
+            </div>
+          )}
+
         </nav>
 
         <div className="border-t border-line p-3">
@@ -538,6 +550,25 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             flush && 'flex min-h-0 w-full flex-1 flex-col',
           )}
         >
+          {impersonating && (
+            <div
+              role="status"
+              className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-attline bg-attbg px-4 py-2.5 text-sm text-attink"
+            >
+              <p>
+                Viewing as <strong>{impersonatedUsername || identity?.username}</strong>
+                {' — '}
+                same screens and permissions as that user.
+              </p>
+              <button
+                type="button"
+                onClick={() => void exitImpersonation()}
+                className="shrink-0 rounded-lg border border-attline bg-card px-3 py-1.5 text-xs font-semibold text-attink transition hover:bg-paper"
+              >
+                Exit to customer_care
+              </button>
+            </div>
+          )}
           {isSuperAdmin && route.tenantId && (
             <div
               role="note"

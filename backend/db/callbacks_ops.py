@@ -51,6 +51,22 @@ def _ensure_sqlite_callback_tables(conn) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_callbacks_scheduled ON callbacks(scheduled_start_time)"
     )
+    # Additive compatibility migration for callback reliability metadata.
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(callbacks)").fetchall()}
+    for name, sql_type in (
+        ("idempotency_key", "TEXT"),
+        ("consent_status", "TEXT"),
+        ("consent_at", "TIMESTAMP"),
+        ("source_message_id", "TEXT"),
+        ("integration_status", "TEXT"),
+        ("integration_error", "TEXT"),
+        ("tenant_timezone", "TEXT"),
+    ):
+        if name not in existing_columns:
+            conn.execute(f"ALTER TABLE callbacks ADD COLUMN {name} {sql_type}")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_callbacks_idempotency ON callbacks(tenant_id, idempotency_key)"
+    )
     conn.execute(
         """
             CREATE TABLE IF NOT EXISTS callback_summaries (

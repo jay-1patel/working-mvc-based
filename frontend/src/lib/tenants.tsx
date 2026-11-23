@@ -11,10 +11,11 @@ import type {
   TestQuestionResult,
   VersionRecord,
 } from './types'
+import { isMockMode, mockProfile, mockTenant } from './mock'
 
 /** Every call the tenant console makes against `/api/admin/tenants`. */
 export const tenantsApi = {
-  list: () => api.get<{ tenants: Tenant[] }>('/api/admin/tenants').then((r) => r.tenants),
+  list: () => isMockMode() ? Promise.resolve([mockTenant]) : api.get<{ tenants: Tenant[] }>('/api/admin/tenants').then((r) => r.tenants),
 
   getActiveTestTenant: () =>
     api
@@ -53,7 +54,7 @@ export const tenantsApi = {
     ),
 
   resolved: (id: string, signal?: AbortSignal) =>
-    api.post<ResolvedProfile>('/api/admin/tenants/resolved', {}, { signal }),
+    isMockMode() ? Promise.resolve(mockProfile) : api.post<ResolvedProfile>('/api/admin/tenants/resolved', {}, { signal }),
 
   saveDraft: (id: string, snapshot: ProfileSnapshot) =>
     api.post<{ ok: boolean; validation: string[] }>(
@@ -234,6 +235,10 @@ export function useTenantProfile(tenantId: string | null): ResolvedProfile | nul
   useEffect(() => {
     if (!tenantId) {
       setProfile(null)
+      return
+    }
+    if (isMockMode()) {
+      setProfile(mockProfile)
       return
     }
     const controller = new AbortController()

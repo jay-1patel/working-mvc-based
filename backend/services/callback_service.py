@@ -45,12 +45,14 @@ logger = logging.getLogger(__name__)
 class CallbackStatus(Enum):
     """Status of a callback request."""
     PENDING = "pending"
+    REQUESTED = "requested"
     CONFIRMED = "confirmed"
     SCHEDULED = "scheduled"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     NO_SHOW = "no_show"
+    INTEGRATION_FAILED = "integration_failed"
 
 
 class CallbackType(Enum):
@@ -111,6 +113,7 @@ class CallbackRequest:
     def is_active(self) -> bool:
         """Check if callback is in active state."""
         active_statuses = [
+            CallbackStatus.REQUESTED.value,
             CallbackStatus.PENDING.value,
             CallbackStatus.CONFIRMED.value,
             CallbackStatus.SCHEDULED.value,
@@ -189,6 +192,35 @@ class CallbackService:
     
     def __init__(self):
         self.timezone = "Asia/Kolkata"
+
+    @staticmethod
+    def tenant_timezone(tenant_id: str) -> str:
+        try:
+            from shared.tenancy.loader import get_tenant_profile
+            return get_tenant_profile(tenant_id).business_hours.timezone or "Asia/Kolkata"
+        except Exception:
+            logger.warning("CALLBACK_TENANT_TIMEZONE_FALLBACK | tenant=%s", tenant_id)
+            return "Asia/Kolkata"
+
+    @staticmethod
+    def within_tenant_hours(tenant_id: str, start_iso: str, end_iso: str) -> bool:
+        try:
+            from shared.tenancy.loader import get_tenant_profile
+            profile = get_tenant_profile(tenant_id)
+            hours = profile.business_hours
+            if hours.always_open:
+                return True
+            from zoneinfo import ZoneInfo
+            start = datetime.fromisoformat(start_iso).astimezone(ZoneInfo(hours.timezone))
+            end = datetime.fromisoformat(end_iso).astimezone(ZoneInfo(hours.timezone))
+            if start.weekday() not in hours.open_days or end.weekday() not in hours.open_days:
+                return False
+            open_h, open_m = (int(x) for x in hours.open.split(":", 1))
+            close_h, close_m = (int(x) for x in hours.close.split(":", 1))
+            return (open_h, open_m) <= (start.hour, start.minute) and (end.hour, end.minute) <= (close_h, close_m)
+        except Exception:
+            logger.warning("CALLBACK_HOURS_CHECK_FAILED | tenant=%s", tenant_id, exc_info=True)
+            return False
     
     def create_callback_request(
         self,
@@ -207,12 +239,12 @@ class CallbackService:
     ) -> CallbackRequest:
         """Create a new callback request."""
         callback_id = self._generate_callback_id()
+        idempotency_key = hashlib.sha256(
+            f"{tenant_id}|{wa_id}|{preferred_date or ''}|{preferred_time or ''}|{purpose or ''}".encode("utf-8")
+        ).hexdigest()
         
         # Determine status based on information provided
-        if preferred_date and preferred_time:
-            status = CallbackStatus.CONFIRMED.value
-        else:
-            status = CallbackStatus.PENDING.value
+        status = CallbackStatus.CONFIRMED.value if preferred_date and preferred_time else CallbackStatus.REQUESTED.value
         
         request = CallbackRequest(
             id=callback_id,
@@ -227,7 +259,7 @@ class CallbackService:
             preferred_time=preferred_time,
             purpose=purpose,
             additional_info=additional_info,
-            timezone=self.timezone,
+            timezone=self.tenant_timezone(tenant_id),
             status=status,
             metadata=metadata or {},
             created_at=datetime.now(dt_timezone.utc).isoformat()
@@ -280,6 +312,13 @@ class CallbackService:
                 "scheduled_end_time": callback_request.scheduled_end_time,
                 "meet_link": callback_request.meet_link,
                 "calendar_event_id": callback_request.calendar_event_id,
+                "idempotency_key": (callback_request.metadata or {}).get("idempotency_key"),
+                "consent_status": "granted" if (callback_request.metadata or {}).get("consent") == "yes" else (callback_request.metadata or {}).get("consent_status"),
+                "consent_at": (callback_request.metadata or {}).get("consent_at"),
+                "source_message_id": (callback_request.metadata or {}).get("source_message_id"),
+                "integration_status": "ok" if callback_request.status == CallbackStatus.SCHEDULED.value else ("failed" if callback_request.status == CallbackStatus.INTEGRATION_FAILED.value else "not_required"),
+                "integration_error": (callback_request.metadata or {}).get("integration_error"),
+                "tenant_timezone": callback_request.timezone,
                 "created_at": callback_request.created_at,
                 "updated_at": datetime.now(dt_timezone.utc).isoformat(),
             }
@@ -299,7 +338,9 @@ class CallbackService:
                         """UPDATE callbacks SET 
                            data = ?, status = ?, tenant_id = ?, wa_id = ?,
                            scheduled_start_time = ?, scheduled_end_time = ?,
-                           meet_link = ?, calendar_event_id = ?, updated_at = ?
+                           meet_link = ?, calendar_event_id = ?, idempotency_key = ?,
+                           consent_status = ?, consent_at = ?, source_message_id = ?,
+                           integration_status = ?, integration_error = ?, tenant_timezone = ?, updated_at = ?
                            WHERE id = ?""",
                         (
                             data_json,
@@ -310,15 +351,20 @@ class CallbackService:
                             callback_request.scheduled_end_time,
                             callback_request.meet_link,
                             callback_request.calendar_event_id,
+                            payload["idempotency_key"], payload["consent_status"], payload["consent_at"],
+                            payload["source_message_id"], payload["integration_status"], payload["integration_error"],
+                            payload["tenant_timezone"],
                             payload["updated_at"],
                             callback_request.id,
                         ),
                     )
                 else:
                     conn.execute(
-                        """INSERT INTO callbacks 
-                           (id, tenant_id, wa_id, data, status, scheduled_start_time, scheduled_end_time, meet_link, calendar_event_id, created_at, updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        """INSERT INTO callbacks
+                           (id, tenant_id, wa_id, data, status, scheduled_start_time, scheduled_end_time, meet_link, calendar_event_id,
+                            idempotency_key, consent_status, consent_at, source_message_id, integration_status, integration_error,
+                            tenant_timezone, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             callback_request.id,
                             callback_request.tenant_id,
@@ -329,6 +375,9 @@ class CallbackService:
                             callback_request.scheduled_end_time,
                             callback_request.meet_link,
                             callback_request.calendar_event_id,
+                            payload["idempotency_key"], payload["consent_status"], payload["consent_at"],
+                            payload["source_message_id"], payload["integration_status"], payload["integration_error"],
+                            payload["tenant_timezone"],
                             callback_request.created_at,
                             callback_request.updated_at,
                         ),
@@ -468,6 +517,8 @@ class CallbackService:
         agent_name: str = "Leeway Softech Team",
         agent_id: str = "agent_default",
         include_meet: bool = False,
+        callback_mode: str = "phone",
+        booking_url: str = "",
     ) -> CallbackRequest:
         """Create a callback lead; optionally attach a Google Meet when requested.
 
@@ -475,17 +526,26 @@ class CallbackService:
         ``include_meet=False``. Video Meet is created only when the conversation
         clearly asks for a virtual / video meeting.
         """
+        # A customer should not create multiple active callbacks by repeating
+        # the final WhatsApp answer or by causing a webhook retry.
+        existing = [cb for cb in self.list_callbacks(tenant_id=tenant_id) if cb.wa_id == wa_id and cb.is_active()]
+        if existing:
+            return sorted(existing, key=lambda cb: cb.created_at, reverse=True)[0]
+
         callback_id = self._generate_callback_id()
+        timezone_name = self.tenant_timezone(tenant_id)
         start_iso, end_iso, display_str, s_utc, e_utc = parse_preferred_time_to_range(
             preferred_time=preferred_time,
             preferred_date=preferred_date,
-            timezone_str=self.timezone,
+            timezone_str=timezone_name,
         )
 
         meet_link = None
         event_id = None
         calendar_add_url = ""
-        if include_meet:
+        integration_error = None
+        within_hours = self.within_tenant_hours(tenant_id, start_iso, end_iso)
+        if include_meet and callback_mode == "google_calendar" and within_hours:
             meet_res = google_meet_service.create_meeting_sync(
                 title=f"Meeting: {customer_name} - {purpose or 'Discussion'}",
                 description=(
@@ -500,12 +560,22 @@ class CallbackService:
                     if customer_email
                     else None
                 ),
-                timezone=self.timezone,
+                timezone=timezone_name,
                 tenant_id=tenant_id,
             )
-            meet_link = meet_res.get("meet_link")
-            event_id = meet_res.get("event_id")
+            meet_link = meet_res.get("meet_link") if meet_res.get("ok") else None
+            event_id = meet_res.get("event_id") if meet_res.get("ok") else None
             calendar_add_url = meet_res.get("calendar_add_url", "")
+            integration_error = None if meet_res.get("ok") and meet_link and event_id else (meet_res.get("error") or "google_event_not_created")
+
+        if include_meet and callback_mode == "google_calendar" and within_hours:
+            callback_status = CallbackStatus.SCHEDULED.value if meet_link else CallbackStatus.INTEGRATION_FAILED.value
+        elif not within_hours:
+            callback_status = CallbackStatus.REQUESTED.value
+        elif callback_mode == "phone":
+            callback_status = CallbackStatus.CONFIRMED.value
+        else:
+            callback_status = CallbackStatus.REQUESTED.value
 
         cb = CallbackRequest(
             id=callback_id,
@@ -520,12 +590,12 @@ class CallbackService:
             preferred_time=display_str,
             purpose=purpose,
             additional_info=additional_info,
-            timezone=self.timezone,
+            timezone=timezone_name,
             assigned_agent_id=agent_id,
             assigned_agent_name=agent_name,
             meet_link=meet_link,
             calendar_event_id=event_id,
-            status=CallbackStatus.SCHEDULED.value if meet_link else CallbackStatus.CONFIRMED.value,
+            status=callback_status,
             scheduled_start_time=start_iso,
             scheduled_end_time=end_iso,
             metadata={
@@ -534,6 +604,11 @@ class CallbackService:
                 "created_via": "whatsapp_bot",
                 "oauth_connected": bool(meet_link),
                 "include_meet": bool(include_meet),
+                "callback_mode": callback_mode,
+                "idempotency_key": idempotency_key,
+                "booking_url": booking_url if callback_mode == "booking_url" else "",
+                "integration_error": integration_error,
+                "within_business_hours": within_hours,
             },
             created_at=datetime.now(dt_timezone.utc).isoformat(),
             updated_at=datetime.now(dt_timezone.utc).isoformat(),
@@ -689,7 +764,7 @@ def generate_meet_code() -> str:
 
 
 def generate_meet_link(code: Optional[str] = None) -> str:
-    return f"https://meet.google.com/{code or generate_meet_code()}"
+    raise RuntimeError("Synthetic Google Meet links are not supported")
 
 
 def generate_gcal_add_url(

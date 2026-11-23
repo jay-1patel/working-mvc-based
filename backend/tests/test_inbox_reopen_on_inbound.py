@@ -78,6 +78,11 @@ class InboxReopenOnInboundTest(unittest.TestCase):
             any(c.get("wa_id") == WA for c in shown.get("conversations") or [])
         )
 
+    def test_include_resolved_keeps_chat_and_marks_state(self):
+        shown = tenant_inbox_queue(TENANT, include_resolved=True)
+        row = next(c for c in shown.get("conversations") or [] if c.get("wa_id") == WA)
+        self.assertTrue(row.get("resolved"))
+
     def test_set_human_handover_active_clears_resolved(self):
         database.set_human_handover(WA, True, tenant_id=TENANT)
         state = Repository("user_states").find_one({"tenant_id": TENANT, "wa_id": WA})

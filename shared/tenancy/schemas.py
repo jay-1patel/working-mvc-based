@@ -541,6 +541,16 @@ class BusinessHours(_Base):
         return v
 
 
+class CallbackPolicy(_Base):
+    """Tenant-authorized callback channels and explicit operating rules."""
+
+    mode: Literal["auto", "off", "phone", "booking_url", "google_calendar", "human"] = "auto"
+    allowed_modes: List[str] = Field(default_factory=lambda: ["phone", "google_calendar", "booking_url", "human"])
+    booking_url: str = ""
+    instructions: str = ""
+    require_consent: bool = True
+
+
 class Guardrails(_Base):
     """What the bot must never do, and what to do instead."""
 
@@ -878,6 +888,7 @@ class TenantProfile(_Base):
     intents: List[IntentSpec] = Field(default_factory=list)
     guardrails: Guardrails = Field(default_factory=Guardrails)
     business_hours: BusinessHours = Field(default_factory=BusinessHours)
+    callback_policy: CallbackPolicy = Field(default_factory=CallbackPolicy)
     notifications: Notifications = Field(default_factory=Notifications)
     intelligence: IntelligenceSpec = Field(default_factory=IntelligenceSpec)
 

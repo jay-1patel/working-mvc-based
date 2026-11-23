@@ -268,6 +268,7 @@ def tenant_inbox_queue(tenant_id: str, include_resolved: bool = False) -> dict:
                 "assigned_agent_id": assignments.get(wa_id),
                 "assigned_agent_name": assignments.get(wa_id),
                 "handover_mode": "human" if state.get("human_handover") else "bot",
+                "resolved": bool(state.get("handover_resolved_at")),
             })
         conversations.sort(key=lambda c: str(c.get("last_message_at") or ""), reverse=True)
         return {"conversations": conversations}
@@ -286,7 +287,8 @@ def tenant_inbox_queue(tenant_id: str, include_resolved: bool = False) -> dict:
                 MAX(ch.created_at) AS last_message_at,
                 (SELECT message FROM chat_history ch2 WHERE ch2.wa_id = ch.wa_id ORDER BY ch2.id DESC LIMIT 1) AS last_message,
                 (SELECT COUNT(*) FROM chat_history ch3 WHERE ch3.wa_id = ch.wa_id) AS unread_count,
-                COALESCE(us.human_handover, 0) AS human_handover
+                COALESCE(us.human_handover, 0) AS human_handover,
+                CASE WHEN us.handover_resolved_at IS NOT NULL THEN 1 ELSE 0 END AS resolved
             FROM chat_history ch
             LEFT JOIN user_states us ON us.wa_id = ch.wa_id AND us.tenant_id = ?
             WHERE {tenant_scope.replace('ch.', 'ch.')}
@@ -313,6 +315,7 @@ def tenant_inbox_queue(tenant_id: str, include_resolved: bool = False) -> dict:
                 "priority": "normal",
                 "assigned_agent_id": assigned,
                 "assigned_agent_name": assigned,
+                "resolved": bool(row["resolved"]),
                 "handover_mode": "human" if row["human_handover"] else "bot",
             })
         return {"conversations": conversations}

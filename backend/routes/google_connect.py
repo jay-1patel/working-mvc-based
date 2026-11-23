@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from services.token_storage import get_token, save_token, delete_token
 from routes.auth import require_tenant_access
+from db.oauth_state import consume_oauth_state, create_oauth_state
 
 logger = logging.getLogger("google_connect")
 
@@ -87,6 +88,10 @@ def get_google_oauth_url(
         base = str(request.base_url).rstrip("/")
         redirect_uri = f"{base}/api/tenants/google-connect/callback"
 
+    session_id = str(request.headers.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=401, detail="A live admin session is required to connect Google")
+
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -94,7 +99,7 @@ def get_google_oauth_url(
         "scope": " ".join(GOOGLE_CALENDAR_SCOPES),
         "access_type": "offline",
         "prompt": "consent",
-        "state": tenant_id,
+        "state": create_oauth_state(tenant_id, session_id, redirect_uri),
         "include_granted_scopes": "true",
     }
 
@@ -112,7 +117,15 @@ async def google_oauth_callback(
     error: Optional[str] = Query(None),
 ):
     """Handle the OAuth 2.0 redirect from Google."""
-    effective_tenant = tenant_id or state or ""
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI")
+    if not redirect_uri:
+        base = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base}/api/tenants/google-connect/callback"
+
+    state_row = consume_oauth_state(state or "", redirect_uri)
+    if not state_row:
+        raise HTTPException(status_code=400, detail="Invalid or expired Google OAuth state")
+    effective_tenant = str(state_row["tenant_id"])
 
     if error:
         logger.error(f"Google OAuth authorization error for tenant {effective_tenant}: {error}")
@@ -134,12 +147,6 @@ async def google_oauth_callback(
     if not client_id or not client_secret:
         raise HTTPException(status_code=500, detail="Server missing Google OAuth client credentials")
 
-    # Determine redirect URI (must match the one used in the auth-url request)
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI")
-    if not redirect_uri:
-        base = str(request.base_url).rstrip("/")
-        redirect_uri = f"{base}/api/tenants/google-connect/callback"
-
     async with httpx.AsyncClient(trust_env=False, timeout=15.0) as client:
         token_resp = await client.post(
             GOOGLE_OAUTH_TOKEN_URL,
@@ -153,7 +160,7 @@ async def google_oauth_callback(
         )
 
         if token_resp.status_code != 200:
-            logger.error(f"Failed to exchange OAuth code for tokens: {token_resp.text}")
+            logger.error("Failed to exchange Google OAuth code: status=%s", token_resp.status_code)
             html_fail = f"""
             <html>
             <body style="font-family:sans-serif; text-align:center; padding:50px;">

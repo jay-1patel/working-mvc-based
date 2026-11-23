@@ -9,6 +9,35 @@ from database import get_db_context
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = "google_oauth_tokens"
+TOKEN_PREFIX = "fernet:v1:"
+
+
+def _fernet():
+    key = os.getenv("GOOGLE_TOKEN_ENCRYPTION_KEY", "").strip()
+    if not key:
+        raise RuntimeError("GOOGLE_TOKEN_ENCRYPTION_KEY is required for Google token storage")
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(key.encode("ascii"))
+    except Exception as exc:
+        raise RuntimeError("GOOGLE_TOKEN_ENCRYPTION_KEY must be a valid Fernet key") from exc
+
+
+def _seal(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return value
+    return TOKEN_PREFIX + _fernet().encrypt(value.encode("utf-8")).decode("ascii")
+
+
+def _open(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return value
+    if not value.startswith(TOKEN_PREFIX):
+        # Legacy rows are accepted only when the encryption key is configured;
+        # the caller immediately re-encrypts them.
+        _fernet()
+        return value
+    return _fernet().decrypt(value[len(TOKEN_PREFIX):].encode("ascii")).decode("utf-8")
 
 
 def _use_mongodb():
@@ -61,8 +90,8 @@ def save_token(
                 {"tenant_id": tenant_id},
                 {
                     "tenant_id": tenant_id,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
+                    "access_token": _seal(access_token),
+                    "refresh_token": _seal(refresh_token),
                     "expires_at": expires_at,
                     "token_type": token_type,
                     "scope": scope,
@@ -85,8 +114,8 @@ def save_token(
                 """,
                 (
                     tenant_id,
-                    access_token,
-                    refresh_token,
+                    _seal(access_token),
+                    _seal(refresh_token),
                     expires_at,
                     token_type,
                     scope,
@@ -106,13 +135,16 @@ def get_token(tenant_id: str) -> Optional[dict]:
             from db.mongo import Repository
             row = Repository(TABLE_NAME).find_one({"tenant_id": tenant_id})
             if row:
-                return {
-                    "access_token": row["access_token"],
-                    "refresh_token": row.get("refresh_token"),
+                token = {
+                    "access_token": _open(row["access_token"]),
+                    "refresh_token": _open(row.get("refresh_token")),
                     "expires_at": row["expires_at"],
                     "token_type": row.get("token_type"),
                     "scope": row.get("scope"),
                 }
+                if not str(row.get("access_token") or "").startswith(TOKEN_PREFIX):
+                    save_token(tenant_id=tenant_id, **token)
+                return token
             return None
         with get_db_context() as conn:
             row = conn.execute(
@@ -120,13 +152,16 @@ def get_token(tenant_id: str) -> Optional[dict]:
                 (tenant_id,),
             ).fetchone()
             if row:
-                return {
-                    "access_token": row["access_token"],
-                    "refresh_token": row["refresh_token"],
+                token = {
+                    "access_token": _open(row["access_token"]),
+                    "refresh_token": _open(row["refresh_token"]),
                     "expires_at": row["expires_at"],
                     "token_type": row["token_type"],
                     "scope": row["scope"],
                 }
+                if not str(row["access_token"] or "").startswith(TOKEN_PREFIX):
+                    save_token(tenant_id=tenant_id, **token)
+                return token
     except Exception as e:
         logger.error(f"Failed to load Google OAuth token for tenant {tenant_id}: {e}")
     return None

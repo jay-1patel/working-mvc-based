@@ -1395,3 +1395,266 @@ def impersonate_tenant(
             detail="No admin or sub-admin account is assigned to this tenant",
         )
     return _impersonate_target(current_admin, target, via="tenant")
+
+
+# ── Unified Privileges API (POST /api/auth/privileges) ────────────────────────
+
+_TENANT_WRITE_PERMISSIONS = frozenset({
+    "upload_faq",
+    "upload_kb",
+    "delete_files",
+    "edit_delete_products",
+    "add_product",
+    "edit_product",
+    "delete_product",
+    "manage_services",
+    "manage_projects",
+    "manage_technologies",
+    "manage_careers",
+    "manage_benefits",
+    "manage_operations",
+    "chat",
+    "catalogue_new_arrival",
+    "manage_orders",
+    "manage_complaints",
+    "manage_campaigns",
+    "manage_distributors",
+})
+
+
+def _fetch_tenant_features(tenant_id: str | None) -> dict:
+    """Safely fetch feature flags for a tenant. Never raises."""
+    if not tenant_id:
+        return {}
+    try:
+        import os
+        import sys
+
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        project_root = os.path.dirname(backend_dir)
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        from shared.tenancy.loader import get_tenant_profile
+
+        profile = get_tenant_profile(tenant_id)
+        if profile and hasattr(profile, "features"):
+            feat = profile.features
+            if isinstance(feat, dict):
+                return feat
+            if hasattr(feat, "model_dump"):
+                return feat.model_dump()
+            if hasattr(feat, "dict"):
+                return feat.dict()
+            if hasattr(feat, "__dict__"):
+                return {k: v for k, v in feat.__dict__.items() if not k.startswith("_")}
+    except Exception as exc:
+        logger.warning("Failed to load tenant features for %s: %s", tenant_id, exc)
+    return {}
+
+
+def _build_page_privileges(role: str, permissions: dict, features: dict) -> dict:
+    """Build unified page-level, action-level, and feature-flag permissions."""
+    is_super = role == "super_admin"
+
+    def can(perm: str) -> bool:
+        if is_super:
+            return True
+        return bool(permissions.get(perm, False))
+
+    def can_write(perm: str) -> bool:
+        if is_super and perm in _TENANT_WRITE_PERMISSIONS:
+            return False
+        return can(perm)
+
+    # 1. Chats
+    chats_can_read = can("view_inbox") or can("chat_history")
+    chats_can_write = can_write("chat")
+    chats_accessible = chats_can_read or can("chat")
+    chats_actions = {
+        "view_inbox": can("view_inbox"),
+        "chat_history": can("chat_history"),
+        "reply": chats_can_write,
+        "handover": chats_can_write,
+        "assign": chats_can_write,
+        "resolve": chats_can_write,
+        "send_attachment": chats_can_write,
+    }
+    chats_flags = {
+        "human_handover": bool(features.get("human_handover", False)),
+    }
+
+    # 2. Dashboard
+    dash_actions = {
+        "view_overview": True,
+        "view_analytics": can("view_analytics"),
+        "view_errors": is_super,
+    }
+
+    # 3. Profile
+    profile_can_read = True
+    profile_can_write = can_write("manage_operations")
+    profile_actions = {
+        "view_profile": True,
+        "edit_profile": profile_can_write,
+        "publish_profile": profile_can_write,
+    }
+
+    # 4. Upload
+    upload_can_read = can("view_files")
+    upload_write_actions = {
+        "upload_kb": can_write("upload_kb"),
+        "upload_faq": can_write("upload_faq"),
+        "delete_files": can_write("delete_files"),
+        "catalogue_new_arrival": can_write("catalogue_new_arrival"),
+    }
+    upload_can_write = any(upload_write_actions.values())
+    upload_accessible = upload_can_read or any(
+        can(p) for p in ["upload_kb", "upload_faq", "catalogue_new_arrival", "delete_files"]
+    )
+    upload_actions = {
+        "view_files": upload_can_read,
+        **upload_write_actions,
+    }
+    upload_flags = {
+        "kb": bool(features.get("kb", False)),
+        "faq": bool(features.get("faq", False)),
+        "brochure_pdf": bool(features.get("brochure_pdf", False)),
+    }
+
+    # 5. Menu
+    menu_can_read = can("manage_operations") or can("view_products")
+    menu_write_perm = can_write("manage_operations") or can_write("edit_delete_products")
+    menu_actions = {
+        "view_menu": menu_can_read,
+        "edit_menu": menu_write_perm,
+        "publish_menu": can_write("manage_operations"),
+        "view_products": can("view_products") or can("manage_operations"),
+        "add_product": can_write("add_product") or menu_write_perm,
+        "edit_product": can_write("edit_product") or menu_write_perm,
+        "delete_product": can_write("delete_product") or can_write("edit_delete_products"),
+    }
+    menu_can_write = any([
+        menu_actions["edit_menu"],
+        menu_actions["publish_menu"],
+        menu_actions["add_product"],
+        menu_actions["edit_product"],
+        menu_actions["delete_product"],
+    ])
+    menu_accessible = menu_can_read or menu_can_write or can("view_products")
+    menu_flags = {
+        "offerings": bool(features.get("offerings", False)),
+        "products": bool(features.get("products", False)),
+        "services": bool(features.get("services", False)),
+    }
+
+    return {
+        "chats": {
+            "accessible": chats_accessible,
+            "can_read": chats_can_read,
+            "can_write": chats_can_write,
+            "actions": chats_actions,
+            "feature_flags": chats_flags,
+        },
+        "dashboard": {
+            "accessible": True,
+            "can_read": True,
+            "can_write": False,
+            "actions": dash_actions,
+            "feature_flags": {},
+        },
+        "profile": {
+            "accessible": True,
+            "can_read": profile_can_read,
+            "can_write": profile_can_write,
+            "actions": profile_actions,
+            "feature_flags": {},
+        },
+        "upload": {
+            "accessible": upload_accessible,
+            "can_read": upload_can_read,
+            "can_write": upload_can_write,
+            "actions": upload_actions,
+            "feature_flags": upload_flags,
+        },
+        "menu": {
+            "accessible": menu_accessible,
+            "can_read": menu_can_read,
+            "can_write": menu_can_write,
+            "actions": menu_actions,
+            "feature_flags": menu_flags,
+        },
+    }
+
+
+class PrivilegesAuthRequest(BaseModel):
+    username: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+@router.post("/privileges")
+async def admin_privileges(
+    request: Request,
+    body: Optional[PrivilegesAuthRequest] = None,
+):
+    """Unified Privileges API (POST /api/auth/privileges).
+
+    Returns page access, read/write permissions, action-level controls,
+    and feature flags across Chats, Dashboard, Profile, Upload, and Menu.
+    Supports super_admin, admin, and sub_admin roles. Respects super admin's
+    tenant view-only restrictions.
+
+    Accepts username and session_id from either request headers or JSON body.
+    """
+    current_admin = getattr(request.state, "current_admin", None)
+    if not current_admin:
+        username = str(request.headers.get("username") or "").strip()
+        session_id = str(request.headers.get("session_id") or "").strip()
+
+        if body is not None:
+            if not username and body.username:
+                username = str(body.username).strip()
+            if not session_id and body.session_id:
+                session_id = str(body.session_id).strip()
+
+        if not username:
+            username = str(getattr(request.state, "auth_username", "") or "").strip()
+        if not session_id:
+            session_id = str(getattr(request.state, "auth_session_id", "") or "").strip()
+
+        if not (username and session_id):
+            try:
+                raw_bytes = await request.body()
+                if raw_bytes:
+                    payload = json.loads(raw_bytes)
+                    if isinstance(payload, dict):
+                        username = username or str(payload.get("username") or "").strip()
+                        session_id = session_id or str(payload.get("session_id") or "").strip()
+            except Exception:
+                pass
+
+        if not (username and session_id):
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated — send username and session_id (header or JSON body)",
+            )
+
+        current_admin = _admin_from_pair(username, session_id, request)
+
+    role = current_admin.get("role", "")
+    tenant_id = current_admin.get("tenant_id")
+    is_super = role == "super_admin"
+    permissions = current_admin.get("permissions") or {}
+
+    features = _fetch_tenant_features(tenant_id)
+    pages = _build_page_privileges(role, permissions, features)
+
+    return {
+        "username": _public_username(current_admin.get("username")),
+        "role": role,
+        "tenant_id": tenant_id,
+        "is_tenant_view_only": is_super,
+        "onboarding_approved": _onboarding_approved(current_admin),
+        "features": features,
+        "pages": pages,
+        "permissions": permissions,
+    }

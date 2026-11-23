@@ -107,6 +107,17 @@ async def _load_body_credentials(request: Request) -> None:
 
         request._receive = receive_again
 
+    # Robust fallback: if body_bytes is present and username/session_id not yet
+    # resolved, attempt JSON decode (e.g. curl -d without explicit Content-Type).
+    if body_bytes and not (username and session_id):
+        try:
+            payload = json.loads(body_bytes)
+            if isinstance(payload, dict):
+                username = username or str(payload.get("username") or "").strip()
+                session_id = session_id or str(payload.get("session_id") or "").strip()
+        except Exception:
+            pass
+
     if username:
         request.state.auth_username = username
     if session_id:

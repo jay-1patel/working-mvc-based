@@ -54,6 +54,10 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
   const failedSeq = useRef(0)
 
   const inbox = useAsync((s) => conversationsApi.inbox(tenantId, true, s), [tenantId])
+  // The live inbox can be empty when no conversation is currently waiting for
+  // handover. Keep the Chats screen useful by loading the tenant's stored
+  // conversations as a fallback.
+  const conversations = useAsync((s) => conversationsApi.threads(tenantId, { limit: 500 }, s), [tenantId])
   const agents = useAsync((s) => conversationsApi.agents(tenantId, s), [tenantId])
   const thread = useAsync(
     (s) =>
@@ -128,7 +132,19 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
   }, [tenantId, selected, inbox.reload, thread.reload])
 
   const queue = useMemo(() => {
-    const items = [...(inbox.data?.queue ?? [])]
+    const inboxItems = inbox.data?.queue ?? []
+    const items = inboxItems.length
+      ? [...inboxItems]
+      : (conversations.data ?? []).map((item) => ({
+          wa_id: item.wa_id,
+          name: item.name,
+          last_message: item.last_message,
+          last_message_at: item.last_at,
+          turns: item.turns,
+          bot_state: item.bot_state,
+          handover_mode: item.handover ? ('human' as const) : ('bot' as const),
+          assigned_agent_id: null,
+        }))
     items.sort((a, b) => {
       const ah = a.handover_mode === 'human' ? 0 : 1
       const bh = b.handover_mode === 'human' ? 0 : 1
@@ -507,9 +523,9 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
         </section>
       </div>
 
-      {inbox.data && (
+      {(inbox.data || conversations.data) && (
         <p className="mt-3 shrink-0 text-xs text-txfaint">
-          {inbox.data.count} conversations · {inbox.data.handoff_count} waiting for a human
+          {queue.length} conversations · {inbox.data?.handoff_count ?? 0} waiting for a human
         </p>
       )}
     </div>

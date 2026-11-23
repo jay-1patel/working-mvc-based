@@ -1,0 +1,5 @@
+## Best Car User Reviews
+
+1ShareMr Sidhu 2 years ago
+-
+Wagon RGood Car I have wegonr vxi model and i am satisfied with it.The only problem i got here is the ac cooling, It is not1upto the mark.In summer, It will help for driver and co driver but not good for other members.As the throw is1not efficiedt.I like the seat height and my father also like this thing specially bumper to bumper traffic, It1helps a lot us.Although it is not suitable to use this car for a long drive like about 300-400km as the ride1quality is only suitable for small distance or within the city.The mileage is good enough even after many1years uses.Clutch is good not hard so your leg will not fell pain during city ride.Vibration are not1noticable.Now the maine problem is build quality, Because it has no official safety rating, This is the1drawback for this family car.As i said it is suitable for short distance, So it is not a big thing.But if you1are a rush driver then think a second before buy.If your budget is aroud 6-7lacs then you can tr

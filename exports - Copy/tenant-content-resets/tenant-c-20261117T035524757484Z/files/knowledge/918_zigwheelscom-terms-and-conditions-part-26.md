@@ -1,0 +1,5 @@
+nor any of its agents or licensors or group companies shall be liable to user/ any third party, for any direct, indirect, incidental, special or consequential loss or damages (including, without limitation for loss of profit, business opportunity or loss of goodwill) whatsoever, whether in contract, tort, misrepresentation or otherwise arising from the use of these tools/ information contained / data generated herein.
+
+13\. Limitation of Liability
+
+Neither zigwheels.com nor its affiliates, employees, agents or consultants shall in any event be liable for any indirect, incidental or consequential damages such as, but not limited to, loss of business information, loss of goodwill, business interruption or loss of anticipated profits or benefits resulting from use of the site or any part or whole of the content or arising out of any breach of warranty even if zigwheels.com or its affiliates, employees, agents or consultants have been advised of the possibility of such damages.

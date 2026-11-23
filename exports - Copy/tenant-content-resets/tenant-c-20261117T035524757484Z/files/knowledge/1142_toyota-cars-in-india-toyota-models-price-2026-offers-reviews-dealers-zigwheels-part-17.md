@@ -1,0 +1,5 @@
+## About Toyota
+
+Toyota India (Toyota Kirloskar Motor Pvt Ltd) is a subsidiary of Toyota Motor Corporation of Japan, the largest automotive manufacturer in the world. It is also currently one of the top five automotive manufacturers in India. Toyota has a variety of models on offer that range from the Glanza to the Fortuner. It also offers hybrids in the form of the Camry and HyCross. In recent times, the carmaker launched its first electric vehicle from its partnership with Maruti Suzuki with the Urban Cruiser Ebella. The carmaker's focus has been expanding its Strong Hybrid Electric Vehicle lineup, crossing 3 lakh cumulative SHEV sales in India. Despite that, it has kicked off the year with the launch of the Urban Cruiser Ebella — its first battery electric vehicle in the Indian market.
+
+...Read More

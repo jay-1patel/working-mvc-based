@@ -1,0 +1,3 @@
+## Is Royal Enfield an Indian company?
+
+While deeply embedded in Indian culture, Royal Enfield's roots actually trace back to 1901 England. In 1949, K. R. Sundaram Iyer launched Madras Motors to import British motorcycles into India, including Royal Enfields. In 1952, Madras Motors received an order from the Indian Army for 500 350cc Bullets. The motorcycles arrived from Redditch, UK, in early 1953 and this was really the beginning of India’s love for the Royal Enfield Bullet. It was after that, in 1955, that Royal Enfield collaborated with Madras Motors to form Enfield India to open a factory in Thiruvottiyur, Tamil Nadu to assemble Bullets from kits shipped from the UK.

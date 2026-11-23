@@ -8,6 +8,7 @@ from routes.auth import BODY_TENANT_POST_PATHS, READ_ONLY_POST_PATHS, is_tenant_
 
 
 EXPECTED = {
+    "/api/admin/tenants/conversations",
     "/api/admin/tenants/conversations/detail",
     "/api/admin/tenants/chat/thread",
     "/api/admin/tenants/chat-history",
@@ -57,7 +58,7 @@ class PanelBodyPostContractTests(unittest.TestCase):
         )
         cls.routes = [route for router in routers for route in router.routes]
 
-    def test_all_32_routes_are_registered_once_as_post(self):
+    def test_all_routes_are_registered_once_as_post(self):
         registrations = [
             (method, route.path)
             for route in self.routes
@@ -65,8 +66,8 @@ class PanelBodyPostContractTests(unittest.TestCase):
             if route.path in EXPECTED
         ]
         # /api/admin/onboarding-kits/list is the extra flat POST beyond the
-        # original 32 tenant-body routes.
-        self.assertEqual(len(EXPECTED), 33)
+        # tenant-body routes; /conversations is the session-tenant list.
+        self.assertEqual(len(EXPECTED), 34)
         self.assertEqual({path for _, path in registrations}, EXPECTED)
         self.assertTrue(all(method == "POST" for method, _ in registrations))
         self.assertFalse([item for item, count in Counter(registrations).items() if count > 1])
@@ -77,6 +78,7 @@ class PanelBodyPostContractTests(unittest.TestCase):
     def test_flat_request_models_have_no_tenant_id(self):
         models = (
             conversations.ConversationDetailRequest(wa_id="w"),
+            conversations.ConversationsListRequest(),
             conversations.InboxListRequest(),
             conversations.InboxResolveRequest(wa_id="w"),
             tenant_operations.CustomersListRequest(),
@@ -85,6 +87,7 @@ class PanelBodyPostContractTests(unittest.TestCase):
             tenant_files.FilesBifurcateRequest(),
             tenant_files.KnowledgeGapsRequest(),
             tenants.ResolvedProfileRequest(),
+            tenants.TenantsListRequest(),
         )
         for model in models:
             data = model.model_dump() if hasattr(model, "model_dump") else model.dict()
@@ -98,6 +101,8 @@ class PanelBodyPostContractTests(unittest.TestCase):
 
     def test_documented_defaults(self):
         self.assertEqual(conversations.ConversationDetailRequest(wa_id="w").limit, 300)
+        self.assertEqual(conversations.ConversationsListRequest().limit, 100)
+        self.assertIsNone(conversations.ConversationsListRequest().search)
         self.assertFalse(conversations.InboxListRequest().include_resolved)
         self.assertTrue(conversations.InboxResolveRequest(wa_id="w").reply)
         self.assertEqual(tenant_operations.CustomersListRequest().q, "")
@@ -109,6 +114,8 @@ class PanelBodyPostContractTests(unittest.TestCase):
         self.assertEqual(tenant_files.KnowledgeGapsRequest().limit, 50)
         kit_body = onboarding_kits.OnboardingKitsListRequest()
         self.assertEqual(kit_body.model_dump() if hasattr(kit_body, "model_dump") else kit_body.dict(), {})
+        list_body = tenants.TenantsListRequest()
+        self.assertIsNone(list_body.status)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,5 @@
+## Questions & Answers on Maruti Suzuki Ertiga
+
+- Regarding the Maruti Suzuki Ertiga, it is equipped with halogen projector headlamps and does not offer full LED headlights. A rear parking camera is available on select higher variants and is not standard across all trims. Additionally, the Ertiga is available with an automatic transmission option on specific variants. For more detailed specification information, you may click on the link provided: https://www.zigwheels.com/maruti-suzuki-cars/ertiga/specifications/
+
+- To check the estimated price of a used Maruti Suzuki Ertiga VDI Diesel in Gujarat, please use the following link: https://www.zigwheels.com/used-car/used-Maruti-Ertiga-in-Gandhinagar. Here, you can view various listings and compare prices based on the car’s condition, mileage, and model year to get a clear idea of its value.

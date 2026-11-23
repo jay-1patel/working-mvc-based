@@ -1,0 +1,3 @@
+In preview of the Telecom Regulatory Authority of India (TRAI) guidelines, I/We hereby authorize Girnar Software Pvt. Ltd. (www.zigwheels.com) and its affiliates / partners / registered dealers, manufacturers or any other related player in automobiles or otherwise who are accessing the data by virtue of their association with zigwheels.com to communicate with me/us through telephone/mobile, Email, SMS or other modes of communication even if my/our number/numbers(s) is/are registered in the National Do Not Call Registry (NDNC) or www.nccptrai.gov.in
+
+21\. Compliance with Laws

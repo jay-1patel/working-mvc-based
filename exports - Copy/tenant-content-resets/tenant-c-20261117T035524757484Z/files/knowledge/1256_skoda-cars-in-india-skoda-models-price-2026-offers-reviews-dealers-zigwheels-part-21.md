@@ -1,0 +1,3 @@
+## About Skoda
+
+The Skoda Kylaq Signature Plus AT and the Volkswagen Taigun 1.0 Highline AT have similar engine setups, both powered by a 999 cc petrol engine producing 114 bhp at 5000–5500 rpm. The Kylaq offers a slightly higher ARAI-claimed mileage of 19.05 kmpl compared to the Taigun’s 17.23 kmpl. On the other hand, the Taigun comes with a larger fuel tank capacity of 50 litres, while the Kylaq has a 45-litre tank. Both SUVs are strong performers with efficient engines and premium features. To make the best choice for your needs, we recommend taking a test drive of both vehicles at your nearest authorized dealership. You can click on the link to find the nearest authorized dealership.https://www.zigwheels.com/dealers

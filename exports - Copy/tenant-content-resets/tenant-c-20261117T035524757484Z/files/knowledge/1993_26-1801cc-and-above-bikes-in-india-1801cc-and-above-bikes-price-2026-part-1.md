@@ -1,0 +1,3 @@
+## 1801cc And Above Bikes in India
+
+There are 26 bikes above 1801cc on sale in India with prices starting from Rs. 44.30 Lakh. The most popular bikes in this bracket are the Honda Gold Wing (1833 cc), Triumph Rocket 3 (2458 cc) and Harley Davidson Fat Boy (1923 cc). The top brands that manufacture bikes above 1801cc are Honda, Triumph and Harley Davidson. Download the ZigWheels App to know latest prices and offers on bikes above 1801cc in your city, pictures, mileage, reviews, variants, specifications and more. Choose the best bike model above 1801cc that you’re interested from the options below.

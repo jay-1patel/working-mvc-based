@@ -1,0 +1,1 @@
+Once launched, this bike will compete with the popular Royal Enfield Guerilla 450. More details to follow.

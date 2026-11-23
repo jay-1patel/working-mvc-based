@@ -1,0 +1,3 @@
+## Maruti Suzuki Celerio
+
+Updated: November 2026. Maruti Suzuki Celerio on-road price in Bhavnagar starts at ₹5.39 Lakh and goes up to ₹7.68 Lakh. It offers a 1L petrol engine (67.58 bhp in base form), manual and automatic transmissions with ARAI mileage 24.97–26 kmpl, plus CNG claimed 34.43 km/kg. Key highlights include a 3-star Global NCAP safety rating and multiple fuel options. It rivals the Renault KWID, Tata Aeris and Tata Tiago.

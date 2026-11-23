@@ -1,0 +1,5 @@
+## Maruti Suzuki FRONX Price FAQs
+
+Hi, My name is akshay, Few months back one of my friend was looking for cars under 12-13 lacs.He has literally driven every cars in that price segment and didn't like any.(his choice) one day he came and picked me up and we went to nexa showroom at alappuzha, Kerala, We drove fronx automatic 1.2l.I must say.He loves this car.And he bought it 🤝.The end.
+
+I am particularly taking about the delta plus model.The the driving experience is really good at this price we really can't feel any vibration at all.The pickup is good enough, The city mileage is around 17-18km/l and in highway, It's around 21-22.The after sale services are really good typically nexa.The build quality has been improved compared to other nexa cars.The only bad part i feel is the seat cover quality could be improved.

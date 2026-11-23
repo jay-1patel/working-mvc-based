@@ -1,0 +1,5 @@
+Thanks to their rounder profile, when compared to the stock Apollo Trampler’s slightly wider build, high-speed lane changes feel easier and more fluid, making the bike feel slightly more flickable on open roads. In city conditions, the tyres feel light and easy to manage, allowing the bike to weave through traffic without requiring extra effort at the bars.
+
+However, there are a couple of trade-offs. Under hard braking, the SCRs feel a bit vague and don’t inspire the same level of confidence, especially when braking aggressively. Highway runs also reveal higher tyre noise, which is likely due to the block-style tread pattern. At urban speeds, though, this noise isn’t very noticeable.
+
+Fuel efficiency has taken a mild hit as well. Where the bike earlier returned around 22-23kmpl, it now consistently delivers close to 20kmpl, translating to a drop of roughly 1-2kmpl.

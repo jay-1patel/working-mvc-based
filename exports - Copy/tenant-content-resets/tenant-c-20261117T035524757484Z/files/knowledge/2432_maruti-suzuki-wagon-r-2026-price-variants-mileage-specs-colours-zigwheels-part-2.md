@@ -1,0 +1,3 @@
+## Maruti Suzuki Wagon R
+
+Updated: November 2026. Maruti Suzuki Wagon R on-road price in Bhavnagar starts at ₹5.70 Lakh and goes up to ₹8.06 Lakh. It offers a 1L and 1.2L petrol engine (67.6 bhp in base form), manual and automatic transmissions with ARAI mileage 23.56–25.19 kmpl, plus CNG claimed 33.47 km/kg. Key highlights include a 1-star Global NCAP safety rating and multiple fuel options. It rivals the Hyundai Exter, Tata Aeris, Tata Punch and Tata Tiago.

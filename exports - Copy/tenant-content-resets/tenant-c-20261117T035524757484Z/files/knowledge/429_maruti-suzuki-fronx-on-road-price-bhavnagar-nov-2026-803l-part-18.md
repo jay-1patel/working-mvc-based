@@ -1,0 +1,3 @@
+## Maruti Suzuki FRONX Price FAQs
+
+The fronx is the new era of car with more effective and budgeted price.This fronx provides a greater driving pleasure and highly appreciated, Whereas the mileage of this car is excellent proving a whopping 21 kmpl.Providing an excell pickup which was neither expected from maruti but got impressed and surprised by fronx performance.Well hatsoff to the fronx team.Also as it’s pervasive the engine maruti suzuki provides is world class and leads to reduced cost and economical costs.The build quality of this car is fabulous and looking into the interior was really amazed.The team really did put into great efforts.The only worst thing about fronx is i waiting time.Looking into the all aspects and multiple factors i highly recommend fronx.

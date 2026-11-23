@@ -1,0 +1,5 @@
+## Top User Review
+
+5ShareAjay Melrit
+-
+Jupiter 125Bahut bekar gadi hai mere Bahut bekar gadi hai mere 1st service se pehle 33 to 35 ka mileage de raha tha 1st me baad 40 tak gaya lekin 2nd service ke baad 29 ka mileage de raha hai or ushke baad 3rd or 4th service ho gaya lekin mera mileage 30 to 31 ka hi de raha hai or service ke bolo to bolte hai ab thik hi jayga or tvs ki to servicing bhi bekar hai 2nd service me to meri pura gadi kharab kar ke di tha gadi se aawaj bhi aane laga tha or ushe thik karne ke 15 din tak gadi rakha ushme bhi jabardasti kiya tab 15 ve din diya nahi to kal sir ho jayga kal sir ho jayega kar rahe the ish gadi ki paint bhi nikal gaya tha 5 se 6 months me ish gadi se main bahut paresan ho gaya hu bahut hi bekar gadi hai ishe achha to main access leleta wapas 12ShareKevin Sharma

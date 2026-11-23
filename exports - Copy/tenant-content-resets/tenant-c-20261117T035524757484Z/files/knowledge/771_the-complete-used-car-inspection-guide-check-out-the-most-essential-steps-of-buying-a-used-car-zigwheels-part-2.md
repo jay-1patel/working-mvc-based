@@ -1,0 +1,3 @@
+Before driving the car, you should check the papers thoroughly. The registration certificate (RC) should align with the chassis number that has been stamped on the car. Depending on the make and model, this number is stamped on the firewall, the boot floor, or the B-pillar, and it should look factory-original, not recently stamped.
+
+Another important step is to cross-check everything on the VAHAN portal: pending challans, insurance validity, and whether the car is hypothecated to a bank.

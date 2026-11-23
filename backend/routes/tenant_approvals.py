@@ -6,7 +6,8 @@ admin (or sub admin) submits lands here as a pending request, and only a super
 admin's approval applies it:
 
     POST /api/tenant-change-requests              -> submit (admin / sub admin)
-    GET  /api/tenant-change-requests              -> the requester's own requests
+    POST /api/tenant-change-requests/mine         -> the requester's own requests
+    GET  /api/tenant-change-requests              -> legacy; prefer POST .../mine
     GET  /api/admin/tenant-change-requests        -> review queue (super admin)
     GET  /api/admin/tenant-change-requests/{id}/events
     POST /api/admin/tenant-change-requests/{id}/decision -> approve / reject
@@ -547,8 +548,7 @@ def queue_publish_for_approval(tenant_id: str, current_admin: dict) -> dict:
     return {"request": _enrich_with_tenant([refreshed])[0]}
 
 
-@router.get("/api/tenant-change-requests")
-def list_my_requests(current_admin: dict = Depends(get_current_admin)):
+def _list_my_requests_payload(current_admin: dict) -> dict:
     """The signed-in admin's own submissions, newest first."""
     _require_submitter(current_admin)
     if use_mongodb():
@@ -569,6 +569,18 @@ def list_my_requests(current_admin: dict = Depends(get_current_admin)):
         return {"requests": _enrich_with_tenant(rows)}
     finally:
         conn.close()
+
+
+@router.post("/api/tenant-change-requests/mine")
+def list_my_requests_post(current_admin: dict = Depends(get_current_admin)):
+    """Session-auth list of the signed-in admin's submissions (POST)."""
+    return _list_my_requests_payload(current_admin)
+
+
+@router.get("/api/tenant-change-requests")
+def list_my_requests(current_admin: dict = Depends(get_current_admin)):
+    """Legacy GET list; prefer POST /api/tenant-change-requests/mine."""
+    return _list_my_requests_payload(current_admin)
 
 
 @router.get("/api/admin/tenant-change-requests")

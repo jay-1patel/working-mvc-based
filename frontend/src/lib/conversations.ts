@@ -11,17 +11,6 @@ import type { Attachment } from './attachments'
 import type { Agent, ChatTurn, Complaint, ConversationThread, InboxItem } from './types'
 import { isMockMode, mockAgents, mockInbox, mockTurns } from './mock'
 
-const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
-
-function query(params: Record<string, string | number | boolean | undefined>): string {
-  const search = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== '') search.set(key, String(value))
-  }
-  const tail = search.toString()
-  return tail ? `?${tail}` : ''
-}
-
 /** `[faq] hello` -> `hello`; a row with no prefix is returned unchanged. */
 export function stripRoute(message: string): string {
   return message.startsWith('[') && message.includes('] ')
@@ -36,9 +25,10 @@ export const conversationsApi = {
     signal?: AbortSignal,
   ) =>
     api
-      .get<{ conversations: ConversationThread[]; count: number }>(
-        `${base(tenantId)}/conversations${query(opts)}`,
-        signal,
+      .post<{ conversations: ConversationThread[]; count: number }>(
+        '/api/admin/tenants/conversations',
+        { search: opts.search, limit: opts.limit ?? 100 },
+        { signal },
       )
       .then((r) => r.conversations),
 

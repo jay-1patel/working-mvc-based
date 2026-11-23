@@ -1,0 +1,3 @@
+If someone is planning to sell cars, ZigWheels enables you to upload your used car in just few clicks. Simply upload your used car picture with details like model, year of purchase and kilometers ran so that it is visible to thousands of buyers looking to buy second hand cars on our app and website.
+
+ZigWheels Auto Community is the largest community of cars & bike owners in India. It connects with fellow enthusiasts, ZigWheels experts, vehicle owners and buyers on our platform. ZigWheels have reached a milestone of 4 lakh signups, 2 lakh vehicle owners, 60 thousand reviews, 75 thousand questions. ZigWheels Auto Community helps both pre-buying and post-buying users. Join ZIgWheels to interact with experts, ask questions and read reviews.

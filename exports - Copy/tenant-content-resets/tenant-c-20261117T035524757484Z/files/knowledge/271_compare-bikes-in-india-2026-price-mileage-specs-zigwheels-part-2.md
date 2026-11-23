@@ -1,0 +1,3 @@
+For daily travelling of around 80–100 km in Hyderabad, both the Kabira Mobility KM3000 and KM4000 can be considered, depending on your requirements. The better choice would depend on factors such as range, performance, charging time, riding comfort, and budget. If your daily usage is consistently on the higher side, we recommend considering the model that offers a suitable real-world range with some additional range buffer. Since actual range can vary based on traffic, riding style, road conditions, load, and weather, we suggest taking a test ride and checking the latest specifications and availability with an authorized Kabira Mobility dealership before making a decision.
+
+Q. What is the difference with this x440 compare to upcoming x440T

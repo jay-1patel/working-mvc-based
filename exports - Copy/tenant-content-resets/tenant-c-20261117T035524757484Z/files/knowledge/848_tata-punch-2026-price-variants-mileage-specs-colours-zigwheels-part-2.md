@@ -1,0 +1,3 @@
+## Tata Punch
+
+Updated: November 2026. Tata Punch on-road price in Bhavnagar starts at ₹6.68 Lakh and goes up to ₹12.31 Lakh. It offers a 1.2L petrol engine (87 bhp in base form), manual and automatic transmissions with a factory-fitted CNG option. Key highlights include a 5-star Bharat NCAP safety rating and a turbo-petrol engine. It rivals the Hyundai Exter, Maruti Suzuki Baleno, Maruti Suzuki Brezza and Maruti Suzuki FRONX.

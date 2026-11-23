@@ -1,0 +1,3 @@
+Dealer details checked:
+
+There are **13 authorised Maruti Suzuki showrooms in Noida**: Magic Auto Nexa, Fair Deal Premium Wheels Pvt. Ltd. – C Block, 201301, Vipul Motors Pvt.Ltd. – Near International Lingua I…, 201301, Vipul Motors Pvt.Ltd. – H Block, 201301, Competent Automobiles Company Ltd. - Sector 85 and 8 more. The largest dealer groups are Vipul Motors (3 outlets), Fair Deal Premium Wheels (2 outlets). Find address, phone number and directions for each below, or browse the full Maruti Suzuki range.

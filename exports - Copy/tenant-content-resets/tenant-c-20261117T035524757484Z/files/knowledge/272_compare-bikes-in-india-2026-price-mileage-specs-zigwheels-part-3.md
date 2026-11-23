@@ -1,0 +1,3 @@
+The Harley Davidson X440 is powered by a 440 cc engine producing a maximum power of 27.37 PS at 6,000 rpm and a peak torque of 38 Nm at 4,000 rpm, paired with a manual transmission. It comes equipped with dual-channel ABS, Bluetooth connectivity, and a fully digital instrument console, offering a blend of modern features and safety. The upcoming Harley Davidson X440 T is expected to launch in December 2025. We recommend waiting for the official announcement to know the exact features, performance updates, and variant-specific differences.
+
+Q. Is speed T4 a better option than speed 400 in terms of city rides

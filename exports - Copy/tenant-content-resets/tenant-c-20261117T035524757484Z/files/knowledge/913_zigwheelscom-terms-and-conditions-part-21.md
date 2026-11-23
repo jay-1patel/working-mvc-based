@@ -1,0 +1,5 @@
+zigwheels.com makes no warranties or representations as to the contents of this site and zigwheels.com assumes no liability or responsibility for any errors or omissions in the content on the site. The contents are provided "as is" and without warranty of any kind, either express or implied, including, but not limited to, the implied warranties of merchantability, fitness for a particular purpose, or non-infringement. zigwheels.com further makes no representation or warranty that any files, links or pointers available through this site will be free of viruses or other codes that contain contaminating or destructive properties. To the fullest extent permissible pursuant to the applicable law, zigwheels.com disclaims all warranties, express or implied.zigwheels.com makes no warranty that
+
+(i) The information will meet your requirements
+
+(ii) The site will be uninterrupted, timely, secure, or error-free,

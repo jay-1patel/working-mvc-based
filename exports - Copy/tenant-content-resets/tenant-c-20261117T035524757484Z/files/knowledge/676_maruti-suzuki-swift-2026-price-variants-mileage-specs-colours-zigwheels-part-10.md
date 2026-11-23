@@ -1,0 +1,3 @@
+## Questions & Answers on Maruti Suzuki Swift
+
+- The addition of paddle shifters to the Maruti Suzuki Swift AMT Type 3 may require modifications and compatibility checks. We recommend connecting with your nearest authorized service centre, as they will be able to confirm whether this modification is feasible and provide accurate guidance. You can find your nearest service centre by clicking on this link: https://www.zigwheels.com/service-centers/maruti-suzuki/Delhi

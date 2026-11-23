@@ -1,0 +1,5 @@
+## Hero Bikes Questions and Answers
+
+- The Hero Glamour X 125 is available in five colour options: Black Pearl Red, Black Teal Blue, Candy Blazing Red, and Matte Metallic Silver. However, colour availability may vary depending on the location and dealership stock. We recommend connecting with your nearest authorized Hero MotoCorp dealership for the latest availability. Kindly click on the provided dealership link to locate the nearest dealership in your city: https://www.zigwheels.com/bikes/dealers/hero/Delhi
+
+- The Hero MotoCorp HF Deluxe features an analogue speedometer and an analogue odometer, providing essential riding information in a simple and easy-to-read format. For more detailed specifications, features, and other information, kindly click on the provided link: https://www.zigwheels.com/hero-bikes/hf-deluxe/specifications/

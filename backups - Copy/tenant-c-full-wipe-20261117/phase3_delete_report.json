@@ -1,0 +1,136 @@
+{
+  "deleted": {
+    "faq_dataset": {
+      "deleted": 8,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "tenant_faq": {
+      "deleted": 0,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "knowledge_base": {
+      "deleted": 3,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "tenant_kb": {
+      "deleted": 0,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "products": {
+      "deleted": 6,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "tenant_crawl_runs": {
+      "deleted": 3,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "tenant_crawl_staged": {
+      "deleted": 2,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "tenant_crawl_images": {
+      "deleted": 548,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "tenant_crawl_schedules": {
+      "deleted": 0,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "admin_files": {
+      "deleted": 5,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "cached_embeddings": {
+      "deleted": 0,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "tenant_profile_versions": {
+      "deleted": 16,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "menus": {
+      "deleted": 0,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "menu_settings": {
+      "deleted": 0,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "session_buttons": {
+      "deleted": 0,
+      "filter": {
+        "tenant_id": "c"
+      }
+    },
+    "published_config": {
+      "deleted": 1,
+      "filter": {
+        "scope": "tenant_profile:c"
+      }
+    },
+    "draft_config": {
+      "deleted": 1,
+      "filter": {
+        "scope": "tenant_profile:c"
+      }
+    },
+    "publish_history": {
+      "deleted": 17,
+      "filter": {
+        "scope": "tenant_profile:c"
+      }
+    },
+    "tenant_crawl_pages": {
+      "deleted": 1991,
+      "per_run_id": {
+        "74": 1,
+        "75": 95,
+        "76": 1895
+      },
+      "filter": "run_id equality per tenant-c crawl run"
+    }
+  },
+  "moved": {
+    "clients/c": {
+      "moved": false,
+      "reason": "source missing"
+    },
+    "data/tenants/c": {
+      "moved": true,
+      "dest": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backups\\tenant-c-full-wipe-20261117\\disk\\moved_original__data__tenants__c"
+    },
+    "backend/uploaded_files/crawl_images/c": {
+      "moved": true,
+      "dest": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backups\\tenant-c-full-wipe-20261117\\disk\\moved_original__backend__uploaded_files__crawl_images__c"
+    }
+  },
+  "stray_second_pass": {}
+}

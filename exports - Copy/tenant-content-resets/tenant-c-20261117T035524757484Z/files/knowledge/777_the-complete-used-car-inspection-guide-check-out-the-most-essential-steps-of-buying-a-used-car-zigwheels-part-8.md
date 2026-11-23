@@ -1,0 +1,5 @@
+For a brand-new car, the checks are slightly different but just as important: verify the manufacturing date, look closely for any transit damage, check for leftover protective film residue, and confirm every dealer-fitted accessory matches what was actually ordered. A proper pre-delivery inspection checklist for a new car essentially comes down to five things: Paint thickness, panel gaps, the undercarriage, the engine bay, and the electronics. Get those right, and there's very little left to surprise you later.
+
+So whether it is a used car or a new car, there can be some unwanted issues.
+
+Pro tip: If there are minor scratches on a new car, you can ask the dealer for a bigger discount or free scratch repair. Similarly, for a used car, your thorough check can help you negotiate the price of the car if you really like that particular car and want it irrespective of the minor issues.

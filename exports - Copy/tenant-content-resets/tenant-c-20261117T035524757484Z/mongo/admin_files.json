@@ -1,0 +1,173 @@
+[
+  {
+    "_id": {
+      "$oid": "6afa93bfbaab16bed28e45ae"
+    },
+    "id": 14,
+    "name": "Automobile-WhatsApp-Assistant-Company-Document.pdf",
+    "ext": "pdf",
+    "module": "kb",
+    "size": 571616,
+    "doc_id": null,
+    "file_path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backend\\uploaded_files\\kb\\Automobile-WhatsApp-Assistant-Company-Document.pdf",
+    "url": "https://used-tool-buzz-addresses.trycloudflare.com/uploaded_files/kb/Automobile-WhatsApp-Assistant-Company-Document.pdf",
+    "created_at": {
+      "$date": "2026-11-15T08:55:01Z"
+    },
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 0,
+    "error_message": null,
+    "bifurcation_stats": null
+  },
+  {
+    "_id": {
+      "$oid": "6afad28c8004cc893007424b"
+    },
+    "name": "Velocity-Motors-100-FAQs.pdf",
+    "ext": "pdf",
+    "module": "kb",
+    "size": 135094,
+    "doc_id": null,
+    "file_path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backend\\uploaded_files\\kb\\Velocity-Motors-100-FAQs.pdf",
+    "url": "https://used-tool-buzz-addresses.trycloudflare.com/uploaded_files/kb/Velocity-Motors-100-FAQs.pdf",
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 0,
+    "error_message": null,
+    "created_at": {
+      "$date": "2026-11-16T09:53:16.773Z"
+    },
+    "id": 19
+  },
+  {
+    "_id": {
+      "$oid": "6afad2dd8ab4e84f39ed56b5"
+    },
+    "name": "fake-pdf.pdf",
+    "ext": "pdf",
+    "module": "kb",
+    "size": 32708,
+    "doc_id": null,
+    "file_path": "C:\\AI_Chatbot\\backend\\uploaded_files\\kb\\fake-pdf.pdf",
+    "url": "https://used-tool-buzz-addresses.trycloudflare.com/uploaded_files/kb/fake-pdf.pdf",
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 1,
+    "error_message": "",
+    "created_at": {
+      "$date": "2026-11-16T09:54:37.188Z"
+    },
+    "id": 20,
+    "bifurcation_stats": {
+      "tenant_id": "c",
+      "vertical": "generic",
+      "brand": {
+        "name": "Maruti Suzuki Dealer",
+        "bot_name": "Velocity Assistant",
+        "tagline": "Your trusted partner for new car sales, exchange programs, and genuine service maintenance.",
+        "website": "https://www.c.com",
+        "support_email": "care@velocitymotors.in",
+        "support_phone": "+91 98765 43210",
+        "signature": "Regards, Maruti Suzuki Team"
+      },
+      "menu_buttons_count": 6,
+      "intents_count": 2,
+      "offerings_created": 0,
+      "offerings_sample": [],
+      "offerings_rejected": 0,
+      "offerings_rejected_sample": [],
+      "faqs_saved": 0,
+      "kb_chunks_indexed": 0,
+      "brand_updated": false,
+      "version": 0,
+      "status": "configured",
+      "staged": true,
+      "vertical_extracted": "generic",
+      "vertical_locked": false,
+      "info_pages_updated": [],
+      "faqs_rejected": 0,
+      "faqs_rejected_sample": [],
+      "files_processed": [
+        "fake-pdf.pdf"
+      ],
+      "careful_brand_merge": true
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afaf1c481c65abaed623fff"
+    },
+    "name": "1511.pdf",
+    "ext": "pdf",
+    "module": "faq",
+    "size": 571616,
+    "doc_id": null,
+    "file_path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backend\\uploaded_files\\faq\\1511.pdf",
+    "url": "http://10.100.100.43:9000/uploaded_files/faq/1511.pdf",
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 27,
+    "error_message": "",
+    "created_at": {
+      "$date": "2026-11-16T12:06:28.237Z"
+    },
+    "id": 21,
+    "bifurcation_stats": {
+      "offerings_created": 0,
+      "offerings_sample": [],
+      "faqs_saved": 0,
+      "kb_chunks_indexed": 0,
+      "menu_buttons_count": 0,
+      "intents_count": 0,
+      "brand_updated": false,
+      "brand": {},
+      "vertical": null,
+      "status": "error",
+      "files_processed": [
+        "1511.pdf"
+      ],
+      "error": "Extracted PDF image 1511_p3_0.jpg has no public URL (ImageHipo / PUBLIC_BASE_URL)"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afaf22381c65abaed624022"
+    },
+    "name": "1511_faq.pdf",
+    "ext": "pdf",
+    "module": "faq",
+    "size": 307919,
+    "doc_id": null,
+    "file_path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backend\\uploaded_files\\faq\\1511_faq.pdf",
+    "url": "/uploaded_files/faq/1511_faq.pdf",
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 9,
+    "error_message": null,
+    "created_at": {
+      "$date": "2026-11-16T12:08:03.330Z"
+    },
+    "id": 22
+  },
+  {
+    "_id": {
+      "$oid": "6afaf22481c65abaed62402e"
+    },
+    "name": "1511_kb.pdf",
+    "ext": "pdf",
+    "module": "kb",
+    "size": 309818,
+    "doc_id": null,
+    "file_path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backend\\uploaded_files\\kb\\1511_kb.pdf",
+    "url": "/uploaded_files/kb/1511_kb.pdf",
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 11,
+    "error_message": null,
+    "created_at": {
+      "$date": "2026-11-16T12:08:04.635Z"
+    },
+    "id": 23
+  }
+]

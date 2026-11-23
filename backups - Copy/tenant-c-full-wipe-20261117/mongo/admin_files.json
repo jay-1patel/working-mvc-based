@@ -1,0 +1,152 @@
+[
+  {
+    "_id": {
+      "$oid": "6afbf8d78ab4e84f39ed9bd3"
+    },
+    "name": "fake-pdf.pdf",
+    "ext": "pdf",
+    "module": "new_arrival",
+    "size": 32708,
+    "doc_id": null,
+    "file_path": "C:\\AI_Chatbot\\backend\\uploaded_files\\new_arrival\\fake-pdf.pdf",
+    "url": "https://used-tool-buzz-addresses.trycloudflare.com/uploaded_files/new_arrival/fake-pdf.pdf",
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 1,
+    "error_message": "",
+    "created_at": {
+      "$date": "2026-11-17T06:48:55.004Z"
+    },
+    "id": 24,
+    "bifurcation_stats": {
+      "tenant_id": "c",
+      "vertical": "generic",
+      "brand": {
+        "name": "MetroDrive Autos ",
+        "bot_name": "Velocity Assistant",
+        "tagline": "Your trusted partner for new car sales, exchange programs, and genuine service maintenance.",
+        "website": "https://ar.al/2020/08/07/what-is-the-small-web/",
+        "support_email": "care@velocitymotors.in",
+        "support_phone": "+91 98765 43210",
+        "signature": "Regards, Maruti Suzuki Team"
+      },
+      "menu_buttons_count": 6,
+      "intents_count": 2,
+      "offerings_created": 0,
+      "offerings_sample": [],
+      "offerings_rejected": 0,
+      "offerings_rejected_sample": [],
+      "faqs_saved": 0,
+      "kb_chunks_indexed": 0,
+      "brand_updated": false,
+      "version": 0,
+      "status": "configured",
+      "staged": true,
+      "vertical_extracted": "generic",
+      "vertical_locked": false,
+      "info_pages_updated": [],
+      "faqs_rejected": 0,
+      "faqs_rejected_sample": [],
+      "files_processed": [
+        "fake-pdf.pdf"
+      ],
+      "careful_brand_merge": true
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbfa098ab4e84f39ed9bd8"
+    },
+    "name": "fake-pdf.pdf",
+    "ext": "pdf",
+    "module": "kb",
+    "size": 32708,
+    "doc_id": null,
+    "file_path": "C:\\AI_Chatbot\\backend\\uploaded_files\\kb\\fake-pdf.pdf",
+    "url": "https://used-tool-buzz-addresses.trycloudflare.com/uploaded_files/kb/fake-pdf.pdf",
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 0,
+    "error_message": null,
+    "created_at": {
+      "$date": "2026-11-17T06:54:01.823Z"
+    },
+    "id": 25
+  },
+  {
+    "_id": {
+      "$oid": "6afc0148183d84de11a86a55"
+    },
+    "name": "faq-test-upload.pdf",
+    "ext": "pdf",
+    "module": "faq",
+    "size": 45,
+    "doc_id": null,
+    "file_path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backend\\uploaded_files\\faq\\faq-test-upload.pdf",
+    "url": "http://10.100.100.43:9000/uploaded_files/faq/faq-test-upload.pdf",
+    "tenant_id": "c",
+    "status": "ready",
+    "chunks_count": 0,
+    "error_message": "",
+    "created_at": {
+      "$date": "2026-11-17T07:24:56.457Z"
+    },
+    "id": 26,
+    "bifurcation_stats": {
+      "tenant_id": "c",
+      "vertical": "generic",
+      "brand": {
+        "name": "MetroDrive Autos ",
+        "bot_name": "Velocity Assistant",
+        "tagline": "Your trusted partner for new car sales, exchange programs, and genuine service maintenance.",
+        "website": "https://ar.al/2020/08/07/what-is-the-small-web/",
+        "support_email": "care@velocitymotors.in",
+        "support_phone": "+91 98765 43210",
+        "signature": "Regards, Maruti Suzuki Team"
+      },
+      "menu_buttons_count": 6,
+      "intents_count": 3,
+      "offerings_created": 0,
+      "offerings_sample": [],
+      "offerings_rejected": 0,
+      "offerings_rejected_sample": [],
+      "faqs_saved": 5,
+      "kb_chunks_indexed": 0,
+      "brand_updated": false,
+      "version": 0,
+      "status": "configured",
+      "staged": true,
+      "vertical_extracted": "generic",
+      "vertical_locked": false,
+      "info_pages_updated": [
+        "technologies"
+      ],
+      "faqs_rejected": 0,
+      "faqs_rejected_sample": [],
+      "files_processed": [
+        "faq-test-upload.pdf"
+      ],
+      "careful_brand_merge": true
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbff45c73b112556202c8c"
+    },
+    "name": "faq-test-upload.pdf",
+    "ext": "pdf",
+    "module": "faq",
+    "size": 45,
+    "doc_id": null,
+    "file_path": "C:\\AI_Chatbot\\backend\\uploaded_files\\faq\\faq-test-upload.pdf",
+    "url": "http://10.100.100.43:9000/uploaded_files/faq/faq-test-upload.pdf",
+    "tenant_id": "c",
+    "status": "processing",
+    "chunks_count": 0,
+    "error_message": null,
+    "created_at": {
+      "$date": "2026-11-17T07:16:21.963Z"
+    },
+    "id": 27
+  }
+]

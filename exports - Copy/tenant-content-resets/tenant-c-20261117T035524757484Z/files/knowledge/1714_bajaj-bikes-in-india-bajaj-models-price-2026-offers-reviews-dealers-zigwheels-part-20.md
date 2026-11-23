@@ -1,0 +1,5 @@
+## About Bajaj
+
+Today, Bajaj Auto is one of the largest two-wheeler manufacturers in the world, with a wide range of motorcycles and scooters that are sold in India and in international markets. In recent years, the company has also focused on developing electric vehicles, launching the Chetak electric scooter in 2020.
+
+In 2007, Bajaj and KTM joined hands in a strategic partnership between Bajaj Auto and KTM AG, with Bajaj Auto acquiring a 14.5% stake in KTM AG - a stake which later grew to 49.9%. The partnership has been highly successful, with the two companies collaborating on the development of new motorcycles and sharing technology and manufacturing expertise. Bajaj Auto manufactures KTM bikes in India and exports them to markets around the world, while KTM AG provides Bajaj Auto with access to its advanced technology and design capabilities. Today, the Bajaj-KTM tie-up is considered one of the most successful collaborations in the global motorcycle industry.

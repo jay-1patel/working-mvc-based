@@ -108,10 +108,14 @@ function routeDefault(
 
   // ── tenants ─────────────────────────────────────────────────────────
   if (path === '/api/admin/tenants' && method === 'GET') return json({ tenants: fixtures.tenants })
+  if (path === '/api/admin/tenants/list' && method === 'POST') return json({ tenants: fixtures.tenants })
+  if (path === '/api/tenant-change-requests/mine' && method === 'POST') return json({ requests: [] })
   if (path === '/api/admin/tenants' && method === 'POST')
     return json({ ok: true, tenant: { ...fixtures.tenant, ...body } })
   if (method === 'POST') {
     if (path === '/api/admin/tenants/resolved') return json(fixtures.resolved)
+    if (path === '/api/admin/tenants/conversations')
+      return json({ conversations: fixtures.threads, count: fixtures.threads.length })
     if (path === '/api/admin/tenants/chat/thread' || path === '/api/admin/tenants/conversations/detail')
       return json({ wa_id: body?.wa_id, messages: fixtures.turns })
     const threadMatch = path.match(/^\/api\/admin\/tenants\/([^/]+)\/conversations\/([^/?]+)/)

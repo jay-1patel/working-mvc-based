@@ -1,0 +1,458 @@
+curl.exe -sI "http://10.100.100.43:9000/uploaded_files/product_images/c_honda-city_f01f2fd704.jpg
+
+
+************************************************chats:-
+
+### List inbox conversations
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/inbox" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"include_resolved":false}'
+
+### List agents
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/agents" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{}'
+```
+
+### Load one conversation
+
+Replace `WA_ID` with the customer's WhatsApp number.
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/conversations/detail" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"wa_id":"919512777899","limit":300}'
+```
+
+### Send a reply
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/inbox/reply" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"wa_id":"919512777899","message":"Hello from admin"}'
+```
+
+### Assign a conversation
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/inbox/assign" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"wa_id":"919512777899","agent_id":"AGENT_ID"}'
+```
+
+### Resolve a conversation
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/inbox/resolve" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"wa_id":"919512777899","reply":true}'
+```
+
+### Hand conversation to a human
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/inbox/handover" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"wa_id":"919512777899","mode":"human"}'
+```
+
+Use `"mode":"bot"` to return control to the bot.
+
+## Bot menu
+
+### Load the published menu
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/resolved" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{}'
+```
+
+The page also currently calls `GET /api/admin/tenants/{tenant_id}/detail` for
+draft status. That secondary endpoint is not yet available as a session-only URL.
+
+*********************************************admin:-
+curl --location 'http://10.100.100.43:9000/api/auth/admins' \
+--header 'username: cars' \
+--header 'session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0' \
+--header 'Content-Type: application/json' \
+--request POST \
+--data-raw '{}'
+
+**********************************************dashboard:-
+curl --location --request POST 'http://127.0.0.1:9000/api/admin/dashboard/overview?days=7&limit=8' \
+--header 'username: cars' \
+--header 'session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0' \
+--header 'Content-Type: application/json' \
+--data-raw '{}'
+
+### Dashboard inbox summary
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/inbox" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"include_resolved":false}'
+```
+
+### Dashboard chat history
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/chat-history" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"days":1,"limit":500}'
+
+### Dashboard crawl runs
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/crawl-runs" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{}'
+```
+
+### Dashboard customers
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/customers" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"q":"","limit":500}'
+```
+
+***********************************************profile:-
+curl --location 'http://10.100.100.43:9000/api/admin/tenants/c/profile' \
+--header 'username: cars' \
+--header 'session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0' \
+--header 'Content-Type: application/json' \
+--request POST \
+--data-raw '{
+  "snapshot": {
+    "display_name": "MetroDrive Autos",
+    "vertical": "automotive",
+    "brand": {
+      "name": "MetroDrive Autos",
+      "bot_name": "MetroBot",
+      "tagline": "Your neighbourhood car partner",
+      "website": "https://example.com",
+      "support_email": "support@example.com",
+      "support_phone": "+919876543210",
+      "signature": "Team MetroDrive",
+      "logo_url": "http://10.100.100.43:9000/api/logos/c.png"
+    },
+    "features": {
+      "cart": false,
+      "buy_now": false,
+      "orders": false,
+      "payments": false,
+      "track_order": false,
+      "returns": false,
+      "brochure_pdf": true,
+      "distributors": false,
+      "offerings": true,
+      "offering_details": true,
+      "services": true,
+      "products": true,
+      "products_schemes": true,
+      "lead_capture": true,
+      "quote": true,
+      "callback": true,
+      "book_appointment": false,
+      "handoff": true,
+      "faq": true,
+      "kb": true,
+      "complaints": true,
+      "campaigns": false,
+      "human_handover": true,
+      "message_intelligence": false,
+      "topic_tagging": false,
+      "safety_escalation": false,
+      "repeat_issue_detection": false
+    },
+    "vocabulary": {
+      "item_noun": "cars",
+      "item_noun_singular": "car",
+      "browse_label": "Browse Cars",
+      "catalog_label": "View Brochure",
+      "catalog_noun": "brochure",
+      "order_noun": "order",
+      "order_noun_plural": "orders",
+      "cart_noun": "cart",
+      "checkout_label": "Checkout",
+      "brochure_label": "Brochure",
+      "brochure_noun": "brochure",
+      "offer_noun": "offer",
+      "offer_noun_plural": "offers",
+      "lead_noun": "enquiry",
+      "enquiry_label": "Enquire",
+      "quote_label": "Get a Quote",
+      "callback_label": "Request a Callback",
+      "support_label": "Support",
+      "track_label": "Track Order"
+    },
+    "business_hours": {
+      "timezone": "Asia/Kolkata",
+      "always_open": false,
+      "open": "09:00",
+      "close": "21:00",
+      "open_days": [0, 1, 2, 3, 4, 5],
+      "out_of_hours_message": "We are closed. Leave your details and we will call back."
+    },
+    "guardrails": {
+      "never_state": ["guaranteed approval", "legal advice"],
+      "never_state_notes": {
+        "guaranteed approval": "Never promise loan or insurance approval"
+      },
+      "escalate_keywords": ["manager", "complaint", "fraud"],
+      "escalation_message": "Let me connect you with our team.",
+      "forbidden_terms": ["competitor-x"],
+      "handoff_keywords": ["human", "agent", "person"]
+    },
+    "notifications": {
+      "sales_email": "sales@example.com",
+      "support_email": "support@example.com",
+      "brochure_url": "http://10.100.100.43:9000/uploaded_files/brochures/sample.pdf",
+      "brochure_label": "Company Brochure",
+      "channels": [
+        {
+          "type": "email",
+          "to": "ops@example.com",
+          "label": "Ops inbox",
+          "enabled": true,
+          "secret": ""
+        }
+      ]
+    },
+    "prompt": {
+      "name": "MetroDrive",
+      "tone": "helpful",
+      "industry": "automotive",
+      "domain_specific_queries": "cars, service, pricing, support",
+      "domain_specific_topics": "cars, service, pricing, support",
+      "support_trigger_topics": "custom requests, urgent issues",
+      "complex_topics": "enterprise fleet, custom builds",
+      "listing_type": "cars or services",
+      "keywords": ["car", "service", "finance"],
+      "system_prompt": "",
+      "strict_prompt": ""
+    },
+    "menu": {
+      "key": "main",
+      "header": "MetroDrive",
+      "body": "How can we help?",
+      "footer": "MetroDrive Autos",
+      "button_text": "Open menu",
+      "buttons": [
+        {
+          "id": "browse",
+          "title": "Browse Cars",
+          "description": "See available models",
+          "section": "Main",
+          "icon": "",
+          "sort_order": 1,
+          "enabled": true,
+          "requires_feature": "products",
+          "out_of_hours_only": false,
+          "flow": null,
+          "intent": "browse_products"
+        }
+      ]
+    },
+    "intents": [
+      {
+        "name": "browse_products",
+        "examples": ["show cars", "what models do you have"],
+        "keywords": ["cars", "models", "browse"],
+        "requires_feature": "products",
+        "flow": null,
+        "answer": null,
+        "enabled": true
+      }
+    ],
+    "flows": []
+  }
+}'
+
+---
+
+## . Publish / submit for approval (does “all the things”)
+
+After a successful draft save, call publish:
+
+
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/c/publish" \
+  --header "username: cars" \
+  --header "session_id: YOUR_SESSION_ID" \
+  --header "Content-Type: application/json" \
+  --data '{}'
+```
+
+
+**********************************customers
+## Customers
+
+### List customers
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/customers" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"q":"","limit":200}'
+```
+
+### Search customers
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/customers" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"q":"9195","limit":200}'
+```
+### List uploaded files
+
+Use `kb`, `faq`, `brochure`, or `new_releases` as the module.
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/files" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"module":"kb","search":""}'
+```
+
+### Upload a knowledge-base document
+
+Replace `BASE64_FILE_CONTENT` with the document's Base64 content.
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/files/upload" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"filename":"knowledge.pdf","content":"BASE64_FILE_CONTENT","module":"kb","media_type":"application/pdf"}'
+```
+
+### Upload an FAQ document
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/files/upload" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"filename":"faq.pdf","content":"BASE64_FILE_CONTENT","module":"faq","media_type":"application/pdf"}'
+```
+
+### Delete an uploaded file
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/files/delete" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"filename":"knowledge.pdf"}'
+```
+
+### Preview an uploaded file
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/files/preview" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"filename":"knowledge.pdf"}' \
+  --output preview.bin
+```
+
+### Download an uploaded file
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/files/download" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"filename":"knowledge.pdf"}' \
+  --output knowledge.pdf
+```
+
+### Reprocess existing files
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/files/bifurcate-existing" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"filenames":["knowledge.pdf"],"auto_publish":false}'
+```
+
+### List knowledge gaps
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"resolved":false,"limit":50}'
+```
+
+### Resolve a knowledge gap
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps/resolve" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"gap_id":1,"notes":"Resolved"}'
+```
+
+### Create an FAQ from a knowledge gap
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps/create-faq" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{"gap_id":1,"question":"Example question?","answer":"Example answer."}'
+```
+
+### List onboarding-kit templates
+
+```bash
+curl --request POST "http://10.100.100.43:9000/api/admin/onboarding-kits/list" \
+  --header "username: cars" \
+  --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" \
+  --header "Content-Type: application/json" \
+  --data '{}'
+```
+
+  curl --request POST "http://127.0.0.1:9000/api/admin/tenants/c/onboarding/stage" ^
+    --header "username: cars" ^
+    --header "session_id: 7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0" ^
+    --header "Content-Type: application/json" ^
+    --data "{\"files\":[{\"filename\":\"brochure.pdf\",\"content\":\"BASE64_FILE_CONTENT\"}],\"lane\":\"any\"}"

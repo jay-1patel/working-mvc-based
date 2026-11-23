@@ -1,0 +1,5 @@
+Earlier, the riding modes didn’t really feel all that different. Even the calmer mode felt a bit jumpy. Now, with City and Sport modes, replacing the earlier Eco and Performance, there’s a clear distinction. City mode is smoother, calmer, and easier to live across the rev range. Switch to Sport, and that lively, slightly aggressive character comes back.
+
+It finally feels like the modes actually do something.
+
+Feature-wise, things remain mostly the same, but with a couple of genuinely useful additions. The biggest one? You can now use Google Maps navigation even with the screen switched off. It’s currently limited to Android, but still super handy. You also get GPX route support and ride data sharing, which adds to the overall riding experience. That said, your phone battery will still take a hit, so keep that charger handy.

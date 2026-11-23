@@ -1,0 +1,1 @@
+4.2 You understand that all Contents, whether publicly posted or privately transmitted, are the sole responsibility of the person from which such Content originated. This means that you, and not zigwheels.com, are entirely responsible for all Content that you have provided zigwheels.com with in order to upload, post, transmit or otherwise make available via the Site.

@@ -1,0 +1,5 @@
+## Best 151 To 200cc Bikes (34 results)
+
+- Compare Variants Ex-Showroom Price Pulsar N160 S STD 165 cc | 44 kmplRs. 1.38 LakhCheck On Road PricePulsar N160 S S 165 cc | 44 kmplRs. 1.47 LakhCheck On Road Price
+- Compare **Bajaj Pulsar NS200** Rs. 1.41 - 1.51 Lakh199.5 cc | 40.36 kmplView November OffersView All VariantsVariants Ex-Showroom Price Pulsar NS200 Single Channel 200 cc | 40.36 kmplRs. 1.41 LakhCheck On Road PricePulsar NS200 Dual Channel USD 200 cc | 40.36 kmplRs. 1.51 LakhCheck On Road Price
+- Compare **TVS Apache RTR 160 4V** Rs. 1.20 - 1.42 Lakh159.7 cc | 41 kmplView November OffersView All VariantsVariants Ex-Showroom Price Apache RTR 160 4V RM Disc (Black Edition) 160 cc | 41 kmplRs. 1.20 LakhCheck On Road PriceApache RTR 160 4V Single Channel ABS 160 cc | 41 kmplRs. 1.28 LakhCheck On Road PriceApache RTR 160 4V Dual Channel ABS with USD 160 cc | 41 kmplRs. 1.34 LakhCheck On Road PriceApache RTR 160 4V Limited Anniversary Edition 160 cc | 41 kmplRs.

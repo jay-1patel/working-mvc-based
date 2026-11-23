@@ -1,0 +1,5 @@
+## Best Car User Reviews
+
+0ShareAnurag Jethliya 8 months ago
+-
+CretaPurchased New Creta Sx model Purchased new creta sx model 2024 just couple of weeks ago.First of all the look, The looks are amazing.Be it1front or back rhe car looks amazing from every angle.The inside of the car is also amazing and looks1premium.Automatic climate control, Big touch screen wireless charger is good to have features.Sunroof is also1a nice to have a feature but doubt that would be much of use in indian conditions.The legroom in the backseats1is also very good.Ac air vent for the rear seats is there and so is charging ports which is type c.But one1thing that i felt was under thigh support on rear seats on hyundai venue is much better which is lower segment1car in this comparision.The boot space is very good for carrying for even 3 full size trolley bags.The one1thing which i really didn't liked the seat belts are open and not within the pillars, Though seat belts come1with height adjustment.The driving experience is also great and

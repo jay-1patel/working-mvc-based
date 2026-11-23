@@ -1,0 +1,136 @@
+{
+  "tenant_id": "c",
+  "date": "2026-11-19",
+  "messages": [
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[flow] Exit",
+      "response": "Okay, I've cancelled that. Type *menu* anytime to see what I can help with.",
+      "route": "flow",
+      "created_at": "2026-11-19 09:28:26"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[greeting] Hi",
+      "response": "",
+      "route": "greeting",
+      "created_at": "2026-11-19 09:41:11"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[intent] Finance Options",
+      "response": "🧠 *Finance Options*\n• We offer dedicated support through our Loan & Insurance Desk, which is fully available to assist you with all your vehicle financing inquiries.\n• Our desk provides comprehensive help regarding loan structures and insurance packages, ensuring you have clear guidance throughout the process.\n• For accurate pricing and customized terms, please contact our sales team directly. They will review your specific requirements and generate a personalized quote tailored to your needs.\n• We encourage you to reach out to our sales representatives to discuss your preferences and secure the most suitable financial arrangement for your purchase.\nPlease let us know if you would like to be connected with our sales team or visit our desk for immediate assistance!\n\nMetroDrive Autos Ahmedabad — drive with confidence.",
+      "route": "intent",
+      "created_at": "2026-11-19 09:42:25"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[greeting] Hello",
+      "response": "",
+      "route": "greeting",
+      "created_at": "2026-11-19 09:48:42"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[flow] Customer Care",
+      "response": "I'm sorry to hear that. Let me capture the details so our team can resolve your issue quickly.\nMay I know your name?",
+      "route": "flow",
+      "created_at": "2026-11-19 09:50:20"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[kb] Our Cars",
+      "response": "🧠\n• Welcome to MetroDrive Autos! 🚗 We offer a diverse range of vehicles tailored to your lifestyle and driving needs.\n• Our current lineup includes Sedans, SUVs, Compact cars, and more, ensuring you find the perfect match for city commutes or weekend adventures. 🌆🛣️\n• Each vehicle is available for immediate viewing at our Ahmedabad showroom, where you can explore specifications, features, and test drive options firsthand. 🔑\n• For detailed model-wise pricing, EMI calculations, or specific variant availability, our dedicated sales team is ready to assist you with personalized recommendations. 💼\n• Please note that exact stock levels, launch variants, and promotional offers are updated regularly and may vary by location. 📅\n• 🙋 *Need further assistance?* Our support team is happy to help!\n• 📧 Email us at: service@metrodriveautos.com\n• 📞 Call us at: +91 98250 22011\n• 💬 We're available to help and will get back to you as quickly as possible!\n• ---\n• MetroDrive Autos Ahmedabad — drive with confidence.\n\nMetroDrive Autos Ahmedabad — drive with confidence.",
+      "route": "kb",
+      "created_at": "2026-11-19 09:50:26"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[flow] Exit",
+      "response": "Okay, I've cancelled that. Type *menu* anytime to see what I can help with.",
+      "route": "flow",
+      "created_at": "2026-11-19 09:50:35"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[kb] Our Cars",
+      "response": "🧠 Welcome to MetroDrive Autos Pvt Ltd! We have a complete range of vehicles designed for every driving need and budget. Whether you prefer a fuel-efficient hatchback for city traffic, a premium sedan, a capable SUV, or a spacious 7-seater for family trips, our showroom has it all.\n\nOur current lineup includes:\n- Hatchbacks & Sedans: Swift, WagonR, Baleno, Alto K10, and Celerio\n- SUVs & Crossovers: Hyundai Creta, Maruti Jimny, Mahindra Scorpio-N, and Tata Defender\n- Family & MPVs: Maruti Ertiga, Toyota Fortuner, and Toyota Innova Crysta\n\nAll quoted prices are ex-showroom indicative rates. Final on-road costs vary based on your city registration, insurance, and taxes. To give you the best recommendation, could you share your primary use case and preferred budget range? I can then highlight the exact variants, features, and current availability that match your needs.\n\nJust let me know what you are looking for, and I will guide you step by step.",
+      "route": "kb",
+      "created_at": "2026-11-19 09:51:39"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[kb] 📍 View Variants",
+      "response": "🧠 *Swift* comes in four variants:\n- *LXi* – base model\n- *VXi* – mid‑range\n- *ZXi* – higher trim\n- *ZXi+* – premium\nAll variants start at Rs. 6.49 lakh ex‑showroom (indicative).",
+      "route": "kb",
+      "created_at": "2026-11-19 09:52:58"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[intent] 📍 Ask Price",
+      "response": "🧠 *📍 Ask Price*\n• For a Midsize Sedan, our periodic service typically starts from approximately Rs. 4,800.\n• This initial figure includes both labour charges and the necessary basic parts for standard upkeep.\n• The exact pricing will depend on your vehicle’s current kilometre schedule and any additional extras you require.\n• We guarantee full transparency by sharing a clear cost estimate with you before any work begins.\n• Please review these details and let us know if you would like to proceed with booking your appointment.\n• Our specialists are ready to guide you through the next steps and ensure your vehicle receives timely care.\n\nMetroDrive Autos Ahmedabad — drive with confidence.",
+      "route": "intent",
+      "created_at": "2026-11-19 09:53:54"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[greeting] Hi",
+      "response": "",
+      "route": "greeting",
+      "created_at": "2026-11-19 12:57:44"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "Leeway Softech",
+      "message": "[kb] Our Cars",
+      "response": "🧠\n• Welcome to MetroDrive Autos! 🚗 We proudly present our extensive lineup of brand-new vehicles designed for every lifestyle and driving need.\n• Our collection includes premium Sedans, robust SUVs, fuel-efficient Compacts, and versatile hatchbacks from India’s leading manufacturers.\n• Each vehicle in our inventory is thoroughly inspected, comes with full manufacturer warranty, and is backed by our certified service network.\n• We provide transparent pricing, flexible finance options, and hassle-free documentation to ensure a smooth purchasing experience.\n• Explore our latest arrivals, check real-time stock availability, and compare specifications directly through our digital catalog or visit our Ahmedabad showroom.\n• 🙋 *Need further assistance?* Our support team is happy to help!\n• 📧 Email us at: service@metrodriveautos.com\n• 📞 Call us at: +91 98250 22011\n• 💬 We're available to help and will get back to you as quickly as possible!\n• ---\n• MetroDrive Autos Ahmedabad — drive with confidence.\n\nMetroDrive Autos Ahmedabad — drive with confidence.",
+      "route": "kb",
+      "created_at": "2026-11-19 13:00:33"
+    },
+    {
+      "wa_id": "918690983030",
+      "sender_name": "leeway",
+      "message": "[greeting] Hi",
+      "response": "",
+      "route": "greeting",
+      "created_at": "2026-11-19 17:36:46"
+    },
+    {
+      "wa_id": "918690983030",
+      "sender_name": "leeway",
+      "message": "[kb] Explore Vehicles",
+      "response": "🧠 Awesome! Since you're looking to explore, *Apex Horizon Motors Pune* has a diverse collection across several key categories. As an independent multi-brand dealership, we make it easy to find exactly what fits your needs.\n\nWe primarily deal in:\n- *Executive Sedans*: Ideal for smooth city drives and professional use.\n- *Mid-size Family SUVs*: Great for space, comfort, and safety.\n- *Hybrids*: The perfect blend of efficiency and power.\n- *Certified Pre-Owned Cars*: Reliable, inspected vehicles that offer great value.\n\nAre you leaning towards a specific type, like an SUV for family trips or a sedan for daily commuting? If you share your approximate budget or any must-have features, I can guide you to the right models immediately.",
+      "route": "kb",
+      "created_at": "2026-11-19 17:38:28"
+    },
+    {
+      "wa_id": "918690983030",
+      "sender_name": "leeway",
+      "message": "[human_handover] My car break failef",
+      "response": "",
+      "route": "human_handover",
+      "created_at": "2026-11-19 17:38:30"
+    },
+    {
+      "wa_id": "918690983030",
+      "sender_name": "leeway",
+      "message": "[human_handover] My car battery down",
+      "response": "",
+      "route": "human_handover",
+      "created_at": "2026-11-19 17:40:27"
+    }
+  ],
+  "count": 16,
+  "updated_at": "2026-11-19T17:40:27"
+}

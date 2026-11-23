@@ -215,6 +215,8 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 READ_ONLY_POST_PATHS = frozenset({
     "/api/admin/dashboard/overview",
     "/api/admin/errors",
+    "/api/admin/tenants/list",
+    "/api/admin/tenants/conversations",
     "/api/admin/tenants/conversations/detail",
     "/api/admin/tenants/chat/thread",
     "/api/admin/tenants/chat-history",
@@ -232,10 +234,12 @@ READ_ONLY_POST_PATHS = frozenset({
     "/api/admin/tenants/files/download",
     "/api/admin/tenants/knowledge-gaps",
     "/api/admin/onboarding-kits/list",
+    "/api/tenant-change-requests/mine",
     "/api/auth/admins",
 })
 
 BODY_TENANT_POST_PATHS = frozenset({
+    "/api/admin/tenants/conversations",
     "/api/admin/tenants/conversations/detail",
     "/api/admin/tenants/chat/thread",
     "/api/admin/tenants/chat-history",

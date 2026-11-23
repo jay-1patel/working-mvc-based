@@ -1,0 +1,5 @@
+## Yamaha Bikes Questions and Answers
+
+- The ARAI-claimed mileage of the Yamaha FZ-S Fi is 60 kmpl. However, the actual mileage may vary depending on factors such as riding style, traffic conditions, road conditions, load, and bike maintenance. Since your bike is only 6 months old and is giving around 42 kmpl, you can also visit the nearest authorised Yamaha service centre to have the bike checked and identify if there is any issue affecting the mileage.
+
+- For the Bluetooth device/accessory price for the Yamaha R15 V4, we recommend contacting the nearest authorised Yamaha service centre, as the price may vary depending on the accessory, variant, and availability. You can find your nearest Yamaha service centre by clicking on this link: https://www.zigwheels.com/bikes/service-centers/yamaha/Delhi

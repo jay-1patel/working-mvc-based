@@ -1,0 +1,5 @@
+## About Vespa
+
+Born in Florence, Italy back in 1946, Vespa scooters have been around for over seven and a half decades. Piaggio, the company behind Vespa, originally designed these scooters to provide affordable and practical transportation for the Italian masses after the Second World War. Thanks to starring in some high profile Hollywood movies in the ‘50s, the Vespa scooter shot to global fame.
+
+Although Piaggio had done a tie-up in the mid-1960s with Chakan based Bajaj Auto to sell rebadged Vespas in India, and later in 1990 with the Lohia group to sell them here under the LML Vespa name, these collaborations ended after a few years. It was only in 2012 that Piaggio launched the Vespa brand in India by itself with the LX125. Piaggio also started producing Vespas in India in their own manufacturing facility in Baramati, near Pune, and launched several other models soon after.

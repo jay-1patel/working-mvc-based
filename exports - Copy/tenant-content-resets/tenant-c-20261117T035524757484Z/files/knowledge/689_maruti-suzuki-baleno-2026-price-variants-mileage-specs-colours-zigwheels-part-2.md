@@ -1,0 +1,3 @@
+## Maruti Suzuki Baleno
+
+Updated: November 2026. Maruti Suzuki Baleno on-road price in Lucknow starts at ₹6.99 Lakh and goes up to ₹11.37 Lakh. It offers a 1.2L petrol engine (82 bhp in base form), manual and automatic transmissions with ARAI mileage 23.8–24.77 kmpl, plus CNG claimed 33.61 km/kg. Key highlights include multiple fuel options and a fuel-efficient engine. It rivals the Hyundai i20, Tata Aeris, Tata Punch and Toyota Glanza.

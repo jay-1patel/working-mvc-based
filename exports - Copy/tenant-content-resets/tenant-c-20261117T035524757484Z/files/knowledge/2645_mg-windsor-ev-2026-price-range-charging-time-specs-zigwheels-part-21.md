@@ -1,0 +1,3 @@
+## Questions & Answers on MG Windsor EV
+
+- The Turkish Green is a great choice if you want your Windsor EV to stand out with a unique and premium look. It gives the car a fresh, modern appearance and is less commonly seen on the road. On the other hand, Black offers a classy, timeless appeal but tends to show dust and minor scratches more easily. Ultimately, the choice depends on your personal preference, so we recommend choosing the colour that you like the most.

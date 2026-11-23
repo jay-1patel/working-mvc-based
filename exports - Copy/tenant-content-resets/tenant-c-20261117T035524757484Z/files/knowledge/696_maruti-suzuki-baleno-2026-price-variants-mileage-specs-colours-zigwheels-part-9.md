@@ -1,0 +1,3 @@
+## Questions & Answers on Maruti Suzuki Baleno
+
+- As of now, Maruti Suzuki has not officially confirmed whether the upcoming Baleno will retain the current 4-cylinder engine configuration. The existing model is powered by a 1.2L, 4-cylinder petrol engine, known for its refined performance and fuel efficiency. However, no official information has been released regarding any changes or continuation of this engine setup in future versions. We recommend to stay tuned on official announcements from Maruti Suzuki for the most accurate and updated information.

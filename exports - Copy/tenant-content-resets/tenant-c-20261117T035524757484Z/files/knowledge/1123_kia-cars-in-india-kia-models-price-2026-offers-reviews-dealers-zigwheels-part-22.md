@@ -1,0 +1,3 @@
+## About Kia
+
+The Kia Carens is available with petrol, diesel, and CNG engine options. The 1497cc petrol engine produces 113.42 bhp and 144 Nm, while the 1493cc diesel engine produces 114.41 bhp and 250 Nm. The 1497cc CNG engine produces 113.42 bhp and 144 Nm. The claimed mileage is 12.6 kmpl. For complete engine, performance, and mileage details, please visit the following link: https://www.zigwheels.com/kia-cars/carens/specifications/

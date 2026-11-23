@@ -58,8 +58,13 @@ export interface TenantChangeEvent {
 
 export const tenantApprovalsApi = {
   mine: async (signal?: AbortSignal) =>
-    (await api.get<{ requests: TenantChangeRequest[] }>('/api/tenant-change-requests', signal))
-      .requests,
+    (
+      await api.post<{ requests: TenantChangeRequest[] }>(
+        '/api/tenant-change-requests/mine',
+        {},
+        { signal },
+      )
+    ).requests,
 
   submitCreate: async (input: {
     tenant_id: string

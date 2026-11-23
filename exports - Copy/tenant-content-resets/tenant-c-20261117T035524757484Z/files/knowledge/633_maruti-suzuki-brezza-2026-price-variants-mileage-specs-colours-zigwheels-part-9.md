@@ -1,0 +1,3 @@
+## Questions & Answers on Maruti Suzuki Brezza
+
+- The Maruti Suzuki Brezza VXi is priced at ₹9.26 Lakh (ex-showroom, New Delhi). Please note that the final price and availability may vary depending on your location. For accurate details regarding availability in your city, we recommend connecting with the nearest authorized dealership. You can also click on the link to explore dealership details: https://bitly.cx/Ywk1

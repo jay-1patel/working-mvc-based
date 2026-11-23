@@ -1,0 +1,5 @@
+## Best SUV Cars
+
+Everything is good in this car, but I observed a few points about that car's disadvantages: 1) wheels are not suitable for that body. 2) top portion is covered with glass I think this is not good for that ( because, Some times cars are parked outside the residential building, Someone's flower bucket put on the perapet wall when dropped the flower bucket then what will be happened. I have so many reasons for this but mentioned just one thing. 3) The back side of the car looking not good ( i think Nexon Ev max has better than this. 4) The automatic variant is good they comparing to the manual. Advantages: 1) Ground clearance is good compared to other cars. 2) Interior is also good. 3) Battery backup is good.
+
+Sierra is a different car.I look is very better, Wheel height is very suitable.Tyre and wheel is big n alloy so car look is very well.This car is very better for long drive.Also this car is electric.

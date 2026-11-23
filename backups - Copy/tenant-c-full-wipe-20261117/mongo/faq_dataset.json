@@ -1,0 +1,301 @@
+[
+  {
+    "_id": {
+      "$oid": "6afbe4eb8ab4e84f39ed9a60"
+    },
+    "source_file": "crawl_run_74.md",
+    "content_type": "qa",
+    "content": "Q: What is this domain used for?\nA: This domain is designated for use in documentation examples without needing permission. It is not a live service.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T05:23:55.828Z"
+    },
+    "id": 300,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbe4eb8ab4e84f39ed9a61"
+    },
+    "source_file": "crawl_run_74.md",
+    "content_type": "qa",
+    "content": "Q: Can I rely on this domain for testing and monitoring?\nA: No, you should avoid relying on it for testing and monitoring purposes as it is intended solely for illustrative documentation.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T05:23:55.831Z"
+    },
+    "id": 301,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbeed18ab4e84f39ed9bb4"
+    },
+    "source_file": "crawl_run_75.md",
+    "content_type": "qa",
+    "content": "Q: What industries does Leeway Softech serve?\nA: We serve government organizations, financial institutions, education sectors, enterprises, retail businesses, and other industries across India.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T06:06:09.297Z"
+    },
+    "id": 302,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbeed18ab4e84f39ed9bb5"
+    },
+    "source_file": "crawl_run_75.md",
+    "content_type": "qa",
+    "content": "Q: How long has Leeway Softech been in operation?\nA: Leeway Softech was founded in 2012 and has over 14 years of engineering excellence experience.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T06:06:09.302Z"
+    },
+    "id": 303,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbeed18ab4e84f39ed9bb6"
+    },
+    "source_file": "crawl_run_75.md",
+    "content_type": "qa",
+    "content": "Q: Do you offer custom software development?\nA: Yes, we provide custom software development services including Enterprise Software, SaaS Product Development, Web Application Development, and API Development & Integration.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T06:06:09.305Z"
+    },
+    "id": 304,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbeed18ab4e84f39ed9bb7"
+    },
+    "source_file": "crawl_run_75.md",
+    "content_type": "qa",
+    "content": "Q: What certifications does Leeway Softech hold?\nA: We hold ISO Quality Management System (QMS) and ISO/IEC 27001:2013 Information Security Management System certifications.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T06:06:09.308Z"
+    },
+    "id": 305,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbf8d78ab4e84f39ed9bd6"
+    },
+    "source_file": "fake-pdf.pdf",
+    "content_type": "paragraph",
+    "content": "This is a fake pdf.",
+    "page_number": 1,
+    "module": "new_arrival",
+    "media_url": "https://used-tool-buzz-addresses.trycloudflare.com/uploaded_files/new_arrival/fake-pdf.pdf",
+    "media_type": "application/pdf",
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T06:48:55.039Z"
+    },
+    "id": 306,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbfbbb8ab4e84f39ed9bde"
+    },
+    "source_file": "Knowledge Gap FAQ",
+    "content_type": "faq",
+    "content": "Question: \ud83d\udccd View Models\nAnswer: Test",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T07:01:15.733Z"
+    },
+    "id": 307,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbff7dc73b112556202c90"
+    },
+    "source_file": "faq-test-upload.pdf",
+    "content_type": "qa",
+    "content": "Q: What services do you offer?\nA: We offer a wide range of automotive services including car maintenance, repairs, and parts supply.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T07:17:17.469Z"
+    },
+    "id": 308,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbff7dc73b112556202c91"
+    },
+    "source_file": "faq-test-upload.pdf",
+    "content_type": "qa",
+    "content": "Q: How can I book an appointment?\nA: You can book an appointment by visiting our website or contacting our support team.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T07:17:17.472Z"
+    },
+    "id": 309,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbff7dc73b112556202c92"
+    },
+    "source_file": "faq-test-upload.pdf",
+    "content_type": "qa",
+    "content": "Q: Do you offer car parts?\nA: Yes, we offer a variety of car parts for all vehicle models.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T07:17:17.475Z"
+    },
+    "id": 310,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbff7dc73b112556202c93"
+    },
+    "source_file": "faq-test-upload.pdf",
+    "content_type": "qa",
+    "content": "Q: What is your return policy?\nA: Our return policy is 30 days from the date of purchase.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T07:17:17.479Z"
+    },
+    "id": 311,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6afbff7dc73b112556202c94"
+    },
+    "source_file": "faq-test-upload.pdf",
+    "content_type": "qa",
+    "content": "Q: How long does delivery take?\nA: Delivery typically takes 5-7 business days.",
+    "page_number": 1,
+    "module": "faq",
+    "media_url": null,
+    "media_type": null,
+    "tenant_id": "c",
+    "created_at": {
+      "$date": "2026-11-17T07:17:17.482Z"
+    },
+    "id": 312,
+    "embedding": {
+      "$binary": {
+        "base64": "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",
+        "subType": "00"
+      }
+    }
+  }
+]

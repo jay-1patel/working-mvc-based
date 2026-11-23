@@ -1,0 +1,5 @@
+## Best Bike User Reviews
+
+0ShareSohail Farhan 7 months ago
+-
+NTORQ 1255.0Underseat storage I think the NTorq is the best 125cc scooter in the Indian market. It's a perfect balance between the conventional 'going to buy sth' scooter experience and performance-oriented motoscooter segment. It can do jobs of both worlds. I'm getting a decent mileage of 40-45 kmpl which is not bad and is compensated by it's unique design n look. The performance is great, churns out 9.4 PS of power and can easily reach speeds of 90kmph. It can touch the magic 100 too. The torque provided by the motor is amazing. Overtakes are pretty easy. Rider comfort is great. The suspension is stiffer than the Activa or Access but it's not as stiff as Aprilia. It handles the roughness of Indian roads with ease. The pillion experience is better than any other scooter in the market. It's a fun scooter, easy to maneuver and park. Don't get me started on the first in segment bluetooth connectivity. It's really helpful (atleast to boast about).

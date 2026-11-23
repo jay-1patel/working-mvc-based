@@ -1,0 +1,5 @@
+You also agree that zigwheels.com may use the information for automated analysis. You further agree that zigwheels.com, to increase the value and benefit of this service to you, may provide your personal details to third parties namely car dealers, potential buyers, sellers, as the case may be in the ordinary course of business or providing services to you.
+
+1.2 zigwheels.com will provide services to research cars, prices, technical specifications and other car attributes. The services can include listing of your used cars online or browsing through the list of used cars listed by users of zigwheels.com. zigwheels.com makes no claims that the data is accurate or applicability of the information to any specific situation.
+
+1.3 zigwheels.com may also provide the user the ability to send SMS to the user's top callers or send an email to the users friends letting them know about the service.

@@ -1,0 +1,3 @@
+## 1501 To 1800cc Bikes in India
+
+There are 6 bikes under 1800cc on sale in India with prices starting from Rs. 38.00 Lakh. The most popular bikes in this bracket are the BMW K 1600 GTL (1649 cc), BMW K 1600 Bagger (1649 cc) and Indian Challenger (1768 cc). The top brands that manufacture bikes between 1501cc and 1800cc are BMW, Indian and . Download the ZigWheels App to know latest prices and offers on bikes under 1800cc in your city, pictures, mileage, reviews, variants, specifications and more. Choose the best bike model under 1800cc that you’re interested from the options below.

@@ -1,0 +1,5 @@
+A used car deal is only as good as the checks you actually bother to do. A bit more effort and research today will ensure that you pick the right car and you will have more peace of mind in the future. You may sometimes get too excited dreaming about the delivery day and taking your loved ones out for a drive, but it is important to think rationally first and ensure that you do not miss out on any of the checkpoints mentioned above. None of these checks takes more than a few minutes each, but skipping even one is how buyers end up with a car that still owes the bank money, or a repair bill they didn't see coming. Do the homework upfront, and the car you drive home will be exactly what it looked like on paper.
+
+Let us know in the comments section if you have any more questions regarding car inspection.
+
+India's largest automotive community

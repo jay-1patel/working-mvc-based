@@ -1,0 +1,5 @@
+The second crash happened during a local race. I have been struggling with right-hand turns since I started riding off-road, and this race was no exception. Poor throttle control and improper vision led me to fall towards the end of the event. This time, my knee hit solid concrete, and once again the pants did their job, allowing me to get back on my feet quickly and start the bike. And despite the two encounters, you would be hard pressed to find any signs of extreme wear and tear on the trousers, just going to show how well the construction actually is.
+
+At a price of Rs 7,999, the Diablo pants are in the accessible riding pants range. From what I've experienced so far, it manages to tick quite a few boxes. Build quality, comfort, ventilation, and, even though I didn’t plan on testing this aspect, protection are all encompassed rather well.
+
+India's largest automotive community

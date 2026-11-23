@@ -1,0 +1,3 @@
+The zigwheels.com Members login (if any) is for the reference of only registered zigwheels.com's Member. zigwheels.com reserves the right to discontinue the member Login on account of violation of this Agreement or any "Code of Conduct" set by zigwheels.com. zigwheels.com reserves the right to take all measures necessary to prevent access to any Content or portion of the Site or terminate access to the site if the terms of use are not complied with or are contravened or there is any violation of copyright, trademark or other proprietary right.
+
+12\. Disclaimer

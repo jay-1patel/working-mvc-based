@@ -1,0 +1,48 @@
+{
+  "tenant_id": "default",
+  "date": "2026-11-16",
+  "messages": [
+    {
+      "wa_id": "919512777899",
+      "sender_name": "",
+      "message": "[send2] Career",
+      "response": "answer",
+      "route": "send2",
+      "created_at": "2026-11-16 11:09:50"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "",
+      "message": "[send2] Career",
+      "response": "answer",
+      "route": "send2",
+      "created_at": "2026-11-16 11:10:54"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "",
+      "message": "[send2] Career",
+      "response": "answer",
+      "route": "send2",
+      "created_at": "2026-11-16 11:13:20"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "",
+      "message": "[send2] Career",
+      "response": "answer",
+      "route": "send2",
+      "created_at": "2026-11-16 11:14:27"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "",
+      "message": "[send2] Career",
+      "response": "answer",
+      "route": "send2",
+      "created_at": "2026-11-16 11:15:50"
+    }
+  ],
+  "count": 5,
+  "updated_at": "2026-11-16T11:15:50"
+}

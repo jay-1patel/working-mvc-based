@@ -1,0 +1,5 @@
+## KTM Bikes Questions and Answers
+
+- The KTM Duke 200 is available in two colour options: Black and Grey. For exact colour availability and further details, we recommend contacting your nearest authorised KTM dealership. Click on the link to find the nearest authorized dealership: https://www.zigwheels.com/bikes/dealers/ktm/Delhi
+
+- In general, the down payment remains in between 20-30% of the on-road price of the vehicle and it totally depends on the CIBIL/Credit score of an individual. So, we'd suggest you walk into the nearest dealership to know the final finance quotation and documentation as they will be the better person to assist you. You can click on the following link to see the details of the nearest authorized dealership by selecting your city accordingly: https://www.zigwheels.com/bikes/dealers/ktm/Delhi

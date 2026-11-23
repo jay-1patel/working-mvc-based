@@ -1,0 +1,947 @@
+[
+  {
+    "_id": {
+      "$oid": "6afa93c3baab16bed28e45e5"
+    },
+    "scope": "tenant_profile:c",
+    "snapshot_json": {
+      "vertical": "automotive",
+      "display_name": "MetroDrive Autos Pvt Ltd",
+      "features": {
+        "cart": false,
+        "buy_now": false,
+        "orders": false,
+        "payments": false,
+        "track_order": false,
+        "returns": false,
+        "brochure_pdf": true,
+        "distributors": false,
+        "offerings": true,
+        "offering_details": true,
+        "services": true,
+        "products": true,
+        "products_schemes": true,
+        "lead_capture": true,
+        "quote": true,
+        "callback": true,
+        "book_appointment": true,
+        "handoff": true,
+        "faq": true,
+        "kb": true,
+        "complaints": true,
+        "campaigns": true,
+        "human_handover": true,
+        "message_intelligence": true,
+        "topic_tagging": true,
+        "safety_escalation": true,
+        "repeat_issue_detection": true
+      },
+      "brand": {
+        "name": "MetroDrive Autos ",
+        "bot_name": "Velocity Assistant",
+        "tagline": "Your trusted partner for new car sales, exchange programs, and genuine service maintenance.",
+        "website": "https://ar.al/2020/08/07/what-is-the-small-web/",
+        "support_email": "care@velocitymotors.in",
+        "support_phone": "+91 98765 43210",
+        "signature": "Regards, Maruti Suzuki Team"
+      },
+      "vocabulary": {
+        "item_noun": "models",
+        "item_noun_singular": "model",
+        "browse_label": "Our Models",
+        "catalog_label": "Brochure",
+        "lead_noun": "service enquiry",
+        "enquiry_label": "Book Service",
+        "catalog_noun": "brochure",
+        "order_noun": "service booking",
+        "order_noun_plural": "service bookings",
+        "cart_noun": "shortlist",
+        "checkout_label": "Book Service",
+        "brochure_label": "Brochure",
+        "brochure_noun": "brochure",
+        "offer_noun": "offer",
+        "offer_noun_plural": "offers",
+        "quote_label": "Get Estimate",
+        "callback_label": "Request a Callback",
+        "support_label": "Roadside / Support",
+        "track_label": "Track Service"
+      },
+      "prompt": {
+        "tone": "professional, calm, and safety-first",
+        "industry": "automotive OEM and dealer support",
+        "listing_type": "models or service packages",
+        "domain_specific_queries": "vehicle models, service booking, warranty, spare parts, or roadside help",
+        "keywords": [
+          "car",
+          "vehicle",
+          "service",
+          "workshop",
+          "warranty",
+          "battery",
+          "brake",
+          "engine",
+          "honda",
+          "dealer",
+          "rsa",
+          "roadside"
+        ]
+      },
+      "business_hours": {
+        "timezone": "Asia/Kolkata",
+        "always_open": false,
+        "open": "09:30",
+        "close": "18:30",
+        "open_days": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "guardrails": {
+        "escalation_message": "This sounds urgent for your safety. Please stay safe \u2014 I'm connecting you with our team now.",
+        "handoff_keywords": [
+          "human",
+          "agent",
+          "person"
+        ],
+        "never_state": [
+          "Never offer unauthorized discounts or unlisted pricing.",
+          "Never promise delivery or possession dates outside official brochure.",
+          "Never request passwords, OTPs, or credit card details."
+        ],
+        "escalate_keywords": [
+          "human",
+          "agent",
+          "manager",
+          "dispute",
+          "representative"
+        ],
+        "forbidden_terms": [
+          "add to cart",
+          "buy now",
+          "checkout"
+        ],
+        "tone": "consultative, polished, and professional"
+      },
+      "menu": {
+        "key": "kb_main",
+        "header": "MetroDrive Autos ",
+        "body": "Welcome! How can we assist you today?",
+        "footer": "Select an option or type your query directly",
+        "button_text": "Select Option",
+        "buttons": [
+          {
+            "id": "browse_offerings",
+            "title": "Explore Offerings",
+            "description": "Browse catalog or services",
+            "section": "Explore",
+            "sort_order": 1,
+            "enabled": true,
+            "intent": "offerings"
+          },
+          {
+            "id": "menu_offerings",
+            "title": "What We Offer",
+            "description": "Browse our offerings",
+            "section": "General",
+            "sort_order": 2,
+            "enabled": true,
+            "icon": "\ud83d\udccb",
+            "requires_feature": "offerings"
+          },
+          {
+            "id": "menu_faq",
+            "title": "FAQs",
+            "description": "Common questions",
+            "section": "General",
+            "sort_order": 3,
+            "enabled": true,
+            "icon": "\u2753",
+            "requires_feature": "faq"
+          },
+          {
+            "id": "menu_callback",
+            "title": "Request a Callback",
+            "description": "Have us call you back",
+            "section": "Talk To Us",
+            "sort_order": 4,
+            "enabled": true,
+            "icon": "\ud83d\udcde",
+            "flow": "book_callback",
+            "requires_feature": "callback"
+          },
+          {
+            "id": "menu_complaint",
+            "title": "Raise a Complaint",
+            "description": "Tell us what went wrong",
+            "section": "Support",
+            "sort_order": 5,
+            "enabled": true,
+            "icon": "\ud83d\udcdd",
+            "flow": "raise_ticket",
+            "requires_feature": "complaints"
+          },
+          {
+            "id": "menu_human",
+            "title": "Talk to Human",
+            "description": "Chat with our team",
+            "section": "Support",
+            "sort_order": 6,
+            "enabled": true,
+            "icon": "\ud83d\ude4b",
+            "flow": "book_callback",
+            "requires_feature": "human_handover"
+          },
+          {
+            "id": "menu_models",
+            "__remove__": true
+          },
+          {
+            "id": "menu_brochure",
+            "__remove__": true
+          },
+          {
+            "id": "menu_service",
+            "__remove__": true
+          },
+          {
+            "id": "faqs",
+            "__remove__": true
+          },
+          {
+            "id": "exchange_car",
+            "__remove__": true
+          },
+          {
+            "id": "delivery_info",
+            "__remove__": true
+          },
+          {
+            "id": "service_maintenance",
+            "__remove__": true
+          },
+          {
+            "id": "book_callback",
+            "__remove__": true
+          },
+          {
+            "id": "quote",
+            "__remove__": true
+          },
+          {
+            "id": "raise_ticket",
+            "__remove__": true
+          },
+          {
+            "id": "faq",
+            "__remove__": true
+          },
+          {
+            "id": "benefits",
+            "__remove__": true
+          },
+          {
+            "id": "contact_sales",
+            "__remove__": true
+          },
+          {
+            "id": "support",
+            "__remove__": true
+          },
+          {
+            "id": "eco_tips",
+            "__remove__": true
+          }
+        ]
+      },
+      "notifications": {
+        "sales_email": "service@metrodriveautos.com",
+        "support_email": "care@metrodriveautos.com",
+        "brochure_url": ""
+      },
+      "tenant_id": "c",
+      "intents": [
+        {
+          "name": "finance",
+          "examples": [
+            "how to get a loan",
+            "insurance options"
+          ],
+          "keywords": [
+            "loan",
+            "insurance",
+            "finance",
+            "emi"
+          ],
+          "enabled": true,
+          "description": "Loan and insurance assistance",
+          "answer": "We provide Loan & Insurance Desk Help. Please visit the Finance Options menu or contact our sales team for personalized quotes."
+        },
+        {
+          "name": "test-drive",
+          "examples": [
+            "Can I book a test drive?",
+            "Is the test drive free?"
+          ],
+          "keywords": [
+            "test drive",
+            "book drive",
+            "try car"
+          ],
+          "enabled": true,
+          "description": "Book or inquire about test drives",
+          "answer": "Yes. Choose 'Book Test Drive' in the menu, or call sales on +91 98250 22010. Bring a valid driving licence. Test drives run Mon\u2013Sat, 10:00 AM\u20136:30 PM. They are complimentary for serious buyers. Home test drives within 15 km of SG Highway can be arranged with advance booking."
+        },
+        {
+          "name": "car-finance",
+          "examples": [
+            "Do you offer car finance?",
+            "What documents are needed for a car loan?"
+          ],
+          "keywords": [
+            "finance",
+            "loan",
+            "EMI",
+            "down payment"
+          ],
+          "enabled": true,
+          "description": "Car loan and financing options",
+          "answer": "Updated answer text"
+        },
+        {
+          "name": "insurance",
+          "examples": [
+            "Do you help with motor insurance?",
+            "Do you handle accident repairs?"
+          ],
+          "keywords": [
+            "insurance",
+            "comprehensive",
+            "zero dep",
+            "claim"
+          ],
+          "enabled": true,
+          "description": "Motor insurance and claims",
+          "answer": "Yes. We arrange comprehensive and zero-dep policies from leading insurers at the showroom. Multi-year options are available with new car delivery.\n\nFor accidents: Our body shop handles denting, painting and cashless claims with empaneled insurers. Bring FIR / claim intimation and policy copy."
+        },
+        {
+          "name": "exchange",
+          "examples": [
+            "Do you accept exchange of my old car?"
+          ],
+          "keywords": [
+            "exchange",
+            "old car",
+            "trade in",
+            "RC"
+          ],
+          "enabled": true,
+          "description": "Old car exchange and evaluation",
+          "answer": "Yes. We evaluate most running cars free of cost. Bring RC, insurance and PUC. Exchange value is confirmed in writing and adjusted against the new car booking."
+        },
+        {
+          "name": "booking-amount",
+          "examples": [
+            "What is the booking amount?",
+            "How much to book?"
+          ],
+          "keywords": [
+            "booking amount",
+            "reservation",
+            "deposit"
+          ],
+          "enabled": true,
+          "description": "Booking amount details",
+          "answer": "The booking amount is \u20b911,000 for all models. It is fully refundable until delivery if you change your mind."
+        },
+        {
+          "name": "waiting-period",
+          "examples": [
+            "How long is the waiting period for the Compact SUV?"
+          ],
+          "keywords": [
+            "waiting period",
+            "delivery time",
+            "when will I get"
+          ],
+          "enabled": true,
+          "description": "Delivery waiting times",
+          "answer": "Popular colours of the Compact SUV often deliver in 2\u20136 weeks. Exact wait depends on variant and colour \u2014 sales confirms against current allotment."
+        },
+        {
+          "name": "car-colors",
+          "examples": [
+            "What colours are available for the Midsize Sedan?"
+          ],
+          "keywords": [
+            "colors",
+            "shades",
+            "paint"
+          ],
+          "enabled": true,
+          "description": "Available colors for vehicles",
+          "answer": "Common shades include Radiant Red, Lunar Silver, Meteoroid Grey, Pearl White and Golden Brown Metallic. Stock changes weekly \u2014 ask for today\u2019s list."
+        },
+        {
+          "name": "mileage",
+          "examples": [
+            "What is the mileage of the Midsize Sedan petrol?"
+          ],
+          "keywords": [
+            "mileage",
+            "kmpl",
+            "fuel economy"
+          ],
+          "enabled": true,
+          "description": "Fuel efficiency and mileage",
+          "answer": "Claimed ARAI mileage for Midsize Sedan petrol MT is about 17.8 km/l (variant dependent). Real-world city figures typically range 12\u201315 km/l based on driving style."
+        },
+        {
+          "name": "adas-features",
+          "examples": [
+            "Is ADAS available on the Compact SUV?"
+          ],
+          "keywords": [
+            "ADAS",
+            "lane watch",
+            "adaptive cruise",
+            "collision"
+          ],
+          "enabled": true,
+          "description": "Advanced Driver Assistance Systems",
+          "answer": "Select Compact SUV variants offer ADAS features. Our product specialist will show which packs include lane watch, adaptive cruise and collision mitigation."
+        },
+        {
+          "name": "warranty",
+          "examples": [
+            "What warranty comes with a new car?"
+          ],
+          "keywords": [
+            "warranty",
+            "coverage",
+            "extended warranty"
+          ],
+          "enabled": true,
+          "description": "Manufacturer warranty details",
+          "answer": "Standard manufacturer warranty is typically 3 years / 100,000 km (whichever earlier), with roadside assistance as per policy. Extended warranty packs are sold separately."
+        },
+        {
+          "name": "service-schedule",
+          "examples": [
+            "Which service does my car need if I purchased it on a given date?",
+            "How much does a Midsize Sedan periodic service cost?"
+          ],
+          "keywords": [
+            "service",
+            "maintenance",
+            "checkup",
+            "periodic"
+          ],
+          "enabled": true,
+          "description": "Periodic service schedule based on purchase date",
+          "answer": "Please provide your purchase/delivery date and current odometer reading. We map this to the schedule:\n- ~1 month / 1,000 km: 1st free inspection/PDI (Fluid levels, tyre pressure, basic health check)\n- ~6 months / 10,000 km: 1st periodic service (Engine oil + filter, inspection, top-ups)\n- ~12 months / 20,000 km: 2nd periodic service (Oil & filter, air filter, brake & underbody)\n- ~18 months / 30,000 km: 3rd periodic service (Oil & filter, cabin/air filter, suspension & battery)\n- ~24 months / 40,000 km: 4th periodic/major check (Oil, spark plugs, coolant, brake fluid)\n- Every 6 months / 10,000 km thereafter: Ongoing periodic service\n- Any time after accident/warning light: Repair/diagnosis visit"
+        },
+        {
+          "name": "genuine-parts",
+          "examples": [
+            "Do you use genuine spare parts?"
+          ],
+          "keywords": [
+            "parts",
+            "genuine",
+            "OEM",
+            "spare"
+          ],
+          "enabled": true,
+          "description": "Genuine OEM spare parts policy",
+          "answer": "Yes. Our workshop fits genuine OEM parts. Customers who insist on non-genuine parts must sign a written waiver \u2014 we recommend genuine only."
+        },
+        {
+          "name": "pickup-drop",
+          "examples": [
+            "Do you offer pick-up and drop for service?"
+          ],
+          "keywords": [
+            "pick up",
+            "drop",
+            "transport",
+            "valet"
+          ],
+          "enabled": true,
+          "description": "Pick-up and drop service for maintenance",
+          "answer": "Yes, within city limits on select weekdays with advance booking. Charges may apply beyond 10 km from the workshop \u2014 confirmed at booking."
+        },
+        {
+          "name": "showroom-location",
+          "examples": [
+            "Where is the showroom located?"
+          ],
+          "keywords": [
+            "location",
+            "address",
+            "where",
+            "parking"
+          ],
+          "enabled": true,
+          "description": "Showroom address and parking info",
+          "answer": "MetroDrive Autos \u2014 SG Highway showroom, near Thaltej Cross Roads, Ahmedabad, Gujarat 380059. Free visitor parking available."
+        },
+        {
+          "name": "contact-sales",
+          "examples": [
+            "How do I contact sales?"
+          ],
+          "keywords": [
+            "contact sales",
+            "call sales",
+            "email sales"
+          ],
+          "enabled": true,
+          "description": "Contact information for sales team",
+          "answer": "Email sales@metrodriveautos.com or call +91 98250 22010. For new enquiries you can also choose Talk to Sales in the menu."
+        },
+        {
+          "name": "service-hours",
+          "examples": [
+            "What are your showroom and service hours?"
+          ],
+          "keywords": [
+            "hours",
+            "open time",
+            "closed",
+            "schedule"
+          ],
+          "enabled": true,
+          "description": "Showroom and service center operating hours",
+          "answer": "Showroom: Mon\u2013Sat 9:30 AM\u20137:00 PM. Service: Mon\u2013Sat 9:00 AM\u20136:00 PM. Closed on Sundays (except notified camps)."
+        },
+        {
+          "name": "contact-service",
+          "examples": [
+            "How do I contact customer care / service?",
+            "I am an existing owner"
+          ],
+          "keywords": [
+            "contact customer care",
+            "service contact",
+            "existing owner"
+          ],
+          "enabled": true,
+          "description": "Customer care and service contact",
+          "answer": "Email service@metrodriveautos.com or call +91 98250 22011. Existing owners should use Book Service or Customer Care \u2014 not the sales line."
+        },
+        {
+          "name": "finance-options",
+          "examples": [
+            "Finance options",
+            "Car loans"
+          ],
+          "keywords": [
+            "finance",
+            "loan",
+            "emi",
+            "bank",
+            "nbfc"
+          ],
+          "enabled": true,
+          "description": "Car loan and finance partners",
+          "answer": "We help with car loans through partner banks and NBFCs including HDFC, SBI, ICICI, Axis and Bajaj Finance. Down payment, tenure and EMI depend on your profile \u2014 our finance desk shares a written offer before you book. For loan queries, call the finance desk on +91 98250 22012 (Mon\u2013Sat, 10:00 AM\u20136:30 PM) or email sales@metrodriveautos.com."
+        },
+        {
+          "name": "why-choose-us",
+          "examples": [
+            "Why should I buy from MetroDrive?"
+          ],
+          "keywords": [
+            "why choose us",
+            "benefits",
+            "advantages"
+          ],
+          "enabled": true,
+          "description": "Value proposition and benefits",
+          "answer": "\u2022 Transparent written on-road quotes before you book\n\u2022 Free test drives \u00b7 home test drive within 15 km on request\n\u2022 Exchange facility with same-day evaluation\n\u2022 Finance desk with major banks & NBFCs\n\u2022 Genuine parts \u00b7 certified technicians \u00b7 insurance claim support\n\u2022 Customer lounge and WhatsApp job-card updates"
+        },
+        {
+          "name": "insurance-claims",
+          "examples": [
+            "How to file a claim?",
+            "Insurance claim support"
+          ],
+          "keywords": [
+            "claim",
+            "insurance",
+            "fir",
+            "empaneled"
+          ],
+          "enabled": true,
+          "description": "Insurance claim process",
+          "answer": "Bring FIR / claim intimation and policy copy. We handle claims with empaneled insurers."
+        },
+        {
+          "name": "eco-tips",
+          "examples": [
+            "how to save fuel",
+            "car care tips",
+            "eco driving"
+          ],
+          "keywords": [
+            "eco driving",
+            "car care",
+            "fuel efficiency",
+            "maintenance tips"
+          ],
+          "enabled": true,
+          "description": "Provide eco-driving and car care advice",
+          "answer": "\u2022 Warm up gently \u2014 avoid high RPM for the first 1\u20132 km after a cold start.\n\u2022 Smooth throttle and early upshifts save fuel; hard acceleration and late braking waste it.\n\u2022 Keep tyre pressure at the door-sticker PSI \u2014 under-inflated tyres cut mileage and raise wear.\n\u2022 Remove unused roof racks and heavy boot clutter; extra weight and drag reduce economy.\n\u2022 Use AC wisely \u2014 recirculate after cabin cools; park in shade when possible.\n\u2022 Follow the service schedule on time \u2014 clean oil, filters and plugs keep combustion efficient.\n\u2022 Prefer the recommended grade of engine oil and genuine filters for best economy and emissions.\n\u2022 Idle less than 30\u201360 seconds when waiting; switch off if safe and legal for longer stops.\n\u2022 Plan routes to avoid peak congestion when you can; steady 40\u201360 km/h city speeds are kinder on fuel.\n\u2022 Check PUC, battery terminals and coolant level monthly; fix warning lights promptly.\n\u2022 Wash with pH-neutral shampoo; avoid harsh chemicals on paint and plastic trims.\n\u2022 For long trips, check tyre pressure cold, top up washer fluid, and carry a basic tool/kit."
+        },
+        {
+          "name": "service-enquiry",
+          "examples": [
+            "what services do you offer",
+            "tell me about your offerings"
+          ],
+          "keywords": [
+            "service",
+            "services",
+            "what do you do",
+            "offerings",
+            "catalog"
+          ],
+          "enabled": true,
+          "description": "What services / offerings we provide",
+          "answer": "\u2022 Here's what CarTech Solutions offers:\n\u2022 Browse our live catalog for CarTech Solutions offerings, or ask for a specific service.\n\u2022 Ask for details on any item, or tap *Get a Quote* / *Request a Callback*."
+        },
+        {
+          "name": "pricing-enquiry",
+          "examples": [
+            "what are your prices",
+            "how much does it cost"
+          ],
+          "keywords": [
+            "price",
+            "pricing",
+            "cost",
+            "rate",
+            "package",
+            "quote"
+          ],
+          "enabled": true,
+          "description": "Pricing and packages",
+          "answer": "\u2022 Pricing depends on scope, volume, and packaging.\n\u2022 Browse our live catalog for CarTech Solutions offerings, or ask for a specific service.\n\u2022 Share your requirements and we'll send a tailored quote \u2014 tap *Get a Quote*."
+        },
+        {
+          "name": "safety-ratings",
+          "examples": [
+            "Which cars have a 5-star safety rating?"
+          ],
+          "keywords": [
+            "safety rating",
+            "5 star",
+            "safe"
+          ],
+          "enabled": true,
+          "description": "Cars with 5-star safety ratings",
+          "answer": "The Nexon and the Punch both carry a 5-star safety rating. The Nexon starts at Rs. 8.15 lakh and the Punch starts at Rs. 6.20 lakh, ex-showroom (indicative)."
+        },
+        {
+          "name": "seating-capacity",
+          "examples": [
+            "Is the WagonR a 5-seater?",
+            "How many seats does the Scorpio-N have?"
+          ],
+          "keywords": [
+            "seater",
+            "seats",
+            "5-seater",
+            "7-seater"
+          ],
+          "enabled": true,
+          "description": "Seating capacity of specific models",
+          "answer": "Yes, the WagonR is a 5-seater hatchback. It starts at Rs. 5.79 lakh. The i20 is also a premium 5-seater hatchback starting at Rs. 7.04 lakh. The Scorpio-N comes in 6-seater and 7-seater options starting at Rs. 13.99 lakh. The Range Rover Evoque is a luxury 5-seater SUV starting at Rs. 69.50 lakh."
+        },
+        {
+          "name": "mileage-info",
+          "examples": [
+            "What is the mileage of the Swift?",
+            "Best mileage car?"
+          ],
+          "keywords": [
+            "mileage",
+            "kmpl",
+            "fuel efficiency",
+            "CNG",
+            "hybrid"
+          ],
+          "enabled": true,
+          "description": "Mileage details for various models",
+          "answer": "Swift: up to 25.75 km/l. WagonR CNG: up to 34.05 km/kg; Petrol: up to 25.19 km/l. Baleno: up to 22.94 km/l. Grand Vitara Strong Hybrid: up to 27.97 km/l (best mileage). Celerio: up to 26.68 km/l. Dzire: up to 25.71 km/l. Brezza: up to 19.89 km/l. Jimny: up to 16.94 km/l. Fronx: up to 22.89 km/l. Ertiga: up to 20.51 km/l. Alto K10: up to 24.90 km/l. Actual mileage depends on traffic, driving style, and road conditions."
+        },
+        {
+          "name": "loan-finance",
+          "examples": [
+            "Can I buy a car on a loan?",
+            "What is the EMI for a Swift?"
+          ],
+          "keywords": [
+            "loan",
+            "EMI",
+            "finance",
+            "interest rate",
+            "tenure"
+          ],
+          "enabled": true,
+          "description": "Car loan and EMI information",
+          "answer": "Yes, we arrange car loans through partner banks and NBFCs with interest starting at 9.25% per year and tenure up to 7 years. Our finance desk handles the full process. Example EMIs (Rs. 6L loan/5yrs): Swift ~Rs. 10,500/mo. Example EMIs (Rs. 5L loan/5yrs): WagonR ~Rs. 8,750/mo. Example EMIs (Rs. 10L loan/5yrs): Creta ~Rs. 17,500/mo."
+        },
+        {
+          "name": "car-loan-emi",
+          "examples": [
+            "What is the EMI for WagonR?",
+            "EMI for Creta?"
+          ],
+          "keywords": [
+            "emi",
+            "monthly payment",
+            "installment"
+          ],
+          "enabled": true,
+          "description": "Calculate EMI for specific models",
+          "answer": "\u2022 WagonR (\u20b95L loan, 5 yrs): ~\u20b98,750/month\n\u2022 Creta (\u20b910L loan, 5 yrs): ~\u20b917,500/month\nLonger tenures up to 7 years can lower EMIs."
+        },
+        {
+          "name": "car-loan-eligibility",
+          "examples": [
+            "Who is eligible for a car loan?",
+            "Minimum income required?"
+          ],
+          "keywords": [
+            "eligible",
+            "eligibility",
+            "income",
+            "age",
+            "credit score"
+          ],
+          "enabled": true,
+          "description": "Eligibility criteria for car loans",
+          "answer": "Age: 21-65 years. Minimum monthly income: \u20b925,000. Credit score of 700+ helps secure better rates."
+        },
+        {
+          "name": "car-loan-interest",
+          "examples": [
+            "What is the interest rate?",
+            "Car loan interest?"
+          ],
+          "keywords": [
+            "interest rate",
+            "rate",
+            "percentage"
+          ],
+          "enabled": true,
+          "description": "Interest rates on car loans",
+          "answer": "Interest starts at 9.25% per year. Final rate depends on credit profile and chosen bank."
+        },
+        {
+          "name": "car-loan-tenure",
+          "examples": [
+            "How many years can I take a loan?",
+            "Max tenure?"
+          ],
+          "keywords": [
+            "years",
+            "tenure",
+            "duration",
+            "how long"
+          ],
+          "enabled": true,
+          "description": "Loan tenure options",
+          "answer": "You can take a car loan for 1 to 7 years. Shorter tenure = higher EMI/less interest; Longer tenure = lower EMI."
+        },
+        {
+          "name": "car-loan-documents",
+          "examples": [
+            "What documents are needed?",
+            "Car loan docs?"
+          ],
+          "keywords": [
+            "documents",
+            "proof",
+            "paperwork",
+            "required"
+          ],
+          "enabled": true,
+          "description": "Documents required for car loan",
+          "answer": "Salaried: Aadhaar, PAN, Address Proof, Last 6 months bank statements, Last 3 months salary slips.\nSelf-Employed: Aadhaar, PAN, Address Proof, Last 6 months bank statements, Last 2 years ITR."
+        },
+        {
+          "name": "car-loan-down-payment",
+          "examples": [
+            "How much down payment do I need?",
+            "Down payment %?"
+          ],
+          "keywords": [
+            "down payment",
+            "advance",
+            "initial payment"
+          ],
+          "enabled": true,
+          "description": "Down payment requirements",
+          "answer": "Minimum down payment is 15% of the on-road price. Higher down payments reduce the loan amount and monthly EMI."
+        },
+        {
+          "name": "car-loan-prepayment",
+          "examples": [
+            "Can I close my loan early?",
+            "Prepayment charges?"
+          ],
+          "keywords": [
+            "prepay",
+            "foreclose",
+            "close early",
+            "penalty"
+          ],
+          "enabled": true,
+          "description": "Prepayment and foreclosure rules",
+          "answer": "Yes, after paying 6 EMIs. A foreclosure charge of up to 3% of the outstanding amount may apply, depending on bank policy."
+        },
+        {
+          "name": "car-loan-approval-time",
+          "examples": [
+            "How much time does loan approval take?",
+            "Quick loan approval?"
+          ],
+          "keywords": [
+            "approval time",
+            "how long to approve",
+            "fast loan"
+          ],
+          "enabled": true,
+          "description": "Time taken for loan approval",
+          "answer": "Usually takes 1 to 2 working days after submitting all documents. Our finance desk updates you at every step."
+        },
+        {
+          "name": "test-drive-booking",
+          "examples": [
+            "How do I book a test drive?",
+            "Free test drive?"
+          ],
+          "keywords": [
+            "test drive",
+            "book test drive",
+            "try before buy"
+          ],
+          "enabled": true,
+          "description": "Booking free test drives",
+          "answer": "Call +91 98765 43210 or email care@velocitymotors.in. Available between 10 AM and 8 PM. Bring your driving licence."
+        },
+        {
+          "name": "test-drive-requirements",
+          "examples": [
+            "What should I carry for a test drive?",
+            "Do I need ID?"
+          ],
+          "keywords": [
+            "carry",
+            "bring",
+            "licence",
+            "requirements"
+          ],
+          "enabled": true,
+          "description": "Requirements for test drive",
+          "answer": "You must carry your original driving licence. It is compulsory. The test drive is completely free."
+        },
+        {
+          "name": "exchange-bonus",
+          "examples": [
+            "Exchange bonus?",
+            "Trade in old car?"
+          ],
+          "keywords": [
+            "exchange",
+            "old car",
+            "trade-in",
+            "bonus"
+          ],
+          "enabled": true,
+          "description": "Old car exchange bonus",
+          "answer": "We accept old cars for exchange. You get an exchange bonus up to \u20b925,000 over and above the evaluated value of your old car."
+        },
+        {
+          "name": "exchange-car",
+          "examples": [
+            "Can I exchange my old car?",
+            "How much exchange bonus do I get?",
+            "Which documents are needed for exchange?"
+          ],
+          "keywords": [
+            "exchange",
+            "old car",
+            "trade-in",
+            "bonus",
+            "evaluation"
+          ],
+          "enabled": true,
+          "description": "Information about exchanging old cars for new ones",
+          "answer": "Yes, Velocity Motors accepts old cars of all brands in exchange. You receive an evaluated value plus an exchange bonus up to Rs. 25,000 (depending on the new model). Evaluation takes 30-45 minutes at the showroom. Required documents: RC book, insurance copy, ID proof, and NOC if there is a running loan."
+        },
+        {
+          "name": "delivery-info",
+          "examples": [
+            "How long does delivery take?",
+            "Can I get home delivery?",
+            "What happens on delivery day?"
+          ],
+          "keywords": [
+            "delivery time",
+            "when will I get my car",
+            "home delivery",
+            "delivery day"
+          ],
+          "enabled": true,
+          "description": "Details on delivery timelines, process, and home delivery",
+          "answer": "Delivery typically takes 2-4 weeks after booking, though high-demand models like Thar or Defender may take longer. On delivery day, we complete inspection, payment, paperwork, and a feature demo. Home delivery within the city is available free of charge upon request. You will receive the invoice, insurance policy, warranty booklet, and service coupons; RC is issued by RTO later."
+        },
+        {
+          "name": "service-maintenance",
+          "examples": [
+            "How many free services do I get?",
+            "Cost of service for hatchback?",
+            "Do you provide pickup and drop?",
+            "What is the AMC plan?"
+          ],
+          "keywords": [
+            "service cost",
+            "free services",
+            "workshop timing",
+            "pickup drop",
+            "AMC",
+            "genuine parts"
+          ],
+          "enabled": true,
+          "description": "Service schedules, costs, pickup/drop, and AMC details",
+          "answer": "New cars come with 3 free services (at 1k/1mo, 5k/6mo, 10k/12km). After that, service every 10,000 km or 12 months. Paid service starts at Rs. 3,999 for hatchbacks and Rs. 5,499 for SUVs. Workshop hours: Mon-Sat, 9 AM - 7 PM. We offer free pickup/drop within 10 km. We use 100% genuine spare parts. AMC starts at Rs. 11,999 for 2 years."
+        }
+      ],
+      "flows": [
+        {
+          "name": "book_callback",
+          "success_message": "Thank you! Your consultation request has been scheduled with MetroDrive Assistant."
+        },
+        {
+          "name": "get_quote",
+          "success_message": "Thank you! Our specialist will prepare a customized quote and follow up promptly."
+        },
+        {
+          "name": "raise_ticket",
+          "success_message": "Your request has been logged. A support ticket has been created and an executive will assist you."
+        }
+      ]
+    },
+    "updated_by": "upload_auto_router",
+    "updated_at": {
+      "$date": "2026-11-17T07:17:17.529Z"
+    }
+  }
+]

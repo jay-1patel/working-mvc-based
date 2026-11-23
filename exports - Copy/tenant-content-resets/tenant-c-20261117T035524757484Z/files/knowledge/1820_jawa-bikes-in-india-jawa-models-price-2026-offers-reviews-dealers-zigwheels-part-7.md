@@ -1,0 +1,3 @@
+## Jawa Bikes Questions and Answers
+
+- The Jawa 42 Bobber is priced at ₹2,33,682 (ex-showroom, Vadodara). Please note that the final price and availability may vary depending on your location. For accurate details regarding availability in your city, we recommend connecting with the nearest authorized dealership. You can also click on the link to explore dealership details: https://www.zigwheels.com/bikes/dealers/jawa/Vadodara

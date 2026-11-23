@@ -1,0 +1,3 @@
+## Maruti Suzuki e Vitara
+
+Updated: November 2026. Maruti Suzuki e Vitara on-road price in Bhavnagar starts at ₹18.01 Lakh and goes up to ₹22.46 Lakh. It offers 49 kWh and 61 kWh battery packs with a claimed range of 440–543 km (MIDC/ARAI) and DC fast charging. A key highlight is a 5-star Bharat NCAP safety rating. It rivals the Mahindra BE 6 SPORTEQ, Hyundai Bayon, Tata Sierra and Mahindra Thar OG.

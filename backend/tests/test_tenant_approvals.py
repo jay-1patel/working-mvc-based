@@ -306,7 +306,7 @@ class TenantApprovalTests(unittest.TestCase):
         self.assertEqual(self._submit_create(admin).status_code, 409)
 
         # The admin sees their own submission.
-        mine = self.client.get("/api/tenant-change-requests", headers=admin)
+        mine = self.client.post("/api/tenant-change-requests/mine", headers=admin, json={})
         self.assertEqual([r["id"] for r in mine.json()["requests"]], [request["id"]])
 
         # Super admins do not submit, they decide.

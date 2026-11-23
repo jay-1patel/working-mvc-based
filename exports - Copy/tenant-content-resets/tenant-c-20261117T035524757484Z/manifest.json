@@ -1,0 +1,112 @@
+{
+  "archive": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\exports\\tenant-content-resets\\tenant-c-20261117T035524757484Z",
+  "archive_bytes": 108248538,
+  "archive_file_count": 4597,
+  "content_counts": {
+    "admin_files": 0,
+    "faq_dataset": 0,
+    "knowledge_base": 0,
+    "products": 0,
+    "tenant_crawl_images": 0,
+    "tenant_crawl_pages": 0,
+    "tenant_crawl_runs": 0,
+    "tenant_crawl_schedules": 0,
+    "tenant_crawl_staged": 0,
+    "unanswered_queries": 0
+  },
+  "database": "tmpdbtest",
+  "files": {
+    "directories": {
+      "crawl_images": {
+        "bytes": 0,
+        "files": 0,
+        "path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backend\\uploaded_files\\crawl_images\\c"
+      },
+      "knowledge": {
+        "bytes": 0,
+        "files": 0,
+        "path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\data\\tenants\\c\\knowledge"
+      }
+    },
+    "source_files": []
+  },
+  "mode": "dry-run",
+  "preserved_counts": {
+    "admin_audit_events": 186,
+    "admins": 1,
+    "api_error_logs": 223,
+    "callbacks": 7,
+    "campaigns": 2,
+    "chat_history": 90,
+    "complaints": 8,
+    "customers": 10,
+    "leads": 12,
+    "orders": 4,
+    "tenant_profile_versions": 10,
+    "tenant_record_columns": 9,
+    "user_sessions": 2,
+    "user_states": 11,
+    "webhook_logs": 41,
+    "whatsapp_send_log": 13
+  },
+  "profile_counts": {
+    "draft_config": 1,
+    "publish_history": 11,
+    "published_config": 1
+  },
+  "recovered_after_manifest_write_error": true,
+  "status": "reset_complete",
+  "tenant": {
+    "_unique_mobile_number": "919499619966",
+    "created_at": "2026-11-15 07:14:07",
+    "display_name": "Example Domain",
+    "domain": "https://www.metrodriveautos.com",
+    "id": "c",
+    "mobile_number": "919499619966",
+    "slug": "c",
+    "status": "active",
+    "updated_at": "2026-11-16 10:34:35.518000",
+    "vertical": "generic",
+    "waba_phone_id": "919499619966",
+    "webhook_secret": ""
+  },
+  "tenant_id": "c",
+  "verification": {
+    "content_counts": {
+      "admin_files": 0,
+      "faq_dataset": 0,
+      "knowledge_base": 0,
+      "products": 0,
+      "tenant_crawl_images": 0,
+      "tenant_crawl_pages": 0,
+      "tenant_crawl_runs": 0,
+      "tenant_crawl_schedules": 0,
+      "tenant_crawl_staged": 0,
+      "unanswered_queries": 0
+    },
+    "preserved_counts": {
+      "admin_audit_events": 186,
+      "admins": 1,
+      "api_error_logs": 223,
+      "callbacks": 7,
+      "campaigns": 2,
+      "chat_history": 90,
+      "complaints": 8,
+      "customers": 10,
+      "leads": 12,
+      "orders": 4,
+      "tenant_profile_versions": 10,
+      "tenant_record_columns": 9,
+      "user_sessions": 2,
+      "user_states": 11,
+      "webhook_logs": 41,
+      "whatsapp_send_log": 13
+    },
+    "profile_counts": {
+      "draft_config": 1,
+      "publish_history": 11,
+      "published_config": 1
+    },
+    "tenant_rows": 1
+  }
+}

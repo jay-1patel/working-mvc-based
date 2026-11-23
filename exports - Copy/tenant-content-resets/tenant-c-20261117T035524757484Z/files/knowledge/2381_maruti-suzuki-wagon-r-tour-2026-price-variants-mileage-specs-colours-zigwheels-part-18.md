@@ -1,0 +1,3 @@
+## Best Hatchback Cars
+
+we bought this car in 2021 on loan after using this for almost 5 years everyday its still in very good condition its good option for someone who need family car and also really helpful to use during medical emergency it gives mileage of 24 which is still a good mileage according to price its heavy build so very less chances of dents and allowance my brother banged it on the pole still it didn't got much dents my family used this car to travel from one state to another so it's really good option for long distance journey AC works fine you should get it if you haveold parents who like to travel long distance and can't travel in train and flight.

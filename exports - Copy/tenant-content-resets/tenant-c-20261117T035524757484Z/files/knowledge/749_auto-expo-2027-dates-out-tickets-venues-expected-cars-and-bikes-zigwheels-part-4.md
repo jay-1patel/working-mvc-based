@@ -1,0 +1,5 @@
+Toyota might give the Fortuner a fresh look with a facelift and bring along an updated Taisor. Renault could make this its big comeback with the Bigster and Bridger SUVs. Tata Motors could preview the next-gen Nexon and the Safari EV, both of which are expected to launch in early 2027. Mercedes-Benz, BMW and BYD are likely to fill their stands with EVs and concepts.
+
+Major two-wheeler manufacturers expected to participate include Ather, TVS, Hero MotoCorp, Suzuki, Yamaha, Greaves Mobility and VinFast.
+
+BMW Motorrad could showcase the F 450 R and F 450 RR, while Hero MotoCorp might bring the recently unveiled Xpulse 450 and its Vida electric motorcycle concepts. Suzuki could display an updated Avenis, whereas Yamaha might showcase the Tenere 400 concept, which was recently seen at EICMA 2026.

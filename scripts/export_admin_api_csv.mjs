@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = process.cwd()
+const baseUrl = 'http://10.100.100.43:9000'
 const routesDir = path.join(root, 'backend', 'routes')
 const rows = []
 const methodRe = /@(router|flat_router)\.(get|post|put|patch|delete)\(([^\n]*)/g
@@ -15,7 +16,7 @@ const descriptions = (method, endpoint, tag) => {
 const curl = (method, endpoint) => {
   const bodyMethods = new Set(['post', 'put', 'patch'])
   const body = bodyMethods.has(method) ? ` -H "Content-Type: application/json" -d '{}'` : ''
-  return `curl -X ${method.toUpperCase()} "${'${BASE_URL}'}${endpoint}" -H "Authorization: Bearer ${'${TOKEN}'}"${body}`
+  return `curl -X ${method.toUpperCase()} "${baseUrl}${endpoint}" -H "Authorization: Bearer YOUR_TOKEN"${body}`
 }
 
 for (const filename of fs.readdirSync(routesDir).filter((name) => name.endsWith('.py'))) {

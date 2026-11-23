@@ -1,0 +1,3 @@
+## Top Things to Know About Nissan Cars
+
+I have this car for last 3+ years and i am very much happy with nissan magnite.This car is best in performance, Best design as it looks good on road presence and good after sales service.Service cost is average.No issues till today.Only one thing is that the mileage is 12 km/hr as i have turbo engine automatic car.Also the rating for car is 4 star so best car in security wise also.

@@ -1,0 +1,5 @@
+## Best Upto 100cc Bikes (417 results)
+
+1.00 - 1.42 Lakh3.5 Kwh | 4.7 kW | 161 km/chargeView November OffersView All VariantsVariants Ex-Showroom Price Konarc S (IDC 100 Km) 4 kW | 100 km/chargeRs. 1.00 LakhCheck On Road PriceKonarc S (IDC 125 Km) 4.7 kW | 125 km/chargeRs. 1.20 LakhCheck On Road PriceKonarc S (IDC 161 Km) 4.7 kW | 161 km/chargeRs. 1.42 LakhCheck On Road Price
+- Compare **Bajaj Chetak** Rs. 1.19 - 1.57 Lakh3.5 Kwh | 153 km/charge | 80 km/HrView November OffersView All VariantsVariants Ex-Showroom Price Chetak C3001 131 km/chargeRs. 1.19 LakhCheck On Road PriceChetak C3503 151 km/chargeRs. 1.29 LakhCheck On Road PriceChetak C3502 153 km/chargeRs. 1.45 LakhCheck On Road PriceChetak C3501 153 km/chargeRs. 1.57 LakhCheck On Road Price
+- Compare **Ather 450X** Rs. 1.49 - 1.89 Lakh2.9 Kwh | 6.4 kW | 126 km/chargeView November OffersView All VariantsVariants Ex-Showroom Price 450X IDC 126 KM - Mono 6.4 kW | 126 km/chargeRs. 1.49 LakhCheck On Road Price450X IDC 126 KM - Super Matte 6.4 kW | 126 km/chargeRs.

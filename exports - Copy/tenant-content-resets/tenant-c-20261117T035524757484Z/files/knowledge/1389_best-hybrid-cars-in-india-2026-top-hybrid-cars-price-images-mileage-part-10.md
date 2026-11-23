@@ -1,0 +1,3 @@
+## What is good about hybrid cars?
+
+Hybrid cars are less polluting than pure internal combustion engines (ICE) cars, and don/'t have the infrastructural challenges as faced by EV owners with regards to charging stations. They can run in pure EV mode at low loads and offer significantly more overall fuel economy, reducing fuel consumption all around. The battery pack is recharged by regenerative braking and also by any excess energy produced by the engine.

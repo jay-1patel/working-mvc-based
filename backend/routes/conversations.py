@@ -4,7 +4,8 @@ The legacy routes under ``/api/admin`` and ``/api/complaints`` are single-tenant
 and global. This router is the tenant-owned path the console uses, so a tenant
 console sees only its own customers:
 
-    GET    /api/admin/tenants/{tenant_id}/conversations
+    POST   /api/admin/tenants/conversations              -> flat session list (Chats)
+    GET    /api/admin/tenants/{tenant_id}/conversations   -> legacy path list
     POST   /api/admin/tenants/{tenant_id}/conversations/{wa_id}
     GET    /api/admin/tenants/{tenant_id}/chat-history
     GET    /api/admin/tenants/{tenant_id}/inbox
@@ -70,6 +71,12 @@ ALLOWED_PRIORITIES = {"low", "normal", "high", "urgent"}
 class ConversationDetailRequest(BaseModel):
     wa_id: str
     limit: int = 300
+
+
+class ConversationsListRequest(BaseModel):
+    """Body for flat POST /conversations (tenant from session)."""
+    search: Optional[str] = None
+    limit: int = 100
 
 
 class ConversationThreadRequest(BaseModel):
@@ -216,14 +223,10 @@ def _conversation_thread_payload(tenant_id: str, wa_id: str, limit: int) -> dict
     return {"wa_id": wa_id, "messages": _format_thread_messages(detail["messages"])}
 
 
-@router.get("/conversations")
-def list_conversations(
-    tenant_id: str,
-    limit: int = Query(100, le=500),
-    search: Optional[str] = Query(None),
-    principal: dict = Depends(_require("chat_history")),
-):
+def _conversations_list_payload(tenant_id: str, limit: int, search: Optional[str]) -> dict:
     """One row per customer: who they are, the last line, and the counts."""
+    if limit > 500:
+        raise HTTPException(status_code=422, detail="limit must be less than or equal to 500")
     raw = list_tenant_conversations(tenant_id=tenant_id, limit=limit, search=search)
     conversations = [
         {
@@ -239,6 +242,33 @@ def list_conversations(
         for t in raw
     ]
     return {"conversations": conversations, "count": len(conversations)}
+
+
+@router.get("/conversations")
+def list_conversations(
+    tenant_id: str,
+    limit: int = Query(100, le=500),
+    search: Optional[str] = Query(None),
+    principal: dict = Depends(_require("chat_history")),
+):
+    """Legacy path-tenant list; prefer POST /api/admin/tenants/conversations."""
+    return _conversations_list_payload(tenant_id, limit, search)
+
+
+@flat_router.post("/conversations")
+def list_conversations_flat(
+    body: ConversationsListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Session-tenant conversation list for the Chats panel (POST)."""
+    try:
+        _principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    except HTTPException as inbox_exc:
+        if inbox_exc.status_code != 403:
+            raise
+        _principal, tenant_id = _flat_principal(request, credentials, "chat_history")
+    return _conversations_list_payload(tenant_id, body.limit, body.search)
 
 
 @router.post("/conversations/{wa_id}")

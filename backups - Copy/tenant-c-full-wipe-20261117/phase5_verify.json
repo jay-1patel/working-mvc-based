@@ -1,0 +1,252 @@
+{
+  "after_inventory": {
+    "generated_at": "2026-11-17T07:30:05.668019+00:00",
+    "database": "tmpdbtest",
+    "tenant_id": "c",
+    "crawl_run_ids": [],
+    "collections": {
+      "faq_dataset": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 1,
+        "other": 1,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "tenant_faq": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "knowledge_base": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "tenant_kb": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "products": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 4,
+        "other": 4,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "tenant_crawl_runs": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 64,
+        "other": 64,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "tenant_crawl_staged": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "tenant_crawl_images": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "tenant_crawl_schedules": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 2,
+        "other": 2,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "admin_files": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 4,
+        "other": 4,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "cached_embeddings": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "tenant_profile_versions": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 28,
+        "other": 28,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "menus": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "menu_settings": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "session_buttons": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 0,
+        "other": 0,
+        "filter": {
+          "tenant_id": "c"
+        }
+      },
+      "published_config": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 3,
+        "other": 3,
+        "filter": {
+          "scope": "tenant_profile:c"
+        }
+      },
+      "draft_config": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 6,
+        "other": 6,
+        "filter": {
+          "scope": "tenant_profile:c"
+        }
+      },
+      "publish_history": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 28,
+        "other": 28,
+        "filter": {
+          "scope": "tenant_profile:c"
+        }
+      },
+      "tenant_crawl_pages": {
+        "exists": true,
+        "tenant_c": 0,
+        "total": 24429,
+        "other": 24429,
+        "filter": "run_id equality for each of []"
+      }
+    },
+    "disk": {
+      "clients/c": {
+        "exists": false,
+        "files": 0,
+        "bytes": 0,
+        "path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\clients\\c"
+      },
+      "data/tenants/c": {
+        "exists": false,
+        "files": 0,
+        "bytes": 0,
+        "path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\data\\tenants\\c"
+      },
+      "backend/uploaded_files/crawl_images/c": {
+        "exists": false,
+        "files": 0,
+        "bytes": 0,
+        "path": "C:\\Users\\admin\\Desktop\\whatsapp-chatbot\\mvc-based-code-main\\backend\\uploaded_files\\crawl_images\\c"
+      }
+    },
+    "skipped": [],
+    "preserved_before": {
+      "tenants": 1,
+      "admins": 1,
+      "tenant_tokens": 0,
+      "chat_history": 104,
+      "leads": 13,
+      "customers": 10,
+      "user_states": 11,
+      "complaints": 8,
+      "callbacks": 8,
+      "orders": 4,
+      "campaigns": 2
+    },
+    "notes": [
+      "Query layer appears to support equality filters only; page deletes use per-run_id equality."
+    ],
+    "existing_referenced_files": []
+  },
+  "preserved_after": {
+    "tenants": 1,
+    "admins": 1,
+    "tenant_tokens": 0,
+    "chat_history": 104,
+    "leads": 13,
+    "customers": 10,
+    "user_states": 11,
+    "complaints": 8,
+    "callbacks": 8,
+    "orders": 4,
+    "campaigns": 2
+  },
+  "problems": [],
+  "marker_hits": {
+    "Maruti": [
+      "admin_audit_events",
+      "api_error_logs",
+      "chat_history",
+      "tenant_change_requests"
+    ],
+    "Velocity Motors": [
+      "admin_audit_events",
+      "chat_history",
+      "tenant_change_requests"
+    ],
+    "velocitymotors": [
+      "chat_history",
+      "tenant_change_requests"
+    ],
+    "98765 43210": [
+      "chat_history",
+      "tenant_change_requests"
+    ]
+  }
+}

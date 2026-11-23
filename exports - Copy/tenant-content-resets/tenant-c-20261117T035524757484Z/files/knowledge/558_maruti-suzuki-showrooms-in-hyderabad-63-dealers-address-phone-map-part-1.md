@@ -1,0 +1,3 @@
+Dealer details checked:
+
+There are **63 authorised Maruti Suzuki showrooms in Hyderabad**: Popular Vehicle and Services Limited Nexa - Jubilee hills, Popular Vehicle and Services Limited Arena- Malakpet, Popular Vehicle and Services Limited Arena- Somajiguda, Popular Vehicle and Services Limited Nexa - Secretariat Road, Popular Vehicle and Services Limited Arena - Kukatpally and 58 more. The largest dealer groups are Varun Motors (2 outlets), Jayabheri Automotives (2 outlets), Adarsha Automotives (2 outlets). Find address, phone number and directions for each below, or browse the full Maruti Suzuki range.

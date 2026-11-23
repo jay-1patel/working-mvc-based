@@ -1,0 +1,3 @@
+## **Origin**
+
+In 1982, Sundaram Clayton joined hands with Suzuki from Japan to produce two-stroke motorcycles. Models like the Supra, Samurai, Shogun, and Shaolin gained popularity in the Indian market. TVS-Suzuki also made a mark in the motorcycle racing scene with a modified version of the TVS 50 that could reach speeds of 105 kmph. When this collaboration ended in 2001, all TVS Suzuki bikes were brought under the umbrella of TVS Motors.

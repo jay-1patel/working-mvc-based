@@ -1,0 +1,5 @@
+Policy type - A third-party-only policy pays nothing for your own car, so major damage cover needs a comprehensive or standalone own-damage plan.
+
+We'll be honest: IDV is the most underrated number in Indian car ownership. We'll happily spend a weekend debating two variants over a Rs 20,000 difference, then accept whatever IDV the renewal page throws at us without a second glance. That's backwards.
+
+Our take is simple. If your car is under three years old, pair a realistic IDV with Return to Invoice and zero depreciation, because the gap between IDV and on-road price is widest right then. If your car is older, resist the urge to slash IDV for a cheaper quote; the couple of thousand rupees you save is pocket change next to the payout you give up. And if you drive an EV, don't assume a regular policy covers your battery. Check and add EV-specific protection if it doesn't.

@@ -1,0 +1,9 @@
+## News of Automatic Cars
+
+Family Trips, Big Luggage, Long Miles And Wild Detours: Why The Mahindra Scorpio-N Is The Complete Family SUV
+By Team Zigwheels
+10 Nov, 2026                                                                           1468 views
+
+Hyundai Bayon Short Review: Why Does It Exist?
+By Arun Shenoy
+5 Nov, 2026                                                                           1042 views

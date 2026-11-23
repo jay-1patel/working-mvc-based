@@ -1,0 +1,3 @@
+zigwheels.com strongly advises you not to test the site with false purchases request, as it will put you at substantial personal legal risk. It is a crime to use a false name, other false personal information to buy. Willfully entering erroneous or fictitious purchase request may result in prosecution by zigwheels.com. Please be aware that even if you do not give zigwheels.com your real name, your Web browser transmits a unique address to us, which can be used by law enforcement officials to identify you. As a seller you certify that all information provided by you against your listed car is true. Individual seller can list one car at a time and needs to make zigwheels.com aware of its timely status.
+
+10\. Selling

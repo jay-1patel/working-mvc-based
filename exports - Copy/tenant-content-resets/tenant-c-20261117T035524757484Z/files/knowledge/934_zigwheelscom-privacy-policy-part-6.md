@@ -1,0 +1,5 @@
+We may also obtain information about You from third parties such as partners, marketers, third-party websites and researchers and combine that information with information which We collect from or about You.
+
+We may use third-party service providers to serve ads on Girnar’s behalf across the internet and sometimes on the Platform. They may collect information about Your visits to the Platform, and Your interaction with the products and services on the Platform.
+
+Your Information will mostly be stored in electronic form however certain data may be stored in physical form. We may store, collect, use and process Your Information within Republic of India and/or outside India subject to compliance under applicable laws. We may enter into agreements with third parties (in or outside of India) to store or process Your Information and such third parties may have their own security measures to safeguard Your Information which security standards as comparable with good industry practices.

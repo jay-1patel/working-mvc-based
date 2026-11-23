@@ -1,0 +1,5 @@
+Next, check the fasteners. Bolts on the fender and bonnet hinges will show scratch marks if they've ever been removed. Panel gaps should be even and consistent all the way from the headlight to the taillight; anywhere that gap changes, something has been taken off and refitted. A slight mismatch in panel gaps is fine, as some new cars also have these gaps. However, if the difference is a lot, then you should take note of it.
+
+Lifting the boot carpet and checking the spare wheel well for ripples or fresh welding is one of the most important steps that buyers miss out on. It's one of the clearest signs of a rear-end repair. Rubber door seals should also show uniform ageing across the car. A seal that looks newer than the rest usually means that door has a story behind it.
+
+Never ignore the tyres. On the sidewall, there is a DOT code stamped, which tells you exactly when each tyre was manufactured. This is reliable proof about how well the car has actually been maintained.

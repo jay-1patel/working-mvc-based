@@ -1,0 +1,56 @@
+{
+  "tenant_id": "c",
+  "date": "2026-11-16",
+  "messages": [
+    {
+      "wa_id": "919512777899",
+      "sender_name": "cars",
+      "message": "[agent] hi",
+      "response": "[sent by agent]",
+      "route": "agent",
+      "created_at": "2026-11-16 08:40:23"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "cars",
+      "message": "[agent] hello",
+      "response": "[sent by agent]",
+      "route": "agent",
+      "created_at": "2026-11-16 16:54:27"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "cars",
+      "message": "[agent] gfgfk",
+      "response": "[sent by agent]",
+      "route": "agent",
+      "created_at": "2026-11-16 16:55:48"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "cars",
+      "message": "[agent] i am admin",
+      "response": "[sent by agent]",
+      "route": "agent",
+      "created_at": "2026-11-16 16:56:57"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "cars",
+      "message": "[agent] i am admin",
+      "response": "[sent by agent]",
+      "route": "agent",
+      "created_at": "2026-11-16 16:56:58"
+    },
+    {
+      "wa_id": "919512777899",
+      "sender_name": "cars",
+      "message": "[agent] hellooooooo",
+      "response": "[sent by agent]",
+      "route": "agent",
+      "created_at": "2026-11-16 16:59:02"
+    }
+  ],
+  "count": 6,
+  "updated_at": "2026-11-16T16:59:02"
+}

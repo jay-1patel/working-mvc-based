@@ -1,0 +1,3 @@
+## Maruti Suzuki Dzire Tour S
+
+Updated: November 2026. Maruti Suzuki Dzire Tour S on-road price in Bhavnagar starts at ₹7.30 Lakh and goes up to ₹8.39 Lakh. It offers a 1.2L petrol engine (80 bhp in base form), a manual transmission with ARAI mileage 26.06 kmpl, plus CNG claimed 34.3 km/kg. Key highlights include multiple fuel options and a fuel-efficient engine. It rivals the Hyundai Prime SD and Tata Aeris.

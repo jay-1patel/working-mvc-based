@@ -1,0 +1,5 @@
+## Top User Review
+
+6ShareNickuuu
+-
+Forty TwoPurchased this bike after Purchased this bike a month ago engine is smooth the bike has good torque i am happy with over all performance of engine and breaking.However low ground clearance still a issue have to be careful on speed breakers.Digital cluster like yezdi roadster can be a great addition.The bike is delivering me consistent 28-29 kmpl so far.You need to be careful during gear shifts i ended up going neutral on the road but i believe it will take some time to adjust to it.There is no heating issue in bike as many people have been reporting actually it's hot air flow from cooling fan which flows towards riders legs as you are riding the bike.Not a fan of normal mirrors as i had to move back and forth to get road view properly( i see a part of my elbows which block part of traffic) thinking about bar end mirrors to fix this.Road presence is great people ask me about the bike.

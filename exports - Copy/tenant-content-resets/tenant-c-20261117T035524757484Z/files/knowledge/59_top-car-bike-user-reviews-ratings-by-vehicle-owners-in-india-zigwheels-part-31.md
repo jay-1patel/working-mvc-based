@@ -1,0 +1,5 @@
+## Best Car User Reviews
+
+14ShareVENKAT NATS 3 years ago
+-
+Bolero4.7I am using this car from I am using this car from 2017 and also i have own other car as well but i found this car is way better then any other car available in price segment of 20l.In terms of performance is, This is absolute beast with a capacity of 7+1, But this is standard size, You can adjust extra passanger in it.This car gives you good average and durable engine so you can trust your machine.Believe me, I have covered 1150 km in a day.You will get a decent safety with this car.Bolero comes with abs and airbags.Also this car build on good metal which gives extra support in small scraches.Overall a good product when you have a tight budget and want car which gives you good performance with durable engine and milage.You can also accomodate extra passanger with good safety and without headache you can go for longer trip at a price of any hechback car. 7SharePreetesh 2 years ago

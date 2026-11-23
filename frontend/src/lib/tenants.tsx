@@ -15,7 +15,10 @@ import { isMockMode, mockProfile, mockTenant } from './mock'
 
 /** Every call the tenant console makes against `/api/admin/tenants`. */
 export const tenantsApi = {
-  list: () => isMockMode() ? Promise.resolve([mockTenant]) : api.get<{ tenants: Tenant[] }>('/api/admin/tenants').then((r) => r.tenants),
+  list: () =>
+    isMockMode()
+      ? Promise.resolve([mockTenant])
+      : api.post<{ tenants: Tenant[] }>('/api/admin/tenants/list', {}).then((r) => r.tenants),
 
   getActiveTestTenant: () =>
     api

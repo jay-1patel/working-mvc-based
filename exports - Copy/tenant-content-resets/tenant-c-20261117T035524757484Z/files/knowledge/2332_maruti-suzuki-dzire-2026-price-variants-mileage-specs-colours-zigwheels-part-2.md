@@ -1,0 +1,3 @@
+## Maruti Suzuki Dzire
+
+Updated: November 2026. Maruti Suzuki Dzire on-road price in Bhavnagar starts at ₹7.25 Lakh and goes up to ₹10.73 Lakh. It offers a 1.2L petrol engine (81.8 bhp in base form), manual and automatic transmissions with ARAI mileage 25.15–26.13 kmpl, plus CNG claimed 36.47 km/kg. Key highlights include a 5-star Global NCAP safety rating and multiple fuel options. It rivals the Hyundai Exter, Tata Aeris and Tata Punch.

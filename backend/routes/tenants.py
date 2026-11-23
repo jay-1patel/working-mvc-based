@@ -3,7 +3,8 @@
 Publishing is the only way a profile change reaches the bot, and it is always
 versioned and rollbackable:
 
-    GET  /api/admin/tenants
+    GET  /api/admin/tenants                        -> legacy list; prefer POST /list
+    POST /api/admin/tenants/list                   -> session-auth tenant registry
     POST /api/admin/tenants
     POST /api/admin/tenants/{tenant_id}/detail     -> layers + effective profile
     POST /api/admin/tenants/{tenant_id}/profile     -> save draft (merged over the pending draft)
@@ -299,11 +300,7 @@ def _push_active_test_menu(tenant_id: str) -> Optional[str]:
 
 # ── registry ──────────────────────────────────────────────────────────────
 
-@router.get("")
-def list_tenants(
-    status: Optional[str] = None,
-    current_admin: dict = Depends(require_permission("manage_operations")),
-):
+def _list_tenants_payload(current_admin: dict, status: Optional[str] = None) -> dict:
     from database import get_active_test_tenant
     rows = [_public_tenant(r) for r in tenancy_store.list_tenants(status=status)]
     if current_admin.get("role") != "super_admin":
@@ -318,6 +315,30 @@ def list_tenants(
         "tenants": rows,
         "active_test_tenant": active,
     }
+
+
+class TenantsListRequest(BaseModel):
+    """Body for POST /list (status filter optional; tenant from session)."""
+    status: Optional[str] = None
+
+
+@router.get("")
+def list_tenants(
+    status: Optional[str] = None,
+    current_admin: dict = Depends(require_permission("manage_operations")),
+):
+    """Legacy GET list; prefer POST /api/admin/tenants/list."""
+    return _list_tenants_payload(current_admin, status)
+
+
+@router.post("/list")
+def list_tenants_post(
+    body: Optional[TenantsListRequest] = None,
+    current_admin: dict = Depends(require_permission("manage_operations")),
+):
+    """Session-auth tenant registry list for the admin shell (POST)."""
+    status = body.status if body is not None else None
+    return _list_tenants_payload(current_admin, status)
 
 
 @router.get("/active-test-tenant")

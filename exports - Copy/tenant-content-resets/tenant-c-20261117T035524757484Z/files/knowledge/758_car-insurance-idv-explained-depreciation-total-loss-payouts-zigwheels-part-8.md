@@ -1,0 +1,5 @@
+Now do the maths on that first row. Save Rs 2,000 on premium, lose Rs 90,000 of payout. That's a terrible trade by any measure. If the Swift is written off, the owner has to dig Rs 90,000 out of savings just to get back into a similar car. With a car loan running, a reduced payout might not even cover the EMIs, leaving you paying for a car that no longer exists.
+
+Going the other way isn't a free pass either. IDV well above realistic market value raises the premium without matching benefit and can trigger disputes at claim time. The sweet spot is boring but correct: an IDV that mirrors what your car is genuinely worth.
+
+Accurate valuation is what turns a write-off from a financial gut-punch into a manageable reset. When the IDV truly reflects your car, the payout lands close to what it takes to put a comparable car back in your driveway. A handful of details make all the difference.

@@ -1,0 +1,3 @@
+This Site may contain hyperlinks to websites operated by parties other than zigwheels.com. The inclusion of hyperlinks to such websites does not imply zigwheels.com certification or endorsement of such websites nor any association with their operators. zigwheels.com or its affiliates or associates or its employees do not provide any judgment or warranty in respect of the authenticity or correctness of the content of such other services or sites to which links are provided. A link to another service or site is not an endorsement of any products or services on such site or the Site. You shall be solely responsible for any or all the consequences that arise out of your use of such hyperlinks to websites.
+
+6\. Websites Intellectual Property

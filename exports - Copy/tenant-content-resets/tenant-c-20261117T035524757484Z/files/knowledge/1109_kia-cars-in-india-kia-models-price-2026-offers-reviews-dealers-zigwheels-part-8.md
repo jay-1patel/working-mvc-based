@@ -1,0 +1,3 @@
+## Kia Cars Questions and Answers
+
+- The Kia Sonet comes with a standard warranty from the manufacturer. For the latest warranty coverage, terms, and conditions applicable to your preferred variant, we recommend contacting your nearest authorized Kia dealership or Kia customer support. Kindly click on the given link to locate nearetst authorized Kia dealership: https://www.zigwheels.com/dealers/kia/Delhi

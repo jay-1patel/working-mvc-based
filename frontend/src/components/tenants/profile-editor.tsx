@@ -319,44 +319,46 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         </Panel>
       </div>
 
-      <Panel title="Features & Capabilities" className="mt-4">
-        <p className="-mt-1 mb-4 text-sm text-txmuted">
-          Enable or disable capabilities for this tenant. Enabled features activate WhatsApp menus, intents, and console panels.
-        </p>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {FEATURE_GROUPS.map((group) => (
-            <div key={group.title} className="rounded-panel border border-line bg-paper p-4">
-              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-txmuted">
-                {group.title}
-              </h4>
-              <div className="space-y-3">
-                {group.flags.map((flag) => {
-                  const meta = FEATURE_LABELS[flag]
-                  const checked = form.features.includes(flag)
-                  return (
-                    <div key={flag} className="flex items-start justify-between gap-2 pt-1">
-                      <div className="min-w-0 pr-2">
-                        <p className="text-sm font-medium text-tx">{meta?.label ?? flag}</p>
-                        <p className="text-xs text-txmuted">{meta?.help ?? ''}</p>
+      {effective.vertical === 'ecommerce' && (
+        <Panel title="Features & Capabilities" className="mt-4">
+          <p className="-mt-1 mb-4 text-sm text-txmuted">
+            Enable or disable capabilities for this tenant. Enabled features activate WhatsApp menus, intents, and console panels.
+          </p>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {FEATURE_GROUPS.map((group) => (
+              <div key={group.title} className="rounded-panel border border-line bg-paper p-4">
+                <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-txmuted">
+                  {group.title}
+                </h4>
+                <div className="space-y-3">
+                  {group.flags.map((flag) => {
+                    const meta = FEATURE_LABELS[flag]
+                    const checked = form.features.includes(flag)
+                    return (
+                      <div key={flag} className="flex items-start justify-between gap-2 pt-1">
+                        <div className="min-w-0 pr-2">
+                          <p className="text-sm font-medium text-tx">{meta?.label ?? flag}</p>
+                          <p className="text-xs text-txmuted">{meta?.help ?? ''}</p>
+                        </div>
+                        <Toggle
+                          disabled={!editing}
+                          checked={checked}
+                          onChange={(on) => {
+                            const next = on
+                              ? [...form.features.filter((f) => f !== flag), flag]
+                              : form.features.filter((f) => f !== flag)
+                            patch({ features: next })
+                          }}
+                        />
                       </div>
-                      <Toggle
-                        disabled={!editing}
-                        checked={checked}
-                        onChange={(on) => {
-                          const next = on
-                            ? [...form.features.filter((f) => f !== flag), flag]
-                            : form.features.filter((f) => f !== flag)
-                          patch({ features: next })
-                        }}
-                      />
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </Panel>
+            ))}
+          </div>
+        </Panel>
+      )}
 
       <p className="mt-4 flex items-center gap-2 text-xs text-txmuted">
         <TriangleAlert className="h-3.5 w-3.5" />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, ListPlus, Loader2, Pencil, Save, Send, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ListPlus, Loader2, Pencil, Send, Trash2, X } from 'lucide-react'
 import { tenantsApi } from '@/lib/tenants'
 import { useAction } from '@/lib/hooks'
 import { slugify } from '@/lib/profile'
@@ -164,7 +164,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
     setMenu({ ...menu, buttons: next.map((b, i) => ({ ...b, sort_order: i })) })
   }
 
-  const commit = async (thenPublish: boolean) => {
+  const commit = async () => {
     const clean = validate(menu, buttons)
     if (clean) {
       setError(clean)
@@ -173,8 +173,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
     setError(null)
     // Intent pages ride along in the same draft: save the ones an option
     // actually references first (a half-written page whose option was
-    // cancelled or deleted is skipped), then the menu — drafts accumulate,
-    // so both land together and one publish makes them live.
+    // cancelled or deleted is skipped), then the menu — then publish.
     const referenced = new Set(
       buttons.map((b) => b.intent).filter((i): i is string => Boolean(i)),
     )
@@ -206,10 +205,6 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
     if (!saved) return
     setIntentEdits({})
     setNewIntents([])
-    if (!thenPublish) {
-      toast.push('Menu saved as a draft. Publish to make it live.')
-      return
-    }
     if ((saved.validation ?? []).length) {
       setError(saved.validation.join(' '))
       return
@@ -348,11 +343,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
               <ListPlus className="h-4 w-4" />
               Add option
             </GhostButton>
-            <GhostButton className={smallBtn} disabled={action.busy} onClick={() => commit(false)}>
-              {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save draft
-            </GhostButton>
-            <PrimaryButton className={smallBtn} disabled={action.busy} onClick={() => commit(true)}>
+            <PrimaryButton className={smallBtn} disabled={action.busy} onClick={() => commit()}>
               {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               Save & publish
             </PrimaryButton>
@@ -723,14 +714,10 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
           {canWrite && buttons.length > 0 && (
             <Panel title="Publishing">
               <p className="-mt-1 mb-4 text-sm text-txmuted">
-                The bot only sees the published version. Save a draft as often as you like — nothing changes until you publish.
+                The bot only sees the published version. Edit options here, then Save & publish to make them live.
               </p>
               <div className="flex flex-wrap gap-2">
-                <GhostButton disabled={action.busy} onClick={() => commit(false)}>
-                  {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save draft
-                </GhostButton>
-                <PrimaryButton disabled={action.busy} onClick={() => commit(true)}>
+                <PrimaryButton disabled={action.busy} onClick={() => commit()}>
                   {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   Save & publish
                 </PrimaryButton>

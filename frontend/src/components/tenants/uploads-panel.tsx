@@ -528,7 +528,7 @@ export function UploadsPanel({
       >
         <p className="mb-3 text-xs text-txmuted">
           {section === 'library'
-            ? 'Upload raw files into FAQ, Knowledge base, Brochure, or New releases. Use the Upload documents tab for extract → review → publish sessions.'
+            ? 'Upload raw files into FAQ, Knowledge base, or Brochure. Use the Upload documents tab for extract → review → publish sessions.'
             : 'Store raw files under a module, or use Upload a new or revised PDF above to extract and publish bot content.'}{' '}
           Supported: {UPLOAD_TYPES_LABEL} · Max {MAX_UPLOAD_LABEL}.
         </p>

@@ -343,7 +343,6 @@ export const FILE_MODULES = [
   { value: 'faq', label: 'FAQ', permission: 'upload_faq' },
   { value: 'kb', label: 'Knowledge base', permission: 'upload_kb' },
   { value: 'catalogue', label: 'Brochure', permission: 'upload_faq' },
-  { value: 'new_arrival', label: 'New releases', permission: 'upload_faq' },
 ] as const
 
 /**

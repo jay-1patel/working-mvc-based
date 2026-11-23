@@ -29,6 +29,8 @@ export interface ImpersonateResult {
   permissions: Record<string, boolean>
   tenant_id: string | null
   onboarding_approved: boolean
+  session_minted?: boolean
+  support_access?: boolean
 }
 
 /** Dedicated customer-care operator who may open tenant accounts. */
@@ -57,6 +59,12 @@ export const adminsApi = {
     // caller's own username into the JSON body for session auth.
     api.post<ImpersonateResult>(
       `/api/auth/impersonate/${encodeURIComponent(username)}`,
+      {},
+    ),
+
+  impersonateTenant: (tenantId: string) =>
+    api.post<ImpersonateResult>(
+      `/api/auth/impersonate-tenant/${encodeURIComponent(tenantId)}`,
       {},
     ),
 

@@ -56,7 +56,7 @@ export function OnboardingUsersPanel() {
   if (!allowed) {
     return (
       <Notice tone="warn" title="Not permitted">
-        Only the customer_care account can open onboarding users.
+        Only the customer_care account can open onboarded users.
       </Notice>
     )
   }
@@ -71,7 +71,7 @@ export function OnboardingUsersPanel() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
-        title="Onboarding users"
+        title="Onboarded users"
         description="All tenant admins and sub-admins. Login opens their console with the same screens they see."
         meta={<Pill tone="ok">{filtered.length} users</Pill>}
       />

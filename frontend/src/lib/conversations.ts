@@ -118,6 +118,11 @@ export const conversationsApi = {
           { wa_id: waId, message, attachment: attachment ?? undefined },
         ),
 
+  sendMenu: (tenantId: string, waId: string) =>
+    isMockMode()
+      ? Promise.resolve({ status: 'ok', sent: true })
+      : api.post<{ status: string; sent: boolean }>('/api/admin/tenants/inbox/menu', { wa_id: waId }),
+
   agents: (tenantId: string, signal?: AbortSignal) =>
     isMockMode() ? Promise.resolve(mockAgents) : api.post<{ agents: Agent[] }>('/api/admin/tenants/agents', {}, { signal }).then((r) => r.agents),
 

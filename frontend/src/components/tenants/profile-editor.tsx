@@ -2,48 +2,21 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Loader2, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
 import { tenantsApi } from '@/lib/tenants'
-import { editorContactErrors, editorFromProfile, editorToSnapshot, timezoneOptions, type EditorForm } from '@/lib/profile'
-import { FEATURE_LABELS, getVertical } from '@/lib/verticals'
-import type { FeatureFlag } from '@/lib/types'
+import { editorContactErrors, editorFromProfile, editorToSnapshot, isValidPhone, type EditorForm } from '@/lib/profile'
+import { getVertical } from '@/lib/verticals'
 import {
   ErrorBanner,
   FieldInput,
-  FieldSelect,
-  FieldTextarea,
   GhostButton,
   Notice,
   Panel,
   PrimaryButton,
-  Toggle,
 } from '@/components/remake/ui'
 import { LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useAuth } from '@/lib/auth'
 import { useToast } from '@/components/ui/toast'
 import { useTenantDetail } from '@/components/tenants/hooks'
-
-const FEATURE_GROUPS: { title: string; flags: FeatureFlag[] }[] = [
-  {
-    title: 'Selling & Orders',
-    flags: ['cart', 'buy_now', 'orders', 'payments', 'track_order', 'returns', 'distributors'],
-  },
-  {
-    title: 'Offerings & Catalogue',
-    flags: ['offerings', 'offering_details', 'services', 'products', 'products_schemes', 'brochure_pdf'],
-  },
-  {
-    title: 'Enquiries & Lead Gen',
-    flags: ['lead_capture', 'quote', 'callback', 'book_appointment'],
-  },
-  {
-    title: 'Knowledge Base & Support',
-    flags: ['faq', 'kb', 'complaints', 'campaigns'],
-  },
-  {
-    title: 'Human Handover',
-    flags: ['handoff', 'human_handover'],
-  },
-]
 
 /** The compact size the legacy `size="sm"` buttons had in the header. */
 const smallBtn = 'px-3 py-1.5 text-xs'
@@ -143,7 +116,7 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         description={
           isSuperAdmin
             ? "View-only. This is the tenant's data layer as their admin maintains it — changes come from the tenant's admin and are approved by you."
-            : 'This form is your data layer. Saving writes a draft; publishing validates it and swaps the live profile (profile-wide changes go to a super admin for approval first). Publishing is the only thing the bot ever sees.'
+            : 'Company brand and contact details. Saving writes a draft; publishing validates it and swaps the live profile (changes go to a super admin for approval first). Publishing is the only thing the bot ever sees.'
         }
         actions={
           readOnly ? undefined : editing ? (
@@ -237,128 +210,40 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         </Notice>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Working hours">
-          <p className="-mt-1 mb-4 text-sm text-txmuted">Working hours configuration.</p>
-          <div className="space-y-4">
-            <Toggle
-              checked={form.businessHours.alwaysOpen}
-              disabled={!editing}
-              onChange={(alwaysOpen) => patch({ businessHours: { ...form.businessHours, alwaysOpen } })}
-              label="Always open"
-            />
-            <div className="grid grid-cols-3 gap-3">
-              <FieldSelect
-                label="Timezone"
-                disabled={!editing}
-                value={form.businessHours.timezone}
-                onChange={(e) => patch({ businessHours: { ...form.businessHours, timezone: e.target.value } })}
-              >
-                <option value="">Select…</option>
-                {timezoneOptions(form.businessHours.timezone).map((tz) => (
-                  <option key={tz} value={tz}>
-                    {tz}
-                  </option>
-                ))}
-              </FieldSelect>
-              <FieldInput
-                label="Opens"
-                type="time"
-                disabled={!editing || form.businessHours.alwaysOpen}
-                value={form.businessHours.open}
-                onChange={(e) => patch({ businessHours: { ...form.businessHours, open: e.target.value } })}
-              />
-              <FieldInput
-                label="Closes"
-                type="time"
-                disabled={!editing || form.businessHours.alwaysOpen}
-                value={form.businessHours.close}
-                onChange={(e) => patch({ businessHours: { ...form.businessHours, close: e.target.value } })}
-              />
-            </div>
-            <FieldTextarea
-              label="Out-of-hours message"
-              rows={2}
-              disabled={!editing}
-              value={form.businessHours.outOfHoursMessage}
-              onChange={(e) => patch({ businessHours: { ...form.businessHours, outOfHoursMessage: e.target.value } })}
-            />
-          </div>
-        </Panel>
-
-        <Panel title="Notifications">
-          <p className="-mt-1 mb-4 text-sm text-txmuted">Where leads, quotes and handoffs are pushed.</p>
-          <div className="space-y-4">
-            <FieldInput
-              label="Sales email"
-              type="email"
-              disabled={!editing}
-              value={form.notifications.salesEmail}
-              onChange={(e) => patch({ notifications: { ...form.notifications, salesEmail: e.target.value } })}
-            />
-            <FieldInput
-              label="Support email"
-              type="email"
-              disabled={!editing}
-              value={form.notifications.supportEmail}
-              onChange={(e) => patch({ notifications: { ...form.notifications, supportEmail: e.target.value } })}
-            />
-            <FieldInput
-              label="Brochure URL"
-              disabled={!editing}
-              value={form.notifications.brochureUrl}
-              placeholder="https://example.com/brochure.pdf"
-              onChange={(e) =>
-                patch({ notifications: { ...form.notifications, brochureUrl: e.target.value } })
-              }
-            />
-            <p className="text-xs text-txfaint">
-              Optional. Public PDF link, IP/localhost media URL, or /uploaded_files/… path. Leave blank if unused.
-            </p>
-          </div>
-        </Panel>
-      </div>
-
-      {effective.vertical === 'ecommerce' && (
-        <Panel title="Features & Capabilities" className="mt-4">
-          <p className="-mt-1 mb-4 text-sm text-txmuted">
-            Enable or disable capabilities for this tenant. Enabled features activate WhatsApp menus, intents, and console panels.
-          </p>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {FEATURE_GROUPS.map((group) => (
-              <div key={group.title} className="rounded-panel border border-line bg-paper p-4">
-                <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-txmuted">
-                  {group.title}
-                </h4>
-                <div className="space-y-3">
-                  {group.flags.map((flag) => {
-                    const meta = FEATURE_LABELS[flag]
-                    const checked = form.features.includes(flag)
-                    return (
-                      <div key={flag} className="flex items-start justify-between gap-2 pt-1">
-                        <div className="min-w-0 pr-2">
-                          <p className="text-sm font-medium text-tx">{meta?.label ?? flag}</p>
-                          <p className="text-xs text-txmuted">{meta?.help ?? ''}</p>
-                        </div>
-                        <Toggle
-                          disabled={!editing}
-                          checked={checked}
-                          onChange={(on) => {
-                            const next = on
-                              ? [...form.features.filter((f) => f !== flag), flag]
-                              : form.features.filter((f) => f !== flag)
-                            patch({ features: next })
-                          }}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
+      <Panel title="Brand">
+        <p className="-mt-1 mb-4 text-sm text-txmuted">Company names and contact details used in menus and signatures.</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FieldInput label="Display name" disabled={!editing} value={form.displayName} onChange={(e) => patch({ displayName: e.target.value })} />
+          <FieldInput label="Company name" disabled={!editing} value={form.brand.name} onChange={(e) => patch({ brand: { ...form.brand, name: e.target.value } })} />
+          <FieldInput label="Bot name" disabled={!editing} value={form.brand.botName} onChange={(e) => patch({ brand: { ...form.brand, botName: e.target.value } })} />
+          <FieldInput label="Tagline" disabled={!editing} value={form.brand.tagline} onChange={(e) => patch({ brand: { ...form.brand, tagline: e.target.value } })} />
+          <FieldInput label="Website" disabled={!editing} value={form.brand.website} onChange={(e) => patch({ brand: { ...form.brand, website: e.target.value } })} />
+          <FieldInput
+            label="Support email"
+            type="email"
+            disabled={!editing}
+            value={form.brand.supportEmail}
+            onChange={(e) => patch({ brand: { ...form.brand, supportEmail: e.target.value } })}
+          />
+          <FieldInput
+            label="Support phone"
+            disabled={!editing}
+            value={form.brand.supportPhone}
+            error={
+              editing && form.brand.supportPhone.trim() && !isValidPhone(form.brand.supportPhone)
+                ? 'Phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210'
+                : undefined
+            }
+            onChange={(e) => patch({ brand: { ...form.brand, supportPhone: e.target.value } })}
+          />
+          <FieldInput
+            label="Closing signature"
+            disabled={!editing}
+            value={form.brand.signature}
+            onChange={(e) => patch({ brand: { ...form.brand, signature: e.target.value } })}
+          />
+        </div>
+      </Panel>
 
       <p className="mt-4 flex items-center gap-2 text-xs text-txmuted">
         <TriangleAlert className="h-3.5 w-3.5" />

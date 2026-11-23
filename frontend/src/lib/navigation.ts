@@ -15,11 +15,11 @@
  *   chat-history      → Past chats               (was: Knowledge / Website knowledge / Files)
  *   complaints        → Help requests
  *   callbacks         → Callbacks                customers → Customers
- *   menu              → WhatsApp menu (dropdown) orders    → Orders
+ *   menu              → WhatsApp menu            orders    → Orders
  *   distributors      → Partners                 campaigns → Send an offer
  *   intents           → Questions the bot understands
  *   versions          → Versions                 tokens    → Connections
- *   profile           → Profile menu (under WhatsApp dropdown)
+ *   profile           → Profile (below Chats; brand / company data)
  *   menu-edit         → Menu editor (Advanced)
  *   layers            → Layers (Advanced)        api-access → API access (Advanced)
  *   chat              → Admin chat (Advanced)    test      → Test & smoke (Advanced)
@@ -40,7 +40,6 @@ import {
   Inbox,
   KeyRound,
   LayoutGrid,
-  ListTree,
   Megaphone,
   MessageCircle,
   Package,
@@ -179,6 +178,13 @@ export function buildTenantNav(opts: {
       feature: 'human_handover',
     },
     {
+      id: 'profile',
+      label: 'Profile',
+      icon: ScrollText,
+      group: 'Talk to customers',
+      permissions: ['manage_operations'],
+    },
+    {
       id: 'chat-history',
       label: 'Past chats',
       icon: History,
@@ -205,15 +211,11 @@ export function buildTenantNav(opts: {
 
     // Your business data
     {
-      id: 'whatsapp',
+      id: 'menu',
       label: 'WhatsApp menu',
       icon: MessageCircle,
       group: 'Your business data',
       permissions: ['manage_operations'],
-      children: [
-        { id: 'menu', label: 'WhatsApp menu', icon: ListTree, permissions: ['manage_operations'] },
-        { id: 'profile', label: 'Profile menu', icon: ScrollText, permissions: ['manage_operations'] },
-      ],
     },
     {
       id: 'records',
@@ -274,8 +276,7 @@ export function buildTenantNav(opts: {
     { id: 'tokens', label: 'Connections', icon: KeyRound, group: 'Manage', permissions: ['manage_operations'] },
 
     // Settings → Advanced tools still have routes and implementations, but
-    // are intentionally hidden from the admin panel for now. Profile lives
-    // under the WhatsApp menu dropdown above.
+    // are intentionally hidden from the admin panel for now.
   ]
   return items
     .map((item) => {

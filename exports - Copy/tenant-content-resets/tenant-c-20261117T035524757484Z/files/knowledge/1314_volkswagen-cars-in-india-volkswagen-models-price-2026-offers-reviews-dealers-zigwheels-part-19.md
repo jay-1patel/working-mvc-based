@@ -1,5 +1,0 @@
-## About Volkswagen
-
-The Volkswagen Golf GTI is a true driver's car powerful, refined, and exciting to drive. With 261 bhp and a 1984 cc engine, it delivers great performance in all conditions. Yes, the 136 mm ground clearance may not be ideal for every Indian road, but if you love driving and value precision1handling, it's totally worth it.In this price range, it easily stands out compared to Volvo, Audi, Mercedes,1and BMW hatchbacks. Maintenance is surprisingly low for a car of this segment, and it's perfect for1enthusiasts who want performance without compromising everyday practicality. A gem in the hot hatch segment!
-
-The Volkswagen Golf GTI is a true driver's car powerful, refined, and exciting to drive. With 261 bhp and a 1984 cc engine, it delivers great performance in all conditions. Yes, the 136 mm ground clearance may not be ideal

@@ -1,5 +1,0 @@
-## Questions & Answers on Tata Punch EV
-
-- The offers and discounts are provided by the brand or dealership and may vary depending on your city and dealership location. Therefore, we recommend that you connect with your nearest authorized dealership, where you can get accurate information regarding the latest offers, discounts and the process to avail them. You may also check the details of your nearest dealership based on your preferred city by clicking on the link: https://www.zigwheels.com/dealers/tata/Delhi
-
-- We recommend contacting your nearest authorized dealership for the most accurate information regarding CSD pricing and availability. Kindly note that both price and availability may vary depending on the location. You may click on the provided link to view authorized dealership details as per your city: https://www.zigwheels.com/dealers/tata/Delhi

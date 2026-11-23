@@ -1,3 +1,0 @@
-## Maruti Suzuki Brezza
-
-Updated: November 2026. Maruti Suzuki Brezza on-road price in Lucknow starts at ₹8.51 Lakh and goes up to ₹15.97 Lakh. It offers a 1L and 1.5L petrol engine (109 bhp in base form), manual and automatic transmissions with ARAI mileage 19.89–21.09 kmpl, plus CNG claimed 26.9 km/kg. Key highlights include a 5-star Bharat NCAP safety rating and multiple fuel options. It rivals the Hyundai Creta, Hyundai Venue, Tata Nexon and Tata Punch.

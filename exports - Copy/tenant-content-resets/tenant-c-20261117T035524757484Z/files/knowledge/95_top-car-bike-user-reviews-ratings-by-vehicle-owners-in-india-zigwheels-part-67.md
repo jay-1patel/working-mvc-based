@@ -1,5 +1,0 @@
-## Best Bike User Reviews
-
-6ShareCrazY MewTwo 2 years ago
--
-Splendor PlusIndian motorcyclist As an indian motorcyclist, I recently purchased the hero splendor plus motorcycle, And here's my honest review: pros:fuel efficiency: the splendor plus is known for its exceptional fuel efficiency, Making it perfect for daily commutes and long rides without burning a hole in your pocket.Reliability: hero has a reputation for producing reliable motorcycles, And the splendor plus is no exception.It's sturdy and dependable, Requiring minimal maintenance.Comfort: the riding posture is comfortable, Especially for city rides.The seat is well-padded, Ensuring a smooth and comfortable experience even on rough roads.Affordability: one of the most affordable motorcycles in its segment, The splendor plus offers great value for money without compromising on quality.Cons:power: while the splendor plus is great for city commuting, It lacks power on highways, Especially when overtaking or riding at higher speeds.Basic features: it lack

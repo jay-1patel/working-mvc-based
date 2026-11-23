@@ -1,5 +1,0 @@
-Q. Between spresso and ignis?
-
-The Maruti Ignis Sigma and Maruti S-Presso STD are both hatchbacks from Maruti, but they differ in terms of performance and pricing. The Ignis Sigma is priced at around ₹5.35 lakh, while the S-Presso STD is more affordable at approximately ₹3.50 lakh. In terms of engine specifications, the Ignis is equipped with a 1197 cc engine, whereas the S-Presso comes with a smaller 998 cc engine. The Ignis delivers a higher power output of 81.80 bhp at 6000 rpm, compared to 65.71 bhp at 5500 rpm in the S-Presso. Both vehicles are suitable for city driving due to their hatchback body type. Additionally, the Ignis features a 4-cylinder engine for better refinement, while the S-Presso has a 3-cylinder engine. Hence, the final choice depends on your preferences, and you can compare these cars further by visiting the link: https://bitly.cx/kbdQ4
-
-Q. Which car is better baleno zeta cng or swift zxi cng?

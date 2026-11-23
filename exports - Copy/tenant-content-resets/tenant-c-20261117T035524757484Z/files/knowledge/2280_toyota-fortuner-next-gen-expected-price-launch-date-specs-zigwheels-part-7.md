@@ -1,1 +1,0 @@
-## Toyota Fortuner Next Gen Images

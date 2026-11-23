@@ -1,3 +1,0 @@
-## Maruti Suzuki Wagon R tour
-
-Updated: November 2026. Maruti Suzuki Wagon R tour on-road price in Bhavnagar starts at ₹5.75 Lakh and goes up to ₹6.82 Lakh. It offers a 1L petrol engine (65.71 bhp in base form), a manual transmission with ARAI mileage 25.4 kmpl, plus CNG claimed 34.73 km/kg. Key highlights include a 1-star Global NCAP safety rating and multiple fuel options. It rivals the Tata Nexon, Tata Tiago, Hyundai i20 and Hyundai Exter.

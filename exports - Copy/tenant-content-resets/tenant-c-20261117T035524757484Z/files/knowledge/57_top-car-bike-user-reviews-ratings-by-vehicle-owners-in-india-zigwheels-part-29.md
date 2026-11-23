@@ -1,5 +1,0 @@
-## Best Car User Reviews
-
-6ShareRohith S 4 years ago
--
-Nexon4.0Nexon is a great car in the Nexon is a great car in the compact sux segment.I have drive close to 5k km in the first year and have wonderful experience.It gives you premium car feeling.The best part is that it is safe and build quality is very strong as tata is known for it.Only i felt not good about is that its mileage.It gives you around 14 km in city and 15-16 km in highway.This has disappointed me.Overall performance is great.Ac cools very fast.It has great pickup.Accelerator is very sensitive.Your foot does not gets tired.There is almost no vibration even at 120km/hr.Features wise it lags somewhat if we compare with other manufacturers.It could have added more features in this price range.After sale service is good as i have already completed my 2 free service.They are helpful and listens even small complaints.They have pick and drop facilities which makes life easy for office going guys.

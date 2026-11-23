@@ -1,3 +1,0 @@
-## Questions & Answers on Maruti Suzuki S-Presso
-
-- Yes, the Maruti Suzuki S-Presso is available in both Petrol and factory-fitted CNG variants, depending on the variant you choose. For detailed information regarding variant availability, pricing and bookings, we recommend connecting with your nearest authorized dealership. You can check dealership details by clicking on the link: https://www.zigwheels.com/dealers/maruti-suzuki/Delhi

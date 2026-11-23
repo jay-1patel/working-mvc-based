@@ -1,1 +1,0 @@
-# Visas & Support: Document checklists and expert application guidance provided. On trip, support is available 24x7 via the MakeMyTrip app or support helpline.

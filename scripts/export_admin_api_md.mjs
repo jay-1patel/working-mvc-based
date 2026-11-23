@@ -38,9 +38,10 @@ md += 'Authentication: every request uses the `username` and `session_id` header
 md += 'Scope: APIs currently referenced by the frontend admin panel. All entries below use `POST` as configured.\n\n'
 md += `Total APIs: **${records.length}**\n\n`
 md += '> Replace the sample username and session ID with the active credentials for the account making the request.\n\n'
+md += '> **Onboarding Users** is the customer_care / super-admin login-as page (`#/onboarding-users`).\n\n'
 
 for (const [tag, apis] of grouped) {
-  md += `## ${tag}\n\n`
+  md += `## **${tag}**\n\n`
   for (const api of apis) {
     md += `### ${api.method} ${api.endpoint}\n\n`
     md += `${api.description}\n\n`

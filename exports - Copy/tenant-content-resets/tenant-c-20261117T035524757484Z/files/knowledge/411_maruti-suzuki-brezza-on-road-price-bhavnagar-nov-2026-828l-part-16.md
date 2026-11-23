@@ -1,3 +1,0 @@
-## Maruti Suzuki Brezza Price FAQs
-
-Very good car and nice experience. Very comfortable car for long route. Best car and amazing system, best performance and this feels awesome when we drive, automatic version is more valuable for money, it feels like very luxury while riding in traffic. The road presence of Brezza is very attractive. Brezza is very comfortable than any other same budget cars. I also love the sunroof, it looks very awesome in Brezza. Over all it is very value for money.

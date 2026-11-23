@@ -1,5 +1,0 @@
-## About Suzuki
-
-Scooters: Suzuki caters to a wider range of audience with its lineup of 125cc scooters. From the Access 125 which caters to mature riders, to the Burgman Street that pleases riders seeking comfort and convenience, to the Avenis that is focused towards the young audience. Suzuki has also introduced smartphone connectivity and navigation on all the three models.
-
-Nakeds: The Suzuki Gixxer and the Gixxer 250 are the two bikes from the Japanese brand. The Gixxer 155 made its debut in 2014 and has been popular ever since. In 2019, Suzuki introduced the new Gixxer 250 which used a brand-new oil-cooled engine and had the same versatility of the baby Gixxer. In 2019, Suzuki updated the Gixxer 155 with design inspired by the 250cc sibling, but the bike remains mechanically unchanged.

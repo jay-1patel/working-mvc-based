@@ -1,1 +1,0 @@
-## Denza Z9 GT Colours

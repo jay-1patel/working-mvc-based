@@ -1,3 +1,0 @@
-## 151 To 200cc Bikes in India
-
-There are 34 bikes under 200cc on sale in India with prices starting from Rs. 1.76 Lakh. The most popular bikes in this bracket are the Yamaha R15 V4 (155 cc), Bajaj Pulsar N160 S (164 cc) and Bajaj Pulsar NS200 (199 cc). The top brands that manufacture bikes between 151cc and 200cc are Yamaha, Bajaj and TVS. Download the ZigWheels App to know latest prices and offers on bikes under 200cc in your city, pictures, mileage, reviews, variants, specifications and more. Choose the best bike model under 200cc that you’re interested from the options below.

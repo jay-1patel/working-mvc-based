@@ -1,5 +1,0 @@
-1.4 The Site may provide certain Features ("Site" and "Features" as defined under Section 2) that enable sending/receiving invites/solicitation messages/reminders to your contacts whose details, as required under the specific Features, are submitted and specifically permitted by you to be so used. Once such a Feature is selected and consented by you, you specifically agree that the Feature shall enable sending one instant message and a maximum of 3 reminders.
-
-2\. Definitions
-
-2.1 "Contents" or "Content" shall mean any and all information, data, text, software, music, sound, photographs, graphics, video, messages, materials, news, notices, articles, contracts, forms, documents or other materials and information which may be viewed or downloaded on or through this Site. Contents shall also include any e-mail, messages, e-cards or any other information furnished by a user to be displayed on the Site by zigwheels.com.

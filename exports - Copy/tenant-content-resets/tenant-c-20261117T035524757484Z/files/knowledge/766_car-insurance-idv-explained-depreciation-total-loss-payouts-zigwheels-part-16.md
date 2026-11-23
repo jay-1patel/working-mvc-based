@@ -1,5 +1,0 @@
-Which is why EV owners should treat Electric Car Insurance as its own animal, not a copy-paste of a petrol-car policy. An EV-specific plan lets you set an IDV that reflects the battery's share of the car's value and adds protection standard cover leaves out. The EV Shield add-on covers loss or damage to the battery, charging cable, charger, and the charging point's electrical panel, plus battery-related roadside assistance, so one bad monsoon evening doesn't turn into a crippling battery bill.
-
-Five minutes with your policy schedule before you hit 'renew' can decide how the worst-case scenario plays out. Here's your pre-renewal checklist:
-
-The IDV figure itself - Compare it with what similar cars of your model, variant and year are actually selling for. If the IDV is well below that, nudge it up within the band your insurer allows.

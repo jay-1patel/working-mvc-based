@@ -1,6 +1,0 @@
-## Top User Review
-
--
-Access 125 \[2020-2024\]Initially the bike was good Initially the bike was good for one year.Later starting trouble comes both in button and kick start, Scooter will stops itself if we didn’t accelerate and even after did service on that it’s continued the same problem, Showroom said need to change some parts to fix the issue and it’s coming under warranty.Wondering why they did manufactured some unreliable parts.I never used a bike scooter like this kind of staring trouble.Suzuki need to improve on that. 11ShareKumaresan U
--
-Z900 (2020-2025)Cant describe this beast Cant describe this beast in few words.This is my dream bike.And i bought it with all my savings last month.Looks- its road presence is the best in this segment mileage-15 kmpl.Which is good for an 900 cc.Breaking- it has got some amazing breaks.Even if you cruise at 150 it stops withini few seconds of applying breaks.Pickup- this beast will reach 0 to 100 in a matter of seconds.Overall i will rate this 9.5/10.

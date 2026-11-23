@@ -1,5 +1,0 @@
-## Questions & Answers on Tata Punch
-
-- The Tata Punch is priced at Rs. 5.70 Lakh onwards (Ex-showroom, New Delhi). For an exact on-road price quotation and further assistance, we kindly suggest you connect with your nearest authorized dealership. Click on the link to find the dealership details according to your city: https://www.zigwheels.com/dealers/tata
-
-- Both are excellent choices in their segment. The Maruti Brezza is known for its refined engine, good mileage, reliability, and comfortable highway performance, while the Tata Punch stands out with its strong build quality, high ground clearance, and compact city-friendly design. We would recommend taking a test drive of both cars to compare comfort, visibility, and driving feel as per your needs. You can find the nearest dealerships by clicking on the link: https://www.zigwheels.com/dealers

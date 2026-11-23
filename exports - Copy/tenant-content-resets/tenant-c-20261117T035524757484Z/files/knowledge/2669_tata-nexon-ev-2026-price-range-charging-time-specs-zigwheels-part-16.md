@@ -1,1 +1,0 @@
-## Tata Nexon EV Colours

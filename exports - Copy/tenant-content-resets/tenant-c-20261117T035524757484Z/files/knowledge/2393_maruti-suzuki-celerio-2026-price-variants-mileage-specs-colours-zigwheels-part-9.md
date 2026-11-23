@@ -1,3 +1,0 @@
-## Questions & Answers on Maruti Suzuki Celerio
-
-- The Maruti Suzuki Celerio 998 cc is a fantastic choice, offering excellent fuel efficiency, smooth performance, and a compact, stylish design. With its comfortable driving experience and reliable performance, it’s a perfect companion for everyday city drives. to know more its features and specifications of the vehicle please click on the link: https://www.zigwheels.com/maruti-suzuki-cars/celerio/specifications/

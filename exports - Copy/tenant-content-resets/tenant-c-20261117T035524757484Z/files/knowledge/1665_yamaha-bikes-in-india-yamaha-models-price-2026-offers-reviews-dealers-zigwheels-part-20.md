@@ -1,5 +1,0 @@
-## About Yamaha
-
-In 2025, the FZ-S Fi became India’s first hybrid motorcycle in the 150cc segment, and the R15 family with the XSR155 neo-retro roadster. In August 2026, Yamaha gave the all-new YZF-R2 its global debut in India - a 204cc liquid-cooled supersport making 26.5PS and 19.1Nm, priced from Rs 2.30 lakh. In 2012, the company launched their first scooter in India - the Ray, and since then has launched many scooters such as the Alpha, RayZR, Fascino (one of their best sellers, with over 15 lakh units produced), the Aerox 155 - India’s first true performance maxi scooter powered by the same liquid cooled VVA (Variable Valve Actuation) motor from the latest generation R15. Most recently, Yamaha entered the electric segment with the EC-06 in February 2026, followed by the Aerox-E in July 2026 - currently Yamaha’s most expensive product in India.
-
-...Read More

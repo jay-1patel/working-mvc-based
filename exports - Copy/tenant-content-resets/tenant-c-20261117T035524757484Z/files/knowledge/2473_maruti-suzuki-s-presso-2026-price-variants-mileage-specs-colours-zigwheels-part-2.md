@@ -1,3 +1,0 @@
-## Maruti Suzuki S-Presso
-
-Updated: November 2026. Maruti Suzuki S-Presso on-road price in Bhavnagar starts at ₹4.06 Lakh and goes up to ₹6.03 Lakh. It offers a 1L petrol engine (68 bhp in base form), manual and automatic transmissions with ARAI mileage 24.76–25.3 kmpl, plus CNG claimed 32.73 km/kg. Key highlights include multiple fuel options and a fuel-efficient engine. It rivals the Tata Punch and Tata Tiago.

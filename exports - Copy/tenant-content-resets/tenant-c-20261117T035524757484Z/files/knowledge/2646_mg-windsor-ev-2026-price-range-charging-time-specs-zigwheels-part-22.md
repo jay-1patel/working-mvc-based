@@ -1,1 +1,0 @@
-## MG Windsor EV Comparison with Similar Cars

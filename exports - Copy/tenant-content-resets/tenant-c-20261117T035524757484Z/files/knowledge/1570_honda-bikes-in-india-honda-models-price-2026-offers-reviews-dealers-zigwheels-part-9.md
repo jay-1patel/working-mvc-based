@@ -1,3 +1,0 @@
-## Honda Bikes Questions and Answers
-
-- The front number plate on the Honda Rebel 300 may possibly be positioned below the headlight; however, there is no official announcement from the brand regarding its exact placement. We recommend staying tuned for official updates or contacting your nearest authorized Honda dealership for clarification. Kindly click on the link to locate nearest authorized Honda dealership: https://www.zigwheels.com/bikes/dealers/honda/Delhi

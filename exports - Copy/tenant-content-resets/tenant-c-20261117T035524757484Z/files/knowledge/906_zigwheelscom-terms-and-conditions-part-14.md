@@ -1,5 +1,0 @@
-All text, graphics, audio, design and other works on the Site are the copyrighted works of zigwheels.com unless otherwise indicated. Content on the Site is for personal use only. Any alteration of the material or use of the material contained in the Site for any commercial purpose is a violation of the copyright of zigwheels.com and/or its affiliates or associates or of its third-party information providers. The Content available on the Site shall not be copied, reproduced, republished, uploaded, posted, transmitted or distributed in any way without obtaining the prior permission from zigwheels.com. All responsibility and liability for any damages caused by downloading of any data is disclaimed.
-
-7\. License and Site Access
-
-7.1 zigwheels.com grants you a "limited non-exclusive license" to access and make personal (non commercial) use of this Site for informational purposes and not to modify either the whole or any portion of the Site.

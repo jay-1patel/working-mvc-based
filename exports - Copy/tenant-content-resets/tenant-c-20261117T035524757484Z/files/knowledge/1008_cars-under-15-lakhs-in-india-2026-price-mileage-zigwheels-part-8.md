@@ -1,1 +1,0 @@
-## Cars Under 15 Lakhs FAQs

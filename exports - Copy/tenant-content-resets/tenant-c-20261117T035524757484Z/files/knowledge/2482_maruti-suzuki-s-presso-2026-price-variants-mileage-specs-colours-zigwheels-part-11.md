@@ -1,3 +1,0 @@
-## Questions & Answers on Maruti Suzuki S-Presso
-
-- The Maruti Suzuki S-Presso offers an impressive ground clearance of 180 mm, which helps it handle rough roads and uneven surfaces with ease. To know more about the vehicle’s specifications, you may visit the nearest authorized dealership. Click on the link below to view dealership details in your city: https://www.zigwheels.com/dealers/maruti-suzuki/Delhi

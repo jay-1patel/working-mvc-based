@@ -1,3 +1,0 @@
-Dealer details checked:
-
-There are **94 authorised Maruti Suzuki showrooms in Delhi**: T.R. Sawhney Automobiles Pvt. Ltd. Nexa-Preet Vihar, T R Sawhney Motors Pvt. Ltd.-Rohini, TRS Nexa - Naraina Vihar, Trs Nexa-Ohkla, T.R. Sawhney Motors Pvt. Ltd. - Saraswati Vihar and 89 more. The largest dealer groups are TR Sawhney Motors Arena - New Delhi (4 outlets), Magic Auto -Dwarka (3 outlets), D.D. Motors (A Division Of D.D. Prem (2 outlets), DD Motors Arena - New Delhi (2 outlets), Fair Deal Wheels Arena - New Delhi (2 outlets). Find address, phone number and directions for each below, or browse the full Maruti Suzuki range.

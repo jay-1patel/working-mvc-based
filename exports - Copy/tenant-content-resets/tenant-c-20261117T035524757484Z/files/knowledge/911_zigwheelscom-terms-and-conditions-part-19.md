@@ -1,5 +1,0 @@
-As a registered member, you may list car for sale on the Site. You must be legally able to sell the car(s) you list for sale on our Site. Listings may only include text descriptions, graphics and pictures that describe your car for sale. All listed cars must be listed in an appropriate category on the Site. Soliciting business offline or outside of the Site, by indicating your contact details (e.g. contact phone number, address or e-mail ID) in the car listing or elsewhere on the Site other than in the Sell Car Form is expressly prohibited and would be considered as a breach of the User Agreement. All listed cars must be kept in stock for successful fulfillment of sales.
-
-The listing description of the car must not be misleading and must describe actual condition of the product. If the car description does not match the actual condition of the car, you agree to refund any amounts that you may have received from the buyer.
-
-11\. Login Options

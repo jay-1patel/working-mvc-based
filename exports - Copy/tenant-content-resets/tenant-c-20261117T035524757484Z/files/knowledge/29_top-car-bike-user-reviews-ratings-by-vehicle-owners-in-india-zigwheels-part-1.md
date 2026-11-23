@@ -1,1 +1,0 @@
-## Explore 15,000+ User Reviews to help find your perfect Car & Bike

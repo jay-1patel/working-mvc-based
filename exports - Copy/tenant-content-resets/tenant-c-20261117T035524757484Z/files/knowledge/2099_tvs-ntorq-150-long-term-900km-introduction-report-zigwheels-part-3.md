@@ -1,3 +1,0 @@
-## The Fun
-
-While I haven’t yet had the time to go for long weekend rides, I did some short rides around Pune. I was surprised that the Ntorq could keep up with some bigger bikes on narrow, winding roads. It never felt lacking or slow. Hence, why I am terming it the cheat-code scooter. If you must get a scooter instead of a bike, this is what you need to check out. I had as much fun in those short rides, as I would have had on my Duke. And I was slightly more comfortable as well.

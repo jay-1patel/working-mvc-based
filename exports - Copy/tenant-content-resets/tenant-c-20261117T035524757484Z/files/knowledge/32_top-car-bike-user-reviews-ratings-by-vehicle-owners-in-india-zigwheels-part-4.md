@@ -1,5 +1,0 @@
-## Top User Review
-
-11ShareBalasubramanian 265
--
-CB Shine SPReliable option Honda cb shine sp is a popular premium commuter motorcycle in india.It offers a smooth and refined engine performance, Comfortable riding experience and efficient fuel economy.The bike comes with a stylish design and various features like a digital meter, Alloy wheels, And an electric start.It has a 124.7 cc engine that produces 10.57 bhp of power and 10.30 nm of torque.The suspension system includes telescopic forks in the front and a mono-shock in the rear, Providing a comfortable ride even on rough roads.The cb shine sp is a reliable option for daily commuting and offers good value for money with its features and performance.However, Some users have reported a lack of low-end torque and less powerful pick up compared to its competitors.

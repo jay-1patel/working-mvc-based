@@ -1,1 +1,0 @@
-## Mahindra Thar OG Colours

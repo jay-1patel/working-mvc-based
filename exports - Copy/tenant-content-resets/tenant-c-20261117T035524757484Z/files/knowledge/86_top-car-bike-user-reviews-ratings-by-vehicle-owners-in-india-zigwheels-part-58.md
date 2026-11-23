@@ -1,3 +1,0 @@
-## Best Bike User Reviews
-
-vibration is minimal if you drive at a fair speed of 60-70 above that you should really ought for a racing bike then.the features are minimal but not left out with an automatic self start and navigation to lighting meters. above all the customer service is great as splendor been a part of Indian market for more than 30+ years there is nothing they lack when it comes to their consumer desire, overall i have never regretted a single day after buying this beauty and i hope you guys feel the same. 8ShareAnonymous 1 year ago

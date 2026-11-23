@@ -1,3 +1,0 @@
-## Honda Cars Questions and Answers
-
-- The Honda Amaze is a well-built and reliable sedan known for its comfort, fuel efficiency, refined engine, and ease of maintenance, making it a suitable choice for long highway journeys and long-term ownership. However, the decision to buy now or wait for future models depends on your personal preferences and requirements. We recommend taking a test drive and discussing your needs with the dealership for better assistance. You can locate your nearest authorized Honda dealership by clicking on the link: https://www.zigwheels.com/dealers/honda/Delhi

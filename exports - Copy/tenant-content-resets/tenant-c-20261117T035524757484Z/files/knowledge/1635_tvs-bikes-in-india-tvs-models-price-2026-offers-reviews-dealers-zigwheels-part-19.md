@@ -1,3 +1,0 @@
-## **Origin**
-
-TVS, a renowned name in the automotive industry, traces its roots all the way back to 1911 when its founder, T.V. Sundaram Iyengar, started a bus service company called Sundaram Iyengar and Sons Limited in Delhi. After his passing, his sons took over and in 1962, they joined forces with a UK-based company to establish Sundaram Clayton. This partnership aimed to manufacture automotive components such as motorcycle brakes and compressors. It wasn't until 1978 that TVS ventured into the production of mopeds at their plant in Hosur, Tamil Nadu, and in 1980, they introduced India's first 2-seat moped, the TVS 50.

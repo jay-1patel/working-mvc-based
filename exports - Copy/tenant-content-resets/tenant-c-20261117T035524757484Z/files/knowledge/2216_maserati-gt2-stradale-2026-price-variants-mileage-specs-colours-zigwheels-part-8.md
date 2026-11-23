@@ -1,1 +1,0 @@
-## Maserati GT2 Stradale Colours

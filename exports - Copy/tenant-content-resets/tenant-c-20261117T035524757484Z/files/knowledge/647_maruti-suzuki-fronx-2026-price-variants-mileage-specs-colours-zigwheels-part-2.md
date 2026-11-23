@@ -1,3 +1,0 @@
-## Maruti Suzuki FRONX
-
-Updated: November 2026. Maruti Suzuki FRONX on-road price in Lucknow starts at ₹8.23 Lakh and goes up to ₹14.37 Lakh. It offers a 1.2L and 1L petrol engine (88.5 bhp in base form), manual and automatic transmissions with ARAI mileage 20.01–22.89 kmpl, plus CNG claimed 28.51 km/kg. Key highlights include a turbo-petrol engine and multiple fuel options. It rivals the Tata Nexon, Tata Punch and Toyota Taisor.

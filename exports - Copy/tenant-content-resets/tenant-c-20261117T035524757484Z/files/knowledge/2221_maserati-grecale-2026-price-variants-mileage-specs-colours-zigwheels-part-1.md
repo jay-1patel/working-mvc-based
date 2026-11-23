@@ -1,3 +1,0 @@
-- Colours(11)
-- Images(24)
-- View

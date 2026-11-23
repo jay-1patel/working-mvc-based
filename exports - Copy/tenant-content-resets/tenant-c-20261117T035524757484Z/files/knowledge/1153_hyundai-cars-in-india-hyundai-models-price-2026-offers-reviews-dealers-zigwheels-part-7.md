@@ -1,5 +1,0 @@
-## Hyundai Cars Questions and Answers
-
-- The Hyundai Creta Petrol IVT is a good option to consider, offering a comfortable driving experience, smooth automatic transmission and several modern features. However, its suitability depends on your budget and driving requirements in Oman. We recommend contacting an authorised Hyundai dealership in Oman for detailed information regarding pricing, availability and variant-specific features.
-
-- The Hyundai Verna is priced at ₹12.88 lakh (ex-showroom, New Delhi). For an exact on-road price quotation and further assistance, we recommend contacting your nearest authorized Hyundai dealership. Regarding mileage, the brand has not officially disclosed the mileage figure for this variant. The Hyundai Verna is available with petrol engine options only.Click the link below to find dealership details based on your city: https://www.zigwheels.com/dealers/hyundai/Delhi

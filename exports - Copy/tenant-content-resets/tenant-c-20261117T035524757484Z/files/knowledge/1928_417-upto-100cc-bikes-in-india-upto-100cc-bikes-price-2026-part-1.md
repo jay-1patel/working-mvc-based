@@ -1,3 +1,0 @@
-## Upto 100cc Bikes in India
-
-There are 417 bikes under 100cc on sale in India with prices starting from Rs. 79,624. The most popular bikes in this bracket are the Hero Moto Corp Splendor Plus (97 cc), Hero Moto Corp Splendor Plus XTEC (97 cc) and Hero Moto Corp HF Deluxe (97 cc). The top brands that manufacture bikes under 100cc are Hero Moto Corp, Ather Energy and Bajaj. Download the ZigWheels App to know latest prices and offers on bikes under 100cc in your city, pictures, mileage, reviews, variants, specifications and more. Choose the best bike model under 100cc that you’re interested from the options below.

@@ -1,5 +1,0 @@
-## About Renault
-
-Renault has introduced the new Renault Duster initially with petrol engine variants. As of now, there is no official announcement from the brand regarding a hybrid variant. We would suggest you to stay tuned for any updates or announcements about a hybrid model. For more information about the Renault Duster, you can connect with an authorised dealership. Kindly click on the link to find details of your nearest authorised dealership: https://bitly.cx/Jf3YR
-
-We would like to inform you that the offers and discounts are provided by the brand or the dealership and may vary depending on your city. Thus, we suggest connecting with the nearest authorized dealership, as they will guide you on how to avail the available offers. You can also find details of the nearest dealership based on your city and brand by clicking the link below: https://www.zigwheels.com/dealers/renault/Delhi

@@ -1,3 +1,0 @@
-## BMW Bikes Price in India - Nov 2026
-
-Models Ex-showroom Price Mileage/Range BMW S 1000 RR Rs. 23.75 Lakh 15.6 kmpl BMW G 310 RR Rs. 2.90 Lakh 30.3 kmpl BMW F 450 GS Rs. 5.35 Lakh - BMW R 1300 GS Adventure Rs. 26.50 Lakh 21 kmpl BMW R 1300 GS Rs. 24.00 Lakh 20.83 kmpl BMW K 1600 GTL Rs. 38.00 Lakh 16.94 kmpl BMW K 1600 Bagger Rs. 38.00 Lakh 16.94 kmpl BMW F 900 GS Rs. 16.00 Lakh 22 kmpl BMW M 1000 R Rs. 33.50 Lakh 15.62 kmpl BMW S 1000 R Rs. 22.25 Lakh 16.12 kmpl BMW R 12 nineT Rs. 23.50 Lakh 19.60 kmpl BMW R 12 Rs. 22.50 Lakh 19.60 kmpl

@@ -1,3 +1,0 @@
-## 201 To 500cc Bikes in India
-
-There are 103 bikes under 500cc on sale in India with prices starting from Rs. 1.89 Lakh. The most popular bikes in this bracket are the Royal Enfield Classic 350 (349 cc), Royal Enfield Hunter 350 (349 cc) and Jawa Motorcycles 42 Bobber (334 cc). The top brands that manufacture bikes between 201cc and 500cc are Royal Enfield, Jawa Motorcycles and KTM. Download the ZigWheels App to know latest prices and offers on bikes under 500cc in your city, pictures, mileage, reviews, variants, specifications and more. Choose the best bike model under 500cc that you’re interested from the options below.

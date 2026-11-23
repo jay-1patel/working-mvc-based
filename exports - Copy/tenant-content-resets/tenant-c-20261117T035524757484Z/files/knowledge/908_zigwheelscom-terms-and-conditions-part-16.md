@@ -1,5 +1,0 @@
-7.4 You shall not frame or utilize framing techniques to enclose any trademark, logo, or other proprietary information (including images, text, page layout, or form) of zigwheels.com and/or our affiliates without the express written consent of zigwheels.com. You may not use any meta tags or any other "hidden text" utilizing zigwheels.com name or trademarks without the express written consent of zigwheels.com. Any unauthorized use terminates the permission and the license granted by zigwheels.com under this Agreement to you.
-
-8\. Modifications on the Site
-
-8.1 zigwheels.com reserves the right to modify, suspend/cancel, or discontinue any or all sections, or service at any time without notice. zigwheels.com reserves the right to make modifications and alterations in the information contained on the Site without notice. You agree that zigwheels.com shall not be liable to you or to any third party for any modification, suspension or discontinuance of the Site.

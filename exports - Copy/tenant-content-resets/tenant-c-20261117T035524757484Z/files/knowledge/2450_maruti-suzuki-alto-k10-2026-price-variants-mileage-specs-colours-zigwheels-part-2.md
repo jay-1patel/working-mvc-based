@@ -1,3 +1,0 @@
-## Maruti Suzuki Alto K10
-
-Updated: November 2026. Maruti Suzuki Alto K10 on-road price in Bhavnagar starts at ₹4.32 Lakh and goes up to ₹6.22 Lakh. It offers a 1L petrol engine (68 bhp in base form), manual and automatic transmissions with ARAI mileage 24.9 kmpl, plus CNG claimed 33.4 km/kg. Key highlights include multiple fuel options and a fuel-efficient engine. It rivals the Renault KWID, Tata Aeris and Tata Tiago.

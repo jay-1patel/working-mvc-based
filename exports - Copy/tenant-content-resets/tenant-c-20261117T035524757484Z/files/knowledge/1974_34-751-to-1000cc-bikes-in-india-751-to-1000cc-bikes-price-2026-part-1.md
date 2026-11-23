@@ -1,3 +1,0 @@
-## 751 To 1000cc Bikes in India
-
-There are 34 bikes under 1000cc on sale in India with prices starting from Rs. 9.99 Lakh. The most popular bikes in this bracket are the Kawasaki Z900 (948 cc), Kawasaki Ninja ZX-10R (998 cc) and BMW S 1000 RR (999 cc). The top brands that manufacture bikes between 751cc and 1000cc are Kawasaki, BMW and Triumph. Download the ZigWheels App to know latest prices and offers on bikes under 1000cc in your city, pictures, mileage, reviews, variants, specifications and more. Choose the best bike model under 1000cc that you’re interested from the options below.

@@ -1,3 +1,0 @@
-Dealer details checked:
-
-There are **35 authorised Maruti Suzuki showrooms in Ahmedabad**: Tanu Motors Pvt. Ltd., Kiran Motors – 380015, Starline Cars Pvt. Ltd.-Gota, Pegasus (A Unit Of Visual Autolink Pvt.Ltd.-Vastral, Kataria Automobiles Arena-Maninagar and 30 more. The largest dealer groups are Popular Wheelers (India) -Ahmedabad (3 outlets), Kiran Motors (2 outlets). Find address, phone number and directions for each below, or browse the full Maruti Suzuki range.

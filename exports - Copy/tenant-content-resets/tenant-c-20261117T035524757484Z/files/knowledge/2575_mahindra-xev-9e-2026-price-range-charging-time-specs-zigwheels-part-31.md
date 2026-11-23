@@ -1,1 +1,0 @@
-## Mahindra XEV 9e Expert Reviews

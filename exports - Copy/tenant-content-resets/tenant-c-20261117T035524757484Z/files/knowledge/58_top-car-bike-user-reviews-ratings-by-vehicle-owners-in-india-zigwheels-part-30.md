@@ -1,5 +1,0 @@
-## Best Car User Reviews
-
-8ShareHindi Banking 2 years ago
--
-VirtusPremium se In my opinion, The volkswagen virtus is a premium sedan car and has a refined engine because we all know how excellent german engine are.I am simply outlining the pros and cons of this car.As a first priority, It is the safest one and has a high-quality build.If i talk about the interior, It has a very pleasant look and especially depends on color stripes line it's very impressive to people and features too.Speakers sound quality amazing.Exterior looks superb.Fun to drive.Maintenance little bit more.Sunroof not bad but we want more luxury because we spend around 23 lakh.The performance wise handling, Riding quality, Space, Styling and comfort was excellent.The mileage was quite good enough because this kind of high performance engine.So over all my opinion about this volkswagen virtus rating is 5 out of 4.5.Thank you all.Ride safe you and family too.Love you all.

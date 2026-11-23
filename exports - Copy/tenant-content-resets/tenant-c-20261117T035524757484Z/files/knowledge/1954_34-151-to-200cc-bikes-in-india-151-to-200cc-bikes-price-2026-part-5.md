@@ -1,6 +1,0 @@
-## Best 151 To 200cc Bikes (34 results)
-
-1.21 LakhCheck On Road PriceApache RTR 160 RM Disc BT 160 cc | 47 kmplRs. 1.24 LakhCheck On Road PriceApache RTR 160 Racing Edition 160 cc | 47 kmplRs. 1.25 LakhCheck On Road PriceApache RTR 160 Limited Anniversary Edition 160 cc | 47 kmplRs. 1.27 LakhCheck On Road PriceApache RTR 160 Dual Channel ABS 160 cc | 47 kmplRs. 1.28 LakhCheck On Road PriceApache RTR 160 Dual Channel ABS with TCS 160 cc | 47 kmplRs. 1.29 LakhCheck On Road Price
-- Compare Variants Ex-Showroom Price XSR 155 Metallic Blue 155 cc | 45.5 kmplRs. 1.51 LakhCheck On Road PriceXSR 155 Vivid Red 155 cc | 45.5 kmplRs. 1.58 LakhCheck On Road PriceXSR 155 Metallic Black 155 cc | 45.5 kmplRs. 1.64 LakhCheck On Road PriceXSR 155 Greyish Green Metallic 155 cc | 45.5 kmplRs. 1.64 LakhCheck On Road PriceXSR 155 Metallic Grey 155 cc | 45.5 kmplRs. 1.91 LakhCheck On Road Price
-- Variants Ex-Showroom Price Unicorn STD 163 cc | 50 kmplRs. 1.16 LakhCheck On Road Price
-- Compare **Bajaj Pulsar NS160** Rs.

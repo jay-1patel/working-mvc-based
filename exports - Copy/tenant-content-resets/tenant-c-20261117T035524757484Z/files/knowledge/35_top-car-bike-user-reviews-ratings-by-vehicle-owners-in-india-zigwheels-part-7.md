@@ -1,5 +1,0 @@
-## Top User Review
-
-8ShareHarshwarshan Meshram
--
-2024 Apache RTR 200 4VIt was my first bike i got It was my first bike i got it on 2nd april 2022 it was the best choice in segment people say its underpowered compared to ns 200 i have never felt it it has got better pickup than other bikes in segment because of one of the features that keeps the bike from lifting i think i made the right choice to get a bike with dual abs it literally saved my life tens of times i wouldnt want it any different the only problem was the service offered by tvs they never service your bike properly you always have to atleast tell them twice about the problem i missed work because the delivery was 2 hours late.I have serviced my bike 3 times never have i ever got it on time tip :while servicing if you have a problem do take a test drive to check of the issue was solved.

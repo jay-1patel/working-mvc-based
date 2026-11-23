@@ -1,1 +1,0 @@
-## Best Automatic Cars FAQs

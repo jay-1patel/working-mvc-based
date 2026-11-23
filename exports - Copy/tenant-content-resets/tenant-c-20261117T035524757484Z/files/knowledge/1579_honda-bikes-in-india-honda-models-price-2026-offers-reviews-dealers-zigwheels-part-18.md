@@ -1,3 +1,0 @@
-## About Honda
-
-Honda of Japan entered India back in 1984 with two main tie-ups. One with Hero to produce small capacity 4-stroke commuter motorcycles such as the Hero Honda CD100, which featured a “sloper” motor derived from the Cub. The other was with Pune-based Kinetic Motors to produce what would be India’s first automatic scooter, the 2-stroke Kinetic Honda DX. But the Japanese bike maker parted ways with Kinetic in 1998 and entered India as Honda Motorcycle & Scooter India, a wholly owned subsidiary of Honda Motor Company, Japan. It was then they launched their own automatic scooter, the 4-stroke Activa, which quickly became the company’s best selling bike and India’s best selling scooter, and remains so till date.

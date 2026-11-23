@@ -1,3 +1,0 @@
-## Royal Enfield Bikes Questions and Answers
-
-- The Royal Enfield Hunter 350 Base Premium variant comes with a halogen headlamp instead of an LED headlight. If you wish to upgrade to an LED headlight, we recommend contacting your nearest authorized Royal Enfield dealership to confirm compatibility and installation options. Kindly click on the link to locate your nearest authorized dealership: https://www.zigwheels.com/bikes/dealers/royal-enfield/Delhi

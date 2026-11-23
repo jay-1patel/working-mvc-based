@@ -1,1 +1,0 @@
-## Vespa Scooters Comparisons

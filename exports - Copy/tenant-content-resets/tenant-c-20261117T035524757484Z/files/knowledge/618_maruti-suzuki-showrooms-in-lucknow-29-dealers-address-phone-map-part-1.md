@@ -1,3 +1,0 @@
-Dealer details checked:
-
-There are **29 authorised Maruti Suzuki showrooms in Lucknow**: Oneup Motors, Mega Motors Arena - Bijnore, Mega Motors – 226401, Mega Motors – 226001, One Up Motors Arena - Malihabad and 24 more. The largest dealer groups are Mega Motors (5 outlets), Bright 4 Wheel Sales (5 outlets), Anand Motor Agencies (2 outlets), Ktl Automobile (2 outlets). Find address, phone number and directions for each below, or browse the full Maruti Suzuki range.

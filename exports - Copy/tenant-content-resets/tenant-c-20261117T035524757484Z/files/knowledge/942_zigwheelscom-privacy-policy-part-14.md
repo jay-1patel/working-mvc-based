@@ -1,4 +1,0 @@
-| 1) | Girnar Software Private Limited CIN: U72200RJ2006PTC023499 Registered office address: Girnar 21, Govind Marg, Moti Doongari Road, Dharm Singh Circle, Jaipur, Rajasthan- 302004, India |
-| 2) | Gaadi Web Private Limited CIN: U72300DL2007PTC169207 Registered office address: F-130, GF, Street No.7, Pandav Nagar Delhi - 110091, India |
-| 3) | Girnarsoft Education Services Private Limited CIN: U80302RJ2015PTC047265 Girnar 21, Govind Marg, Moti Doongari Road, Dharm Singh Circle, Jaipur, Rajasthan- 302004, India |
-| 4) | Girnarsoft Automobiles Private Limited CIN: U50300RJ2010PTC032194 Girnar 21, Govind Marg, Moti Doongari Road, Dharm Singh Circle, Jaipur, Rajasthan- 302004, India |

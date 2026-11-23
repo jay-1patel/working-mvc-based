@@ -1,4 +1,0 @@
-Q. Is the battery removable? can we take it with us to the apartment and have it charged ? How heavy will it be
-for one to take it up in case it’s removable?
--
-The TVS Orbiter comes with a non-removable battery, so it cannot be taken out and carried to your apartment for charging. The scooter is equipped with a 3.1 kWh battery capacity and can be charged using a standard household power socket. You can conveniently charge your scooter at home without needing a separate charging meter. Since the battery is integrated into the vehicle, there is no need to worry about carrying a heavy battery pack upstairs. To know more about the battery specifications, please click on the link: https://www.zigwheels.com/tvs-bikes/orbiter/specifications/

@@ -1,1 +1,0 @@
-## Cars Under 10 Lakhs FAQs

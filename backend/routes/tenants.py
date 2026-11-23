@@ -606,19 +606,31 @@ class TenantDetailRequest(BaseModel):
 
 # Profile console no longer edits these; keep them out of the detail payload.
 _DETAIL_OMIT_KEYS = ("vocabulary", "guardrails")
+_DETAIL_NOTIFICATIONS_OMIT_KEYS = ("brochure_url",)
 
 
 def _scrub_detail_profile(payload: Any) -> Any:
-    """Drop vocabulary / guardrails from a profile-shaped dict."""
+    """Drop vocabulary / guardrails / notifications.brochure_url from profile-shaped data."""
+    if isinstance(payload, list):
+        return [_scrub_detail_profile(item) for item in payload]
     if not isinstance(payload, dict):
         return payload
-    return {key: value for key, value in payload.items() if key not in _DETAIL_OMIT_KEYS}
-
-
-def _scrub_detail_layers(layers: Any) -> Any:
-    if not isinstance(layers, dict):
-        return layers
-    return {name: _scrub_detail_profile(layer) for name, layer in layers.items()}
+    out: Dict[str, Any] = {}
+    for key, value in payload.items():
+        if key in _DETAIL_OMIT_KEYS:
+            continue
+        if key == "notifications" and isinstance(value, dict):
+            out[key] = {
+                nested_key: nested_value
+                for nested_key, nested_value in value.items()
+                if nested_key not in _DETAIL_NOTIFICATIONS_OMIT_KEYS
+            }
+            continue
+        if key in ("layers", "payload", "snapshot", "pending", "effective") or isinstance(value, (dict, list)):
+            out[key] = _scrub_detail_profile(value)
+            continue
+        out[key] = value
+    return out
 
 
 @router.post("/{tenant_id}/detail")
@@ -643,17 +655,19 @@ def tenant_detail(
             pending = tenancy_loader.validate_merged_profile(tenant_id, draft).to_payload()
         except Exception as exc:
             pending_error = str(exc)
-    return {
-        "tenant": _public_tenant(layers.get("tenant")),
-        "layers": _scrub_detail_layers(layers.get("layers", {})),
-        "current_version": layers.get("current_version", 0),
-        "versions": layers.get("versions", []),
-        "effective": _scrub_detail_profile(effective),
-        "effective_error": None if effective else "effective profile could not be built",
-        "has_draft": bool(draft),
-        "pending": _scrub_detail_profile(pending),
-        "pending_error": pending_error,
-    }
+    return _scrub_detail_profile(
+        {
+            "tenant": _public_tenant(layers.get("tenant")),
+            "layers": layers.get("layers", {}),
+            "current_version": layers.get("current_version", 0),
+            "versions": layers.get("versions", []),
+            "effective": effective,
+            "effective_error": None if effective else "effective profile could not be built",
+            "has_draft": bool(draft),
+            "pending": pending,
+            "pending_error": pending_error,
+        }
+    )
 
 
 @router.get("/{tenant_id}/versions")

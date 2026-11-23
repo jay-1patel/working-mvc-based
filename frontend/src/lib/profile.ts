@@ -150,10 +150,6 @@ export function editorContactErrors(form: EditorForm): string[] {
     errors.push('The sales / enquiries email does not look valid.')
   if (notes.supportEmail.trim() && !EMAIL_RE.test(notes.supportEmail.trim()))
     errors.push('The notifications support email does not look valid.')
-  if (notes.brochureUrl.trim() && !isValidBrochureUrl(notes.brochureUrl))
-    errors.push(
-      'The brochure URL does not look like a valid URL (use https://…, http://IP/…, or /uploaded_files/…).',
-    )
   return errors
 }
 
@@ -670,7 +666,6 @@ export interface EditorForm {
   notifications: {
     salesEmail: string
     supportEmail: string
-    brochureUrl: string
   }
   guardrails: {
     neverState: string
@@ -718,7 +713,6 @@ export function editorFromProfile(profile: ProfileSnapshot): EditorForm {
     notifications: {
       salesEmail: notes.sales_email ?? '',
       supportEmail: notes.support_email ?? '',
-      brochureUrl: notes.brochure_url ?? '',
     },
     guardrails: {
       neverState: (rails.never_state ?? []).join('\n'),
@@ -766,7 +760,6 @@ export function editorToSnapshot(form: EditorForm): ProfileSnapshot {
     notifications: {
       sales_email: form.notifications.salesEmail,
       support_email: form.notifications.supportEmail,
-      brochure_url: form.notifications.brochureUrl,
     },
     prompt: { keywords: csv(form.keywords) },
   }

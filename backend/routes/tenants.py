@@ -579,55 +579,57 @@ def resolved_profile(
     tenant_id = session_tenant_id(request=request)
     principal = authorize_tenant_access(request, tenant_id, credentials)
     profile = tenancy_loader.get_tenant_profile(tenant_id)
-    return {
-        "tenant_id": profile.tenant_id,
-        "vertical": profile.vertical,
-        "version": profile.version,
-        "source": profile.source,
-        "features": profile.features.model_dump(),
-        "vocabulary": profile.vocabulary.model_dump(),
-        "brand": profile.brand.model_dump(),
-        "business_hours": profile.business_hours.model_dump(),
-        "guardrails": profile.guardrails.model_dump(),
-        "notifications": profile.notifications.model_dump(),
-        "menu": profile.menu.model_dump(),
-        "active_intents": [i.model_dump() for i in profile.active_intents()],
-        "inactive_intents": [
-            i.model_dump() for i in profile.intents
-            if i not in profile.active_intents()
-        ],
-        "flows": [f.model_dump() for f in profile.active_flows()],
-    }
+    # Console no longer surfaces vocabulary / guardrails / brochure_url.
+    return _scrub_console_profile(
+        {
+            "tenant_id": profile.tenant_id,
+            "vertical": profile.vertical,
+            "version": profile.version,
+            "source": profile.source,
+            "features": profile.features.model_dump(),
+            "brand": profile.brand.model_dump(),
+            "business_hours": profile.business_hours.model_dump(),
+            "notifications": profile.notifications.model_dump(),
+            "menu": profile.menu.model_dump(),
+            "active_intents": [i.model_dump() for i in profile.active_intents()],
+            "inactive_intents": [
+                i.model_dump() for i in profile.intents
+                if i not in profile.active_intents()
+            ],
+            "flows": [f.model_dump() for f in profile.active_flows()],
+        }
+    )
 
 
 class TenantDetailRequest(BaseModel):
     pass
 
 
-# Profile console no longer edits these; keep them out of the detail payload.
-_DETAIL_OMIT_KEYS = ("vocabulary", "guardrails")
-_DETAIL_NOTIFICATIONS_OMIT_KEYS = ("brochure_url",)
+# Profile / Menu console no longer edits these; keep them out of API payloads
+# (detail, resolved, version reads) and strip them from draft saves.
+_CONSOLE_OMIT_KEYS = ("vocabulary", "guardrails")
+_CONSOLE_NOTIFICATIONS_OMIT_KEYS = ("brochure_url",)
 
 
-def _scrub_detail_profile(payload: Any) -> Any:
-    """Drop vocabulary / guardrails / notifications.brochure_url from profile-shaped data."""
+def _scrub_console_profile(payload: Any) -> Any:
+    """Drop vocabulary / guardrails / notifications.brochure_url from console payloads."""
     if isinstance(payload, list):
-        return [_scrub_detail_profile(item) for item in payload]
+        return [_scrub_console_profile(item) for item in payload]
     if not isinstance(payload, dict):
         return payload
     out: Dict[str, Any] = {}
     for key, value in payload.items():
-        if key in _DETAIL_OMIT_KEYS:
+        if key in _CONSOLE_OMIT_KEYS:
             continue
         if key == "notifications" and isinstance(value, dict):
             out[key] = {
                 nested_key: nested_value
                 for nested_key, nested_value in value.items()
-                if nested_key not in _DETAIL_NOTIFICATIONS_OMIT_KEYS
+                if nested_key not in _CONSOLE_NOTIFICATIONS_OMIT_KEYS
             }
             continue
         if key in ("layers", "payload", "snapshot", "pending", "effective") or isinstance(value, (dict, list)):
-            out[key] = _scrub_detail_profile(value)
+            out[key] = _scrub_console_profile(value)
             continue
         out[key] = value
     return out
@@ -655,7 +657,7 @@ def tenant_detail(
             pending = tenancy_loader.validate_merged_profile(tenant_id, draft).to_payload()
         except Exception as exc:
             pending_error = str(exc)
-    return _scrub_detail_profile(
+    return _scrub_console_profile(
         {
             "tenant": _public_tenant(layers.get("tenant")),
             "layers": layers.get("layers", {}),
@@ -692,7 +694,7 @@ def get_version(
     record = tenancy_store.get_version(tenant_id, version)
     if not record:
         raise HTTPException(status_code=404, detail=f"version {version} not found")
-    return record
+    return _scrub_console_profile(record)
 
 
 # ── profile: write ────────────────────────────────────────────────────────
@@ -717,15 +719,18 @@ def save_profile_draft(    tenant_id: str,
         raise HTTPException(status_code=404, detail="tenant not found")
     by = principal.get("username") or principal.get("label", "")
     draft = tenancy_store.get_draft(tenant_id) or {}
-    merged = merge_drafts(draft, body.snapshot)
+    # Ignore vocabulary / guardrails / brochure_url from console clients so a
+    # save cannot blank or rewrite values that still live on the server profile.
+    snapshot = _scrub_console_profile(body.snapshot if isinstance(body.snapshot, dict) else {})
+    merged = merge_drafts(draft, snapshot)
     with _with_conn() as conn:
         tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
-        _backfill_domain(conn, tenant_id, (body.snapshot.get("brand") or {}).get("website") or "", only_if_empty=True)
+        _backfill_domain(conn, tenant_id, (snapshot.get("brand") or {}).get("website") or "", only_if_empty=True)
         if principal.get("type") == "admin":
             audit_details: Dict[str, Any] = {
-                "changed_sections": sorted(body.snapshot.keys()),
+                "changed_sections": sorted(snapshot.keys()),
             }
-            menu_data = body.snapshot.get("menu")
+            menu_data = snapshot.get("menu")
             if isinstance(menu_data, dict):
                 buttons = menu_data.get("buttons") or []
                 disabled_buttons = [

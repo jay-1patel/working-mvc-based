@@ -116,11 +116,14 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
     }
   }, [formOpen, editingIndex])
 
-  // Arriving from the sidebar with ?focus=<button id> opens that option directly.
+  // Arriving with ?focus=<button id> opens that option once (Edit pencil from Bot menu).
+  // Do not re-open when local menu state refreshes — Active/Inactive must not open the form.
+  const focusApplied = useRef(false)
   useEffect(() => {
-    if (!focusId || !menu) return
+    if (!focusId || !menu || focusApplied.current) return
     const index = menu.buttons.findIndex((b) => b.id === focusId)
     if (index === -1) return
+    focusApplied.current = true
     setDraft({ ...menu.buttons[index] })
     setEditingIndex(index)
   }, [focusId, menu])
@@ -668,22 +671,42 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                                 <p className="mt-1 text-xs leading-relaxed text-txmuted">{button.description}</p>
                               )}
                             </div>
-                            {canWrite && <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center gap-1.5 rounded-full border border-line bg-card px-2 py-1">
-                                <Toggle
-                                  size="sm"
-                                  checked={button.enabled}
-                                  onChange={(enabled) => {
-                                    const next = [...buttons]
-                                    next[index] = { ...button, enabled }
-                                    setButtons(next)
-                                  }}
-                                  ariaLabel={`${button.enabled ? 'Deactivate' : 'Activate'} ${button.title}`}
-                                />
+                            {canWrite && (
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {/* Single control: toggle only — never opens the Edit form. */}
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={button.enabled}
+                                aria-label={`${button.enabled ? 'Deactivate' : 'Activate'} ${button.title}`}
+                                title="Toggle active, then Save & publish"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  // Keep edit closed; Active/Inactive is a list-only action.
+                                  setDraft(null)
+                                  setEditingIndex(null)
+                                  const next = [...buttons]
+                                  next[index] = { ...button, enabled: !button.enabled }
+                                  setButtons(next)
+                                }}
+                                className="flex items-center gap-1.5 rounded-full border border-line bg-card px-2 py-1"
+                              >
+                                <span
+                                  className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+                                    button.enabled ? 'bg-acc' : 'bg-switchoff'
+                                  }`}
+                                >
+                                  <span
+                                    className={`absolute left-0.5 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-card shadow-sm ring-1 ring-line transition-transform ${
+                                      button.enabled ? 'translate-x-3' : ''
+                                    }`}
+                                  />
+                                </span>
                                 <span className={`text-xs font-medium ${button.enabled ? 'text-ok' : 'text-txmuted'}`}>
                                   {button.enabled ? 'Active' : 'Inactive'}
                                 </span>
-                              </div>
+                              </button>
                               <IconButton title="Move up" onClick={() => move(index, -1)}>
                                 <ArrowUp className="h-4 w-4" />
                               </IconButton>
@@ -701,7 +724,8 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                               >
                                 <Trash2 className="h-4 w-4" />
                               </IconButton>
-                            </div>}
+                            </div>
+                            )}
                           </div>
                         </div>
                       )

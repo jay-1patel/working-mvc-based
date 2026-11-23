@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, CheckCheck, Paperclip, RotateCcw, Search, SendHorizonal, UserRound } from 'lucide-react'
+import { Bot, CheckCheck, Paperclip, RotateCcw, Search, SendHorizonal, UserRound, List } from 'lucide-react'
 import { usePermissions } from '@/lib/permissions'
 import { useAction, useAsync } from '@/lib/hooks'
 import { useToast } from '@/components/ui/toast'
@@ -254,6 +254,20 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
       toast.push('Reply sent')
       void thread.reload()
       void inbox.reload()
+    }
+  }
+
+  const handleMenu = async () => {
+    if (!selected) return
+    try {
+      const result = await conversationsApi.sendMenu(tenantId, selected)
+      if (result.sent) {
+        toast.push('Interactive menu sent')
+        void thread.reload()
+        void inbox.reload()
+      }
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Menu send failed')
     }
   }
 
@@ -601,6 +615,14 @@ export function ChatsPanel({ tenantId }: { tenantId: string }) {
                     <SendHorizonal className="h-4 w-4" /> Send
                   </PrimaryButton>
                 </div>
+                <button
+                  type="button"
+                  disabled={!canWrite}
+                  onClick={() => void handleMenu()}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs text-txmuted hover:bg-paper disabled:opacity-50"
+                >
+                  <List className="h-3.5 w-3.5" /> Send interactive menu
+                </button>
                 {current?.handover_mode !== 'human' && canWrite && (
                   <p className="mt-2 text-[11px] text-txmuted">
                     The bot is answering this chat

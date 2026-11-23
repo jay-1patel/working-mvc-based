@@ -44,10 +44,18 @@ const FLUSH_VIEWS = new Set(['chat-history', 'inbox'])
  * `@/lib/navigation`.
  */
 export function AppShell({ route, children }: { route: RouteMatch; children: ReactNode }) {
-  const { identity, logout, impersonating, impersonatedUsername, exitImpersonation } = useAuth()
+  const {
+    identity,
+    logout,
+    impersonating,
+    impersonatedUsername,
+    exitImpersonation,
+    loginAsTenant,
+  } = useAuth()
   const { can } = usePermissions()
   const { tenants, active, setActive } = useTenants()
   const showOnboardingUsers = isCustomerCareIdentity(identity) && !impersonating
+  const [enteringTenant, setEnteringTenant] = useState<string | null>(null)
 
   // The page follows the hash. The switcher must follow the same tenant,
   // otherwise the sidebar describes a different brand than the screen.
@@ -79,7 +87,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   }, [navOpen])
 
   const tenantScoped = Boolean(route.tenantId)
-  const locked = isOnboardingLocked(identity)
+  const locked = isOnboardingLocked(identity, { impersonating })
   const isSuperAdmin = identity?.role === 'super_admin'
   const flush = FLUSH_VIEWS.has(route.view)
   // Send2Digital brands the product for every role; the workspace below it
@@ -92,12 +100,31 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const brandName =
     profile?.brand?.name?.trim() || active?.display_name || active?.id || identity?.tenant_id || ''
   const brandTagline = profile?.brand?.tagline?.trim() || (active ? getVertical(active.vertical).short : '')
+  // Support sessions see every tenant screen (including ones normally SA-only).
   const nav = locked
     ? []
-    : buildTenantNav({ vertical: active?.vertical, features, can, isSuperAdmin })
+    : buildTenantNav({
+        vertical: active?.vertical,
+        features,
+        can,
+        isSuperAdmin: isSuperAdmin || impersonating,
+      })
   const contentCount = useOfferingsCount(
     route.tenantId && can('view_products') ? route.tenantId : null,
   )
+
+  const enterTenantAsAdmin = async (tenantId: string) => {
+    if (enteringTenant) return
+    setEnteringTenant(tenantId)
+    try {
+      await loginAsTenant(tenantId)
+    } catch (err) {
+      console.error(err)
+      window.alert(err instanceof Error ? err.message : 'Could not open that tenant')
+    } finally {
+      setEnteringTenant(null)
+    }
+  }
 
   // Waiting-for-a-human count for the Chats badge. Polled gently; the
   // inbox screen itself polls faster once open.
@@ -308,7 +335,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         </div>
 
         <div className="px-3">
-          {locked ? null : can(TENANT_PERMISSION) || identity?.role === 'admin' ? (
+          {locked || impersonating ? null : can(TENANT_PERMISSION) || identity?.role === 'admin' ? (
             <button
               type="button"
               onClick={() => navigate('/register')}
@@ -325,7 +352,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           )}
         </div>
 
-        {identity?.role === 'super_admin' && (
+        {identity?.role === 'super_admin' && !impersonating && (
           <div className="relative mt-4 px-3">
             <button
               type="button"
@@ -338,7 +365,11 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                   {active?.display_name || active?.id || 'No tenant'}
                 </span>
                 <span className="block truncate text-xs text-txmuted">
-                  {active ? getVertical(active.vertical).short : 'select a tenant'}
+                  {showOnboardingUsers
+                    ? 'pick a tenant to open with full admin access'
+                    : active
+                      ? getVertical(active.vertical).short
+                      : 'select a tenant'}
                 </span>
               </span>
               <ChevronDown className={cn('h-4 w-4 shrink-0 text-txmuted transition', switcherOpen && 'rotate-180')} />
@@ -372,24 +403,29 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                     <button
                       key={tenant.id}
                       type="button"
+                      disabled={Boolean(enteringTenant)}
                       onClick={() => {
-                        setActive(tenant.id)
                         setSwitcherOpen(false)
+                        if (showOnboardingUsers) {
+                          void enterTenantAsAdmin(tenant.id)
+                          return
+                        }
+                        setActive(tenant.id)
                         navigate(`/tenants/${encodeURIComponent(tenant.id)}/overview`)
                       }}
                       className={cn(
-                        'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-paper',
+                        'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-paper disabled:opacity-60',
                         tenant.id === active?.id ? 'text-acc' : 'text-tx',
                       )}
                     >
                       <VerticalGlyph name={getVertical(tenant.vertical).icon} className="h-3.5 w-3.5 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">
-                        {label}
-                        {duplicateName ? (
+                        {enteringTenant === tenant.id ? 'Opening…' : label}
+                        {duplicateName && enteringTenant !== tenant.id ? (
                           <span className="text-txmuted"> · {tenant.id}</span>
                         ) : null}
                       </span>
-                      {tenant.current_version ? (
+                      {tenant.current_version && enteringTenant !== tenant.id ? (
                         <span className="shrink-0 text-xs text-txmuted">v{tenant.current_version}</span>
                       ) : null}
                     </button>
@@ -438,6 +474,12 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                 dashboard unlocks.
               </p>
             </div>
+          ) : showOnboardingUsers ? (
+            <div className="space-y-0.5">
+              <p className="px-3 text-xs leading-relaxed text-txmuted">
+                Select a tenant user below to open that tenant&apos;s full support console.
+              </p>
+            </div>
           ) : tenantScoped && route.tenantId ? (
             <div className="space-y-0.5">
               {NAV_GROUP_ORDER.flatMap((group) => nav.filter((i) => i.group === group)).map(navItem)}
@@ -464,7 +506,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </p>
           )}
 
-          {!locked && isSuperAdmin && (
+          {!locked && isSuperAdmin && !showOnboardingUsers && (
             <div className="space-y-0.5 border-t border-line pt-3">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Platform
@@ -483,7 +525,18 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Onboarding
               </p>
-              {globalItem('onboarding-users', 'Onboarding users', Users, '/onboarding-users', 'onboarding-users')}
+              {globalItem('onboarding-users', 'Onboarded users', Users, '/onboarding-users', 'onboarding-users')}
+            </div>
+          )}
+
+          {!locked && impersonating && (
+            <div className="space-y-0.5 border-t border-line pt-3">
+              <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
+                Manage
+              </p>
+              {globalItem('team', 'People / privileges', Users, '/team', 'team')}
+              {globalItem('audit-history', 'Activity log', ScrollText, '/audit-history', 'audit-history')}
+              {globalItem('errors', 'Errors & health', AlertTriangle, '/errors', 'errors')}
             </div>
           )}
 
@@ -556,9 +609,9 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-attline bg-attbg px-4 py-2.5 text-sm text-attink"
             >
               <p>
-                Viewing as <strong>{impersonatedUsername || identity?.username}</strong>
+                Support access as <strong>{impersonatedUsername || identity?.username}</strong>
                 {' — '}
-                same screens and permissions as that user.
+                full admin screens (Team, audit, writes). Not the view-only super-admin mode.
               </p>
               <button
                 type="button"
@@ -569,12 +622,13 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               </button>
             </div>
           )}
-          {isSuperAdmin && route.tenantId && (
+          {isSuperAdmin && route.tenantId && !impersonating && (
             <div
               role="note"
               className="mb-4 rounded-lg bg-chipwebbg px-4 py-2.5 text-xs text-chipwebink"
             >
-              View-only — changes come from the tenant's admin and are approved by you.
+              View-only — pick a tenant from the switcher (or Onboarded users → Login) to open it with
+              full admin access.
             </div>
           )}
           {children}

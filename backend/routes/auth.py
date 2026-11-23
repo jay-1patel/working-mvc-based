@@ -1278,6 +1278,74 @@ def list_onboarding_users(current_admin: dict = Depends(require_customer_care)):
     return {"users": users, "count": len(users)}
 
 
+def _impersonate_target(current_admin: dict, target: dict, *, via: str) -> dict:
+    """Mint/reuse a live session for a tenant admin and return login payload."""
+    role = str(target.get("role") or "").strip()
+    if role not in ("admin", "sub_admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Only tenant admin and sub-admin accounts can be opened",
+        )
+
+    public_username = _public_username(target.get("username"))
+    stored_username = _stored_username(target, public_username)
+    session_id = str(target.get("session_id") or "").strip()
+    session_minted = False
+    # Existing accounts may never have logged in (empty session_id). Mint one
+    # so customer_care can still open their console without a prior login.
+    if not session_id:
+        session_id = secrets.token_urlsafe(32)
+        if not db_update_admin(stored_username, session_id=session_id):
+            raise HTTPException(status_code=500, detail="Could not create a session for this account")
+        session_minted = True
+
+    # Support access: elevate the stored permission set so API checks allow
+    # Team, audit, and tenant writes while customer_care is reviewing.
+    permissions = dict(SUPER_ADMIN_PERMISSIONS)
+    update_admin_record(stored_username, permissions=permissions)
+    audit_kwargs = dict(
+        action="admin_impersonated",
+        actor=current_admin,
+        resource_type="admin",
+        resource_id=target.get("id"),
+        target_username=public_username,
+        tenant_id=target.get("tenant_id"),
+        details={
+            "role": role,
+            "via": via,
+            "impersonator": _public_username(current_admin.get("username")),
+            "session_minted": session_minted,
+            "elevated_permissions": True,
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+
+    logger.info(
+        "IMPERSONATE | by=%s target=%s tenant=%s minted=%s via=%s",
+        _public_username(current_admin.get("username")),
+        public_username,
+        target.get("tenant_id"),
+        session_minted,
+        via,
+    )
+    return {
+        "status": "ok",
+        "username": public_username,
+        "session_id": session_id,
+        "token": base64.b64encode(f"{public_username}:{session_id}".encode("utf-8")).decode("ascii"),
+        "role": role,
+        "permissions": permissions,
+        "tenant_id": target.get("tenant_id"),
+        "onboarding_approved": True,
+        "session_minted": session_minted,
+        "support_access": True,
+    }
+
+
 @router.post("/impersonate/{username}")
 def impersonate_admin(
     username: str,
@@ -1285,8 +1353,8 @@ def impersonate_admin(
 ):
     """Return a target tenant admin's live session so customer_care can open it.
 
-    Does not regenerate the session — the real user stays logged in. The
-    caller switches credentials on the client and acts as that admin.
+    Reuses an existing session_id when present (so an active user is not
+    kicked). If the account never logged in, mints a session_id first.
 
     Target username is a path param on purpose: the panel client injects the
     caller's own ``username`` into every JSON body for auth, which would
@@ -1300,51 +1368,26 @@ def impersonate_admin(
     target = _resolve_admin_row(username)
     if not target:
         raise HTTPException(status_code=404, detail="Admin not found")
+    return _impersonate_target(current_admin, target, via="username")
 
-    role = str(target.get("role") or "").strip()
-    if role not in ("admin", "sub_admin"):
+
+@router.post("/impersonate-tenant/{tenant_id}")
+def impersonate_tenant(
+    tenant_id: str,
+    current_admin: dict = Depends(require_customer_care),
+):
+    """Open a tenant as its primary company admin (full support access)."""
+    tid = str(tenant_id or "").strip()
+    if not tid:
+        raise HTTPException(status_code=400, detail="tenant_id is required")
+
+    records = list_admin_records(tenant_id=tid, include_all=False)
+    admins = [a for a in records if str(a.get("role") or "").strip() == "admin"]
+    subs = [a for a in records if str(a.get("role") or "").strip() == "sub_admin"]
+    target = (admins or subs or [None])[0]
+    if not target:
         raise HTTPException(
-            status_code=403,
-            detail="Only tenant admin and sub-admin accounts can be opened",
+            status_code=404,
+            detail="No admin or sub-admin account is assigned to this tenant",
         )
-
-    session_id = str(target.get("session_id") or "").strip()
-    if not session_id:
-        raise HTTPException(
-            status_code=409,
-            detail="This account has no live session yet — ask them to log in once first",
-        )
-
-    public_username = _public_username(target.get("username"))
-    permissions = _effective_permissions(role, target.get("permissions"))
-    audit_kwargs = dict(
-        action="admin_impersonated",
-        actor=current_admin,
-        resource_type="admin",
-        resource_id=target.get("id"),
-        target_username=public_username,
-        tenant_id=target.get("tenant_id"),
-        details={"role": role, "impersonator": _public_username(current_admin.get("username"))},
-    )
-    if use_mongodb():
-        record_admin_audit_event(None, **audit_kwargs)
-    else:
-        with get_db_context() as conn:
-            record_admin_audit_event(conn, **audit_kwargs)
-
-    logger.info(
-        "IMPERSONATE | by=%s target=%s tenant=%s",
-        _public_username(current_admin.get("username")),
-        public_username,
-        target.get("tenant_id"),
-    )
-    return {
-        "status": "ok",
-        "username": public_username,
-        "session_id": session_id,
-        "token": base64.b64encode(f"{public_username}:{session_id}".encode("utf-8")).decode("ascii"),
-        "role": role,
-        "permissions": permissions,
-        "tenant_id": target.get("tenant_id"),
-        "onboarding_approved": _onboarding_approved({**target, "username": public_username}),
-    }
+    return _impersonate_target(current_admin, target, via="tenant")

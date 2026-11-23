@@ -271,7 +271,10 @@ export function contentWritePerms(vertical?: string | null): {
  */
 export function isOnboardingLocked(
   identity: { role?: string | null; onboarding_approved?: boolean } | null,
+  opts?: { impersonating?: boolean },
 ): boolean {
+  // customer_care support sessions must not be trapped in Register.
+  if (opts?.impersonating) return false
   if (!identity || identity.role !== 'admin') return false
   return identity.onboarding_approved === false
 }
@@ -371,22 +374,26 @@ export function matchingPreset(permissions: Record<string, boolean>): string {
 }
 
 export function usePermissions() {
-  const { can, identity } = useAuth()
+  const { can, identity, impersonating } = useAuth()
   const isSuperAdmin = identity?.role === 'super_admin'
   return {
     identity,
     isSuperAdmin,
-  isAdmin: identity?.role === 'admin',
-  isSubAdmin: identity?.role === 'sub_admin',
-  can,
+    isAdmin: identity?.role === 'admin',
+    isSubAdmin: identity?.role === 'sub_admin',
+    impersonating,
+    can,
     canManageTenants: can(TENANT_PERMISSION),
     canManageTeam: can(TEAM_PERMISSION),
     /**
      * Whether a write control for a tenant-data action may be offered.
      * Identical to `can` for admins and sub admins; always false for a
      * super admin on a tenant-write switch (view-only rule).
+     * customer_care support sessions (impersonating) may write.
      */
-    canWriteTenant: (permission: string) =>
-      isSuperAdmin && TENANT_WRITE_PERMISSIONS.includes(permission) ? false : can(permission),
+    canWriteTenant: (permission: string) => {
+      if (impersonating) return can(permission)
+      return isSuperAdmin && TENANT_WRITE_PERMISSIONS.includes(permission) ? false : can(permission)
+    },
   }
 }

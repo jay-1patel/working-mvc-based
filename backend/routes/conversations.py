@@ -109,6 +109,10 @@ class InboxReplyRequest(BaseModel):
     attachment: Optional[dict] = None
 
 
+class InboxMenuRequest(BaseModel):
+    wa_id: str
+
+
 class InboxAttachmentRequest(BaseModel):
     filename: str
     content: str
@@ -544,6 +548,48 @@ def reply_to_customer(
     publish_inbox_event(tenant_id, wa_id, "reply")
     logger.info(f"INBOX_REPLIED | tenant={tenant_id} | wa={wa_id} | by={principal.get('username')}")
     return {"status": "ok", "wa_id": wa_id, "sent": sent}
+
+
+@flat_router.post("/inbox/menu")
+def send_menu_to_customer(
+    body: InboxMenuRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Send the tenant's published interactive menu during human handover."""
+    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
+    if not tenant_owns_conversation(tenant_id, body.wa_id):
+        raise HTTPException(status_code=404, detail="This conversation does not belong to this tenant")
+
+    from shared.tenancy.loader import get_tenant_profile
+    profile = get_tenant_profile(tenant_id)
+    buttons = profile.menu.visible_buttons(profile.features)
+    sections = [{"title": "Options", "rows": [
+        {"id": b.id, "title": b.title, "description": getattr(b, "description", "") or ""}
+        for b in buttons
+    ]}]
+    if not buttons:
+        raise HTTPException(status_code=400, detail="This tenant has no enabled menu options")
+
+    try:
+        from routing.whatsapp import send_whatsapp_list_menu
+        sent = bool(send_whatsapp_list_menu(
+            body.wa_id, profile.menu.header, profile.menu.body,
+            profile.menu.button_text, sections, profile.menu.footer, tenant_id=tenant_id,
+        ))
+    except Exception as exc:
+        logger.error("inbox menu send failed: %s", exc)
+        sent = False
+    if not sent:
+        raise HTTPException(status_code=502, detail="WhatsApp menu could not be sent")
+
+    from database import save_chat
+    save_chat(body.wa_id, principal.get("username", "agent"), "[interactive menu]",
+              response=profile.menu.body, route="agent", tenant_id=tenant_id)
+    set_human_handover(body.wa_id, active=True)
+    from services.inbox_events import publish_inbox_event
+    publish_inbox_event(tenant_id, body.wa_id, "reply")
+    return {"status": "ok", "wa_id": body.wa_id, "sent": True}
 
 
 @flat_router.post("/inbox/attach")

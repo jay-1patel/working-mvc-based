@@ -50,9 +50,9 @@ import { TenantChangeReview, MyTenantChangeRequests } from '@/components/tenants
 
 function Router() {
   const route = parseRoute(useRoute())
-  const { canManageTenants, canManageTeam, isSuperAdmin, can } = usePermissions()
+  const { canManageTenants, canManageTeam, isSuperAdmin, can, impersonating } = usePermissions()
   const { identity } = useAuth()
-  const locked = isOnboardingLocked(identity)
+  const locked = isOnboardingLocked(identity, { impersonating })
 
   // First-login lock: until a super admin approves the tenant's registration,
   // the admin only gets the registration panel and their change requests. The
@@ -113,7 +113,9 @@ function Router() {
   }
 
   if (route.view === 'team') {
-    if (!canManageTeam) return <NotPermitted what="manage the team" permission="manage_admins" />
+    if (!canManageTeam && !impersonating) {
+      return <NotPermitted what="manage the team" permission="manage_admins" />
+    }
     return (
       <AppShell route={route}>
         <TeamScreen />
@@ -144,7 +146,9 @@ function Router() {
   if (route.view === 'audit-history') {
     // Super admins see every tenant; a tenant admin sees only their own
     // tenant's activity (the page and the API both enforce that scope).
-    if (!isSuperAdmin && identity?.role !== 'admin') return <NotPermitted what="view audit history" />
+    if (!isSuperAdmin && identity?.role !== 'admin' && !impersonating) {
+      return <NotPermitted what="view audit history" />
+    }
     return (
       <AppShell route={route}>
         <AuditHistory />
@@ -153,7 +157,9 @@ function Router() {
   }
 
   if (route.view === 'errors') {
-    if (!isSuperAdmin && identity?.role !== 'admin') return <NotPermitted what="view errors" />
+    if (!isSuperAdmin && identity?.role !== 'admin' && !impersonating) {
+      return <NotPermitted what="view errors" />
+    }
     return (
       <AppShell route={route}>
         <ErrorsPanel />
@@ -186,9 +192,11 @@ function Router() {
   // Super-admin-only tenant screens (Grow/Manage, Past chats / Help
   // requests / Callbacks, Models|Products & prices, Layers / Test & smoke /
   // WhatsApp Tester) — company admins and sub-admins do not see them.
+  // customer_care support sessions may open every screen.
   if (
     (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(route.view) &&
-    !isSuperAdmin
+    !isSuperAdmin &&
+    !impersonating
   ) {
     return (
       <AppShell route={route}>
@@ -197,7 +205,7 @@ function Router() {
     )
   }
 
-  if (writeViews.has(route.view) && !canManageTenants) {
+  if (writeViews.has(route.view) && !canManageTenants && !impersonating) {
     return (
       <AppShell route={route}>
         <NotPermitted what="change tenant configuration" />

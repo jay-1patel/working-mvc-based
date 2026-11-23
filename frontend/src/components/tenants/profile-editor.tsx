@@ -2,15 +2,25 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Loader2, Pencil, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
 import { useAction } from '@/lib/hooks'
 import { tenantsApi } from '@/lib/tenants'
-import { editorContactErrors, editorFromProfile, editorToSnapshot, isValidPhone, type EditorForm } from '@/lib/profile'
+import {
+  editorContactErrors,
+  editorFromProfile,
+  editorToSnapshot,
+  isValidPhone,
+  timezoneOptions,
+  type EditorForm,
+} from '@/lib/profile'
 import { getVertical } from '@/lib/verticals'
 import {
   ErrorBanner,
   FieldInput,
+  FieldSelect,
+  FieldTextarea,
   GhostButton,
   Notice,
   Panel,
   PrimaryButton,
+  Toggle,
 } from '@/components/remake/ui'
 import { LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
@@ -21,7 +31,16 @@ import { useTenantDetail } from '@/components/tenants/hooks'
 /** The compact size the legacy `size="sm"` buttons had in the header. */
 const smallBtn = 'px-3 py-1.5 text-xs'
 
-export function ProfileEditor({ tenantId }: { tenantId: string }) {
+export type ProfileEditorMode = 'brand' | 'menu'
+
+export function ProfileEditor({
+  tenantId,
+  mode = 'brand',
+}: {
+  tenantId: string
+  /** brand = company Profile; menu = WhatsApp → Profile menu (hours + notifications). */
+  mode?: ProfileEditorMode
+}) {
   const detail = useTenantDetail(tenantId)
   const { identity } = useAuth()
   const isSuperAdmin = identity?.role === 'super_admin'
@@ -52,8 +71,10 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
     if (effective) {
       setForm(editorFromProfile(effective))
       setDirty(false)
+      setEditing(false)
+      setWarnings([])
     }
-  }, [effective])
+  }, [effective, mode])
 
   if (detail.loading) return <LoadingBlock label="Loading the profile…" />
   if (detail.error) {
@@ -75,13 +96,24 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
     setDirty(true)
   }
   const current = JSON.stringify(editorToSnapshot(form))
+  const title = mode === 'brand' ? 'Profile' : 'Profile menu'
+  const description =
+    mode === 'brand'
+      ? isSuperAdmin
+        ? "View-only. This is the tenant's brand data as their admin maintains it — changes come from the tenant's admin and are approved by you."
+        : 'Company brand and contact details. Saving writes a draft; publishing validates it and swaps the live profile (changes go to a super admin for approval first).'
+      : isSuperAdmin
+        ? "View-only. Working hours and notification targets as the tenant's admin maintains them."
+        : 'Working hours and notification targets. Saving writes a draft; publishing validates it and swaps the live profile (changes go to a super admin for approval first).'
 
   const saveDraft = async (thenPublish: boolean) => {
-    const contactErrors = editorContactErrors(form)
-    if (contactErrors.length) {
-      setWarnings(contactErrors)
-      toast.push('Fix the contact details before saving.', 'error')
-      return
+    if (mode === 'brand') {
+      const contactErrors = editorContactErrors(form)
+      if (contactErrors.length) {
+        setWarnings(contactErrors)
+        toast.push('Fix the contact details before saving.', 'error')
+        return
+      }
     }
     const saved = await action.run(() => tenantsApi.saveDraft(tenantId, editorToSnapshot(form)))
     if (!saved) return
@@ -112,12 +144,8 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
   return (
     <div>
       <PageHeader
-        title="Profile"
-        description={
-          isSuperAdmin
-            ? "View-only. This is the tenant's data layer as their admin maintains it — changes come from the tenant's admin and are approved by you."
-            : 'Company brand and contact details. Saving writes a draft; publishing validates it and swaps the live profile (changes go to a super admin for approval first). Publishing is the only thing the bot ever sees.'
-        }
+        title={title}
+        description={description}
         actions={
           readOnly ? undefined : editing ? (
             <>
@@ -179,7 +207,7 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
               onClick={() => setEditing(true)}
             >
               <Pencil className="h-4 w-4" />
-              Edit profile
+              Edit {mode === 'brand' ? 'profile' : 'profile menu'}
             </PrimaryButton>
           )
         }
@@ -189,7 +217,7 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
               {readOnly
                 ? 'View-only — changes come from the tenant\'s admin'
                 : !editing
-                  ? 'Read-only — click Edit profile to make changes'
+                  ? 'Read-only — click Edit to make changes'
                   : dirty
                     ? 'Unsaved changes'
                     : 'In sync with the live profile'}
@@ -210,40 +238,124 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
         </Notice>
       )}
 
-      <Panel title="Brand">
-        <p className="-mt-1 mb-4 text-sm text-txmuted">Company names and contact details used in menus and signatures.</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FieldInput label="Display name" disabled={!editing} value={form.displayName} onChange={(e) => patch({ displayName: e.target.value })} />
-          <FieldInput label="Company name" disabled={!editing} value={form.brand.name} onChange={(e) => patch({ brand: { ...form.brand, name: e.target.value } })} />
-          <FieldInput label="Bot name" disabled={!editing} value={form.brand.botName} onChange={(e) => patch({ brand: { ...form.brand, botName: e.target.value } })} />
-          <FieldInput label="Tagline" disabled={!editing} value={form.brand.tagline} onChange={(e) => patch({ brand: { ...form.brand, tagline: e.target.value } })} />
-          <FieldInput label="Website" disabled={!editing} value={form.brand.website} onChange={(e) => patch({ brand: { ...form.brand, website: e.target.value } })} />
-          <FieldInput
-            label="Support email"
-            type="email"
-            disabled={!editing}
-            value={form.brand.supportEmail}
-            onChange={(e) => patch({ brand: { ...form.brand, supportEmail: e.target.value } })}
-          />
-          <FieldInput
-            label="Support phone"
-            disabled={!editing}
-            value={form.brand.supportPhone}
-            error={
-              editing && form.brand.supportPhone.trim() && !isValidPhone(form.brand.supportPhone)
-                ? 'Phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210'
-                : undefined
-            }
-            onChange={(e) => patch({ brand: { ...form.brand, supportPhone: e.target.value } })}
-          />
-          <FieldInput
-            label="Closing signature"
-            disabled={!editing}
-            value={form.brand.signature}
-            onChange={(e) => patch({ brand: { ...form.brand, signature: e.target.value } })}
-          />
+      {mode === 'brand' ? (
+        <Panel title="Brand">
+          <p className="-mt-1 mb-4 text-sm text-txmuted">Company names and contact details used in menus and signatures.</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FieldInput label="Display name" disabled={!editing} value={form.displayName} onChange={(e) => patch({ displayName: e.target.value })} />
+            <FieldInput label="Company name" disabled={!editing} value={form.brand.name} onChange={(e) => patch({ brand: { ...form.brand, name: e.target.value } })} />
+            <FieldInput label="Bot name" disabled={!editing} value={form.brand.botName} onChange={(e) => patch({ brand: { ...form.brand, botName: e.target.value } })} />
+            <FieldInput label="Tagline" disabled={!editing} value={form.brand.tagline} onChange={(e) => patch({ brand: { ...form.brand, tagline: e.target.value } })} />
+            <FieldInput label="Website" disabled={!editing} value={form.brand.website} onChange={(e) => patch({ brand: { ...form.brand, website: e.target.value } })} />
+            <FieldInput
+              label="Support email"
+              type="email"
+              disabled={!editing}
+              value={form.brand.supportEmail}
+              onChange={(e) => patch({ brand: { ...form.brand, supportEmail: e.target.value } })}
+            />
+            <FieldInput
+              label="Support phone"
+              disabled={!editing}
+              value={form.brand.supportPhone}
+              error={
+                editing && form.brand.supportPhone.trim() && !isValidPhone(form.brand.supportPhone)
+                  ? 'Phone must be a country code followed by a 10-digit number, e.g. +91 98765 43210'
+                  : undefined
+              }
+              onChange={(e) => patch({ brand: { ...form.brand, supportPhone: e.target.value } })}
+            />
+            <FieldInput
+              label="Closing signature"
+              disabled={!editing}
+              value={form.brand.signature}
+              onChange={(e) => patch({ brand: { ...form.brand, signature: e.target.value } })}
+            />
+          </div>
+        </Panel>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel title="Working hours">
+            <p className="-mt-1 mb-4 text-sm text-txmuted">Working hours configuration.</p>
+            <div className="space-y-4">
+              <Toggle
+                checked={form.businessHours.alwaysOpen}
+                disabled={!editing}
+                onChange={(alwaysOpen) => patch({ businessHours: { ...form.businessHours, alwaysOpen } })}
+                label="Always open"
+              />
+              <div className="grid grid-cols-3 gap-3">
+                <FieldSelect
+                  label="Timezone"
+                  disabled={!editing}
+                  value={form.businessHours.timezone}
+                  onChange={(e) => patch({ businessHours: { ...form.businessHours, timezone: e.target.value } })}
+                >
+                  <option value="">Select…</option>
+                  {timezoneOptions(form.businessHours.timezone).map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </FieldSelect>
+                <FieldInput
+                  label="Opens"
+                  type="time"
+                  disabled={!editing || form.businessHours.alwaysOpen}
+                  value={form.businessHours.open}
+                  onChange={(e) => patch({ businessHours: { ...form.businessHours, open: e.target.value } })}
+                />
+                <FieldInput
+                  label="Closes"
+                  type="time"
+                  disabled={!editing || form.businessHours.alwaysOpen}
+                  value={form.businessHours.close}
+                  onChange={(e) => patch({ businessHours: { ...form.businessHours, close: e.target.value } })}
+                />
+              </div>
+              <FieldTextarea
+                label="Out-of-hours message"
+                rows={2}
+                disabled={!editing}
+                value={form.businessHours.outOfHoursMessage}
+                onChange={(e) => patch({ businessHours: { ...form.businessHours, outOfHoursMessage: e.target.value } })}
+              />
+            </div>
+          </Panel>
+
+          <Panel title="Notifications">
+            <p className="-mt-1 mb-4 text-sm text-txmuted">Where leads, quotes and handoffs are pushed.</p>
+            <div className="space-y-4">
+              <FieldInput
+                label="Sales email"
+                type="email"
+                disabled={!editing}
+                value={form.notifications.salesEmail}
+                onChange={(e) => patch({ notifications: { ...form.notifications, salesEmail: e.target.value } })}
+              />
+              <FieldInput
+                label="Support email"
+                type="email"
+                disabled={!editing}
+                value={form.notifications.supportEmail}
+                onChange={(e) => patch({ notifications: { ...form.notifications, supportEmail: e.target.value } })}
+              />
+              <FieldInput
+                label="Brochure URL"
+                disabled={!editing}
+                value={form.notifications.brochureUrl}
+                placeholder="https://example.com/brochure.pdf"
+                onChange={(e) =>
+                  patch({ notifications: { ...form.notifications, brochureUrl: e.target.value } })
+                }
+              />
+              <p className="text-xs text-txfaint">
+                Optional. Public PDF link, IP/localhost media URL, or /uploaded_files/… path. Leave blank if unused.
+              </p>
+            </div>
+          </Panel>
         </div>
-      </Panel>
+      )}
 
       <p className="mt-4 flex items-center gap-2 text-xs text-txmuted">
         <TriangleAlert className="h-3.5 w-3.5" />
@@ -256,4 +368,3 @@ export function ProfileEditor({ tenantId }: { tenantId: string }) {
     </div>
   )
 }
-

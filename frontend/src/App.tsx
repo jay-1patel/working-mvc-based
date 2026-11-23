@@ -158,7 +158,7 @@ function Router() {
     )
   }
 
-  const writeViews = new Set(['profile', 'menu-edit', 'versions', 'tokens'])
+  const writeViews = new Set(['profile', 'profile-menu', 'menu-edit', 'versions', 'tokens'])
   if (route.view === 'api-access') {
     if (!isSuperAdmin && (!identity?.tenant_id || route.tenantId !== identity.tenant_id || !can('manage_operations'))) {
       return <AppShell route={route}><NotPermitted what="request API access for this tenant" /></AppShell>
@@ -195,7 +195,8 @@ function Router() {
   return (
     <AppShell route={route}>
       {route.view === 'overview' && <TodayPanel tenantId={route.tenantId} />}
-      {route.view === 'profile' && <ProfileEditor tenantId={route.tenantId} />}
+      {route.view === 'profile' && <ProfileEditor tenantId={route.tenantId} mode="brand" />}
+      {route.view === 'profile-menu' && <ProfileEditor tenantId={route.tenantId} mode="menu" />}
       {route.view === 'menu' && <BotMenuPanel tenantId={route.tenantId} />}
       {route.view === 'menu-edit' && (
         <MenuEditor tenantId={route.tenantId} focusId={route.query.get('focus')} />
@@ -257,6 +258,7 @@ const PENDING_VIEWS = new Set<string>([
 const KNOWN_VIEWS = [
   'overview',
   'profile',
+  'profile-menu',
   'menu',
   'menu-edit',
   'intents',

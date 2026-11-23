@@ -8,7 +8,7 @@ versioned and rollbackable:
     POST /api/admin/tenants
     POST /api/admin/tenants/{tenant_id}/detail     -> layers + effective profile
     POST /api/admin/tenants/{tenant_id}/profile     -> save draft (merged over the pending draft)
-    PUT  /api/admin/tenants/{tenant_id}/intents/{name} -> save one info-page intent into the draft
+    POST /api/admin/tenants/{tenant_id}/intents/{name} -> save one info-page intent into the draft
     POST /api/admin/tenants/{tenant_id}/publish     -> validate + version + go live
     POST /api/admin/tenants/{tenant_id}/rollback    -> re-point at a prior version
     GET  /api/admin/tenants/{tenant_id}/versions
@@ -817,7 +817,7 @@ INFO_PAGE_PERMISSIONS = {
 INTENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 
 
-@router.put("/{tenant_id}/intents/{intent_name}")
+@router.post("/{tenant_id}/intents/{intent_name}")
 def save_intent_draft(
     tenant_id: str,
     intent_name: str,

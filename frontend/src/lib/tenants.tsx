@@ -80,7 +80,7 @@ export const tenantsApi = {
       remove?: boolean
     },
   ) =>
-    api.put<{ ok: boolean; validation: string[] }>(
+    api.post<{ ok: boolean; validation: string[] }>(
       `/api/admin/tenants/${encodeURIComponent(id)}/intents/${encodeURIComponent(intent)}`,
       body,
     ),

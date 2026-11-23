@@ -1,0 +1,382 @@
+================================================================================
+AI CHATBOT - DROPDOWN MENU API TEST FILE
+================================================================================
+Sidebar dropdown:  WhatsApp menu
+  ├── WhatsApp menu   → tenant WhatsApp / bot menu screens
+  └── Profile menu    → tenant profile screens
+
+Base URL (your server):  http://10.100.100.43:9000
+Local dev:               http://localhost:9000
+
+Auth: username + session_id headers (or Bearer token where noted)
+Replace:
+  <TOKEN>      = session / bearer token
+  <TENANT_ID>  = tenant id (example: c)
+  username     = cars  (example)
+
+Known admin catalog menu_key:  kb_main
+
+
+================================================================================
+A) WHATSAPP MENU  (sidebar → WhatsApp menu)
+================================================================================
+Used by Bot menu panel + Menu editor.
+Menu lives inside the tenant profile snapshot (menu.buttons).
+
+--------------------------------------------------------------------------------
+[A1] POST /api/admin/tenants/resolved
+--------------------------------------------------------------------------------
+Name: Resolved Profile (includes live WhatsApp menu)
+Description: Merged profile the bot reads now — brand, features, menu, intents.
+Auth: username + session_id
+Body: {}
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/tenants/resolved
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   {}
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/tenants/resolved" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -H "Accept: application/json" ^
+  -d "{}"
+
+--------------------------------------------------------------------------------
+[A2] POST /api/admin/tenants/{tenant_id}/detail
+--------------------------------------------------------------------------------
+Name: Tenant Detail (layers + draft menu)
+Description: Layer view for menu/profile editors: defaults, file, db, effective, draft.
+Auth: username + session_id
+Path: tenant_id = <TENANT_ID>
+Body: {}
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/tenants/c/detail
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   {}
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/tenants/c/detail" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -H "Accept: application/json" ^
+  -d "{}"
+
+--------------------------------------------------------------------------------
+[A3] POST /api/admin/tenants/{tenant_id}/profile
+--------------------------------------------------------------------------------
+Name: Save Menu Draft
+Description: Save working draft. Does NOT go live until publish.
+             Pass menu under snapshot.menu (header/body/footer/button_text/buttons).
+Auth: username + session_id
+Path: tenant_id = <TENANT_ID>
+Body example:
+{
+  "snapshot": {
+    "menu": {
+      "key": "main",
+      "header": "Main menu",
+      "body": "How can we help?",
+      "footer": "",
+      "button_text": "Menu",
+      "buttons": [
+        {
+          "id": "help",
+          "title": "Help",
+          "sort_order": 1,
+          "enabled": true
+        }
+      ]
+    }
+  }
+}
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/tenants/c/profile
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   { "snapshot": { "menu": { ... } } }
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/tenants/c/profile" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -H "Accept: application/json" ^
+  --data-raw "{\"snapshot\":{\"menu\":{\"key\":\"main\",\"body\":\"How can we help?\",\"buttons\":[{\"id\":\"help\",\"title\":\"Help\",\"sort_order\":1,\"enabled\":true}]}}}"
+
+--------------------------------------------------------------------------------
+[A4] POST /api/admin/tenants/{tenant_id}/publish
+--------------------------------------------------------------------------------
+Name: Publish Menu / Profile
+Description: Validate merged profile, append version, go live.
+             Menu-only edits often go live immediately; other edits may need approval.
+Auth: username + session_id
+Path: tenant_id = <TENANT_ID>
+Body: none (empty POST)
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/tenants/c/publish
+  Headers: username=cars ; session_id=<TOKEN>
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/tenants/c/publish" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Accept: application/json"
+
+
+================================================================================
+B) PROFILE MENU  (sidebar → Profile menu)
+================================================================================
+Same tenant profile APIs; snapshot usually includes brand / features / contact.
+
+--------------------------------------------------------------------------------
+[B1] POST /api/admin/tenants/resolved
+--------------------------------------------------------------------------------
+Same as [A1] — read live profile.
+
+--------------------------------------------------------------------------------
+[B2] POST /api/admin/tenants/{tenant_id}/detail
+--------------------------------------------------------------------------------
+Same as [A2] — read layers / draft for profile editor.
+
+--------------------------------------------------------------------------------
+[B3] POST /api/admin/tenants/{tenant_id}/profile
+--------------------------------------------------------------------------------
+Name: Save Profile Draft
+Description: Save brand/features/etc. into working draft (not live until publish).
+Body example:
+{
+  "snapshot": {
+    "brand": {
+      "name": "MetroDrive Autos",
+      "bot_name": "Metro Bot",
+      "tagline": "Drive happy"
+    },
+    "features": {
+      "cart": true,
+      "orders": true
+    }
+  }
+}
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/tenants/c/profile
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   { "snapshot": { "brand": { ... }, "features": { ... } } }
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/tenants/c/profile" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -H "Accept: application/json" ^
+  --data-raw "{\"snapshot\":{\"brand\":{\"name\":\"MetroDrive Autos\",\"bot_name\":\"Metro Bot\"}}}"
+
+--------------------------------------------------------------------------------
+[B4] POST /api/admin/tenants/{tenant_id}/publish
+--------------------------------------------------------------------------------
+Same as [A4] — publish draft to live.
+
+
+================================================================================
+C) ADMIN CATALOG MENUS  (/api/admin/menus — KB / catalog editor)
+================================================================================
+Separate from tenant WhatsApp menu. Known menu_key: kb_main
+Permission for writes: edit_delete_products
+
+--------------------------------------------------------------------------------
+[C1] GET /api/admin/menus
+--------------------------------------------------------------------------------
+Name: List Menus
+Description: All menu keys with full merged item lists (defaults + overrides).
+Auth: yes
+
+Thunder Client:
+  Method: GET
+  URL:    http://10.100.100.43:9000/api/admin/menus
+  Headers: username=cars ; session_id=<TOKEN>
+           (or Authorization: Bearer <TOKEN>)
+
+curl (cmd):
+curl -X GET "http://10.100.100.43:9000/api/admin/menus" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>"
+
+--------------------------------------------------------------------------------
+[C2] GET /api/admin/menus/{menu_key}
+--------------------------------------------------------------------------------
+Name: Get Menu
+Description: One menu — merged items + settings.
+Path: menu_key = kb_main
+
+Thunder Client:
+  Method: GET
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main
+  Headers: username=cars ; session_id=<TOKEN>
+
+curl (cmd):
+curl -X GET "http://10.100.100.43:9000/api/admin/menus/kb_main" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>"
+
+--------------------------------------------------------------------------------
+[C3] GET /api/admin/menus/{menu_key}/settings
+--------------------------------------------------------------------------------
+Name: Get Menu Settings
+
+Thunder Client:
+  Method: GET
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/settings
+  Headers: username=cars ; session_id=<TOKEN>
+
+curl (cmd):
+curl -X GET "http://10.100.100.43:9000/api/admin/menus/kb_main/settings" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>"
+
+--------------------------------------------------------------------------------
+[C4] PUT /api/admin/menus/{menu_key}/settings
+--------------------------------------------------------------------------------
+Name: Set Menu Settings
+Body: settings fields object (only supplied keys are updated)
+
+Thunder Client:
+  Method: PUT
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/settings
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   {}
+
+curl (cmd):
+curl -X PUT "http://10.100.100.43:9000/api/admin/menus/kb_main/settings" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{}"
+
+--------------------------------------------------------------------------------
+[C5] POST /api/admin/menus/{menu_key}/items
+--------------------------------------------------------------------------------
+Name: Create Menu Item
+Body:
+{
+  "item_id": "menu_custom_1",
+  "title": "Custom item",
+  "description": "",
+  "section": "General",
+  "icon": "",
+  "sort_order": 10,
+  "is_active": true
+}
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/items
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   { "item_id": "menu_custom_1", "title": "Custom item", "is_active": true }
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/items" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  --data-raw "{\"item_id\":\"menu_custom_1\",\"title\":\"Custom item\",\"is_active\":true}"
+
+--------------------------------------------------------------------------------
+[C6] PUT /api/admin/menus/{menu_key}/{item_id}
+--------------------------------------------------------------------------------
+Name: Update Menu Item
+Description: Partial update. Allowed fields: title, description, section, icon,
+             sort_order, is_active. Optional item_id rename via body.item_id.
+Body example (toggle):
+{ "is_active": false }
+
+Thunder Client:
+  Method: PUT
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/menu_products
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   { "is_active": false }
+
+curl (cmd):
+curl -X PUT "http://10.100.100.43:9000/api/admin/menus/kb_main/menu_products" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  --data-raw "{\"is_active\":false}"
+
+--------------------------------------------------------------------------------
+[C7] POST /api/admin/menus/{menu_key}/reorder
+--------------------------------------------------------------------------------
+Name: Reorder Menu Items
+Body:
+{ "item_ids": ["menu_products", "menu_new_arrivals", "menu_custom_1"] }
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/reorder
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   { "item_ids": ["menu_products", "menu_new_arrivals"] }
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/reorder" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  --data-raw "{\"item_ids\":[\"menu_products\",\"menu_new_arrivals\"]}"
+
+--------------------------------------------------------------------------------
+[C8] DELETE /api/admin/menus/{menu_key}/{item_id}
+--------------------------------------------------------------------------------
+Name: Delete Menu Item
+Description: Admin-created items are removed. Code-default items are hidden
+             (is_active=false) and return on reset.
+
+Thunder Client:
+  Method: DELETE
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/menu_custom_1
+  Headers: username=cars ; session_id=<TOKEN>
+
+curl (cmd):
+curl -X DELETE "http://10.100.100.43:9000/api/admin/menus/kb_main/menu_custom_1" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>"
+
+--------------------------------------------------------------------------------
+[C9] POST /api/admin/menus/{menu_key}/reset
+--------------------------------------------------------------------------------
+Name: Reset Menu
+Description: Delete DB overrides (items + settings); code defaults apply again.
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/reset
+  Headers: username=cars ; session_id=<TOKEN>
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/reset" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>"
+
+
+================================================================================
+NOTES
+================================================================================
+- Sidebar dropdown "WhatsApp menu" opens:
+    WhatsApp menu  → tenant menu via profile snapshot (sections A)
+    Profile menu   → tenant profile draft/publish (sections B)
+- Admin catalog menus (section C) use menu_key kb_main — not the tenant WhatsApp menu.
+- Save draft then publish: POST .../profile → POST .../publish
+- Auth: username + session_id headers, or Authorization: Bearer <TOKEN>
+- Log X-Request-Id from responses when debugging errors.
+
+END OF FILE
+================================================================================

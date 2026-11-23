@@ -193,71 +193,83 @@ C) ADMIN CATALOG MENUS  (/api/admin/menus — KB / catalog editor)
 ================================================================================
 Separate from tenant WhatsApp menu. Known menu_key: kb_main
 Permission for writes: edit_delete_products
+All endpoints below are POST-only.
 
 --------------------------------------------------------------------------------
-[C1] GET /api/admin/menus
+[C1] POST /api/admin/menus
 --------------------------------------------------------------------------------
 Name: List Menus
 Description: All menu keys with full merged item lists (defaults + overrides).
 Auth: yes
+Body: {}
 
 Thunder Client:
-  Method: GET
+  Method: POST
   URL:    http://10.100.100.43:9000/api/admin/menus
-  Headers: username=cars ; session_id=<TOKEN>
-           (or Authorization: Bearer <TOKEN>)
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   {}
 
 curl (cmd):
-curl -X GET "http://10.100.100.43:9000/api/admin/menus" ^
+curl -X POST "http://10.100.100.43:9000/api/admin/menus" ^
   -H "username: cars" ^
-  -H "session_id: <TOKEN>"
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{}"
 
 --------------------------------------------------------------------------------
-[C2] GET /api/admin/menus/{menu_key}
+[C2] POST /api/admin/menus/{menu_key}
 --------------------------------------------------------------------------------
 Name: Get Menu
 Description: One menu — merged items + settings.
 Path: menu_key = kb_main
+Body: {}
 
 Thunder Client:
-  Method: GET
+  Method: POST
   URL:    http://10.100.100.43:9000/api/admin/menus/kb_main
-  Headers: username=cars ; session_id=<TOKEN>
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   {}
 
 curl (cmd):
-curl -X GET "http://10.100.100.43:9000/api/admin/menus/kb_main" ^
+curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main" ^
   -H "username: cars" ^
-  -H "session_id: <TOKEN>"
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{}"
 
 --------------------------------------------------------------------------------
-[C3] GET /api/admin/menus/{menu_key}/settings
+[C3] POST /api/admin/menus/{menu_key}/settings
 --------------------------------------------------------------------------------
 Name: Get Menu Settings
+Body: {}
 
 Thunder Client:
-  Method: GET
-  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/settings
-  Headers: username=cars ; session_id=<TOKEN>
-
-curl (cmd):
-curl -X GET "http://10.100.100.43:9000/api/admin/menus/kb_main/settings" ^
-  -H "username: cars" ^
-  -H "session_id: <TOKEN>"
-
---------------------------------------------------------------------------------
-[C4] PUT /api/admin/menus/{menu_key}/settings
---------------------------------------------------------------------------------
-Name: Set Menu Settings
-Body: settings fields object (only supplied keys are updated)
-
-Thunder Client:
-  Method: PUT
+  Method: POST
   URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/settings
   Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
   Body:   {}
 
 curl (cmd):
-curl -X PUT "http://10.100.100.43:9000/api/admin/menus/kb_main/settings" ^
+curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/settings" ^
+  -H "username: cars" ^
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{}"
+
+--------------------------------------------------------------------------------
+[C4] POST /api/admin/menus/{menu_key}/settings/update
+--------------------------------------------------------------------------------
+Name: Set Menu Settings
+Body: settings fields object (only supplied keys are updated)
+
+Thunder Client:
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/settings/update
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   {}
+
+curl (cmd):
+curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/settings/update" ^
   -H "username: cars" ^
   -H "session_id: <TOKEN>" ^
   -H "Content-Type: application/json" ^
@@ -292,7 +304,7 @@ curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/items" ^
   --data-raw "{\"item_id\":\"menu_custom_1\",\"title\":\"Custom item\",\"is_active\":true}"
 
 --------------------------------------------------------------------------------
-[C6] PUT /api/admin/menus/{menu_key}/{item_id}
+[C6] POST /api/admin/menus/{menu_key}/{item_id}/update
 --------------------------------------------------------------------------------
 Name: Update Menu Item
 Description: Partial update. Allowed fields: title, description, section, icon,
@@ -301,13 +313,13 @@ Body example (toggle):
 { "is_active": false }
 
 Thunder Client:
-  Method: PUT
-  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/menu_products
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/menu_products/update
   Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
   Body:   { "is_active": false }
 
 curl (cmd):
-curl -X PUT "http://10.100.100.43:9000/api/admin/menus/kb_main/menu_products" ^
+curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/menu_products/update" ^
   -H "username: cars" ^
   -H "session_id: <TOKEN>" ^
   -H "Content-Type: application/json" ^
@@ -334,45 +346,52 @@ curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/reorder" ^
   --data-raw "{\"item_ids\":[\"menu_products\",\"menu_new_arrivals\"]}"
 
 --------------------------------------------------------------------------------
-[C8] DELETE /api/admin/menus/{menu_key}/{item_id}
+[C8] POST /api/admin/menus/{menu_key}/{item_id}/delete
 --------------------------------------------------------------------------------
 Name: Delete Menu Item
 Description: Admin-created items are removed. Code-default items are hidden
              (is_active=false) and return on reset.
+Body: {}
 
 Thunder Client:
-  Method: DELETE
-  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/menu_custom_1
-  Headers: username=cars ; session_id=<TOKEN>
+  Method: POST
+  URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/menu_custom_1/delete
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   {}
 
 curl (cmd):
-curl -X DELETE "http://10.100.100.43:9000/api/admin/menus/kb_main/menu_custom_1" ^
+curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/menu_custom_1/delete" ^
   -H "username: cars" ^
-  -H "session_id: <TOKEN>"
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{}"
 
 --------------------------------------------------------------------------------
 [C9] POST /api/admin/menus/{menu_key}/reset
 --------------------------------------------------------------------------------
 Name: Reset Menu
 Description: Delete DB overrides (items + settings); code defaults apply again.
+Body: {}
 
 Thunder Client:
   Method: POST
   URL:    http://10.100.100.43:9000/api/admin/menus/kb_main/reset
-  Headers: username=cars ; session_id=<TOKEN>
+  Headers: username=cars ; session_id=<TOKEN> ; Content-Type=application/json
+  Body:   {}
 
 curl (cmd):
 curl -X POST "http://10.100.100.43:9000/api/admin/menus/kb_main/reset" ^
   -H "username: cars" ^
-  -H "session_id: <TOKEN>"
+  -H "session_id: <TOKEN>" ^
+  -H "Content-Type: application/json" ^
+  -d "{}"
 
 
 ================================================================================
 NOTES
 ================================================================================
-- Sidebar dropdown "WhatsApp menu" opens:
-    WhatsApp menu  → tenant menu via profile snapshot (sections A)
-    Profile menu   → tenant profile draft/publish (sections B)
+- All menu APIs in this file are POST-only.
+- Tenant WhatsApp / Profile (sections A–B) use profile snapshot + publish.
 - Admin catalog menus (section C) use menu_key kb_main — not the tenant WhatsApp menu.
 - Save draft then publish: POST .../profile → POST .../publish
 - Auth: username + session_id headers, or Authorization: Bearer <TOKEN>

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "Terms & Conditions",
+    "is_junk": true,
+    "expect_junk": true,
+    "pass": true
+  },
+  {
+    "name": "Page 3 of 3",
+    "is_junk": true,
+    "expect_junk": true,
+    "pass": true
+  },
+  {
+    "name": "Frequently Asked Questions",
+    "is_junk": true,
+    "expect_junk": true,
+    "pass": true
+  },
+  {
+    "name": "Price List Notes",
+    "is_junk": true,
+    "expect_junk": true,
+    "pass": true
+  },
+  {
+    "name": "Table of Contents",
+    "is_junk": true,
+    "expect_junk": true,
+    "pass": true
+  },
+  {
+    "name": "Disclaimer",
+    "is_junk": true,
+    "expect_junk": true,
+    "pass": true
+  },
+  {
+    "name": "Masala Chips 100g",
+    "is_junk": false,
+    "expect_junk": false,
+    "pass": true
+  },
+  {
+    "name": "Cheese Puffs 80g",
+    "is_junk": false,
+    "expect_junk": false,
+    "pass": true
+  },
+  {
+    "name": "Diet Khakra 150g",
+    "is_junk": false,
+    "expect_junk": false,
+    "pass": true
+  }
+]

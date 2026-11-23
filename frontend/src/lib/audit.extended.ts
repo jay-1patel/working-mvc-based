@@ -1,4 +1,4 @@
-import { api, ApiError, apiCallStart, getToken, logApiCall, logApiError } from './api'
+import { api, ApiError, apiCallStart, authHeaders, logApiCall, logApiError } from './api'
 import { type AuditEvent, type AuditFilters, type AuditPage } from './audit'
 
 // Extended audit types for new features
@@ -80,14 +80,13 @@ export const auditApiExtended = {
 
     const path = `/api/admin/audit-export?${query.toString()}`
     const startedAt = apiCallStart()
-    const token = getToken()
     let res: Response
     try {
       res = await fetch(path, {
         method: 'GET',
         headers: {
           Accept: '*/*',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...authHeaders(),
         },
         signal,
       })

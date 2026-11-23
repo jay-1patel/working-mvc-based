@@ -1,30 +1,11 @@
 """LIKE-style FAQ/KB keyword search data access — extracted from backend/database.py."""
-import os
-import json
-import re
-import sqlite3
-import logging
-import hashlib
-from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+import re as _re
 
-from .core import (
-    DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
-    _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-    get_request_tenant
-)
-
+from .core import get_db_context, use_mongodb
 from .products import _resolve_tenant, _row_to_dict
 
 
-def search_faq_db(query: str, limit: int = 5, tenant_id: str = None) -> list:
-    import re as _re
-    words = [w for w in _re.findall(r"[a-zA-Z]{2,}", query.lower())]
-    if not words:
-        return []
-
-    effective_tid = tenant_id or _resolve_tenant()
+def _tenant_ids(effective_tid):
     t_id_str = None
     t_slug = None
     if effective_tid:
@@ -40,6 +21,63 @@ def search_faq_db(query: str, limit: int = 5, tenant_id: str = None) -> list:
         except Exception:
             t_id_str = str(effective_tid)
             t_slug = str(effective_tid)
+    return t_id_str, t_slug
+
+
+def _mongo_tenant_filter(t_id_str, t_slug, effective_tid):
+    values = []
+    for v in (t_id_str, t_slug, str(effective_tid) if effective_tid else None):
+        if v is None or v == "":
+            continue
+        values.append(v)
+        if isinstance(v, str) and v.isdigit():
+            values.append(int(v))
+    if not values:
+        return {}
+    # de-dupe while preserving order
+    seen = set()
+    uniq = []
+    for v in values:
+        key = (type(v), v)
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(v)
+    return {"tenant_id": {"$in": uniq}}
+
+
+def search_faq_db(query: str, limit: int = 5, tenant_id: str = None) -> list:
+    words = [w for w in _re.findall(r"[a-zA-Z]{2,}", query.lower())]
+    if not words:
+        return []
+
+    effective_tid = tenant_id or _resolve_tenant()
+    t_id_str, t_slug = _tenant_ids(effective_tid)
+
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("faq_dataset")
+        filters = {"content": {"$regex": _re.escape(query), "$options": "i"}}
+        filters.update(_mongo_tenant_filter(t_id_str, t_slug, effective_tid))
+        rows = repo.find(filters, sort=[("id", -1)], limit=limit)
+        if rows:
+            return [dict(r) for r in rows]
+        all_rows = repo.find_all()
+        scored = []
+        allowed_tids = {t_id_str, t_slug, str(effective_tid)} if effective_tid else set()
+        for d in all_rows:
+            row_tid = str(d.get("tenant_id") or "")
+            if allowed_tids and row_tid not in allowed_tids:
+                continue
+            searchable = " ".join([
+                (d.get("source_file") or "").lower(),
+                (d.get("content") or "").lower(),
+            ])
+            score = sum(2 for w in words if w in searchable)
+            if score > 0:
+                scored.append((score, d))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [d for _, d in scored[:limit]]
 
     if t_id_str and t_slug and t_id_str != t_slug:
         tenant_clause = " AND (tenant_id = ? OR tenant_id = ? OR tenant_id = ?)"
@@ -80,27 +118,46 @@ def search_faq_db(query: str, limit: int = 5, tenant_id: str = None) -> list:
 
 
 def search_knowledge_base_db(query: str, limit: int = 5, tenant_id: str = None) -> list:
-    import re as _re
     words = [w for w in _re.findall(r"[a-zA-Z]{2,}", query.lower())]
     if not words:
         return []
 
     effective_tid = tenant_id or _resolve_tenant()
-    t_id_str = None
-    t_slug = None
-    if effective_tid:
-        try:
-            from shared.tenancy import store
-            rec = store.get_tenant(str(effective_tid))
-            if rec:
-                t_id_str = str(rec.get("id"))
-                t_slug = str(rec.get("slug"))
-            else:
-                t_id_str = str(effective_tid)
-                t_slug = str(effective_tid)
-        except Exception:
-            t_id_str = str(effective_tid)
-            t_slug = str(effective_tid)
+    t_id_str, t_slug = _tenant_ids(effective_tid)
+
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("knowledge_base")
+        pattern = _re.escape(query)
+        filters = {"$or": [
+            {"title": {"$regex": pattern, "$options": "i"}},
+            {"content": {"$regex": pattern, "$options": "i"}},
+            {"tags": {"$regex": pattern, "$options": "i"}},
+        ]}
+        filters.update(_mongo_tenant_filter(t_id_str, t_slug, effective_tid))
+        rows = repo.find(filters, sort=[("id", -1)], limit=limit)
+        if rows:
+            return [dict(r) for r in rows]
+        all_rows = repo.find_all()
+        scored = []
+        allowed_tids = {t_id_str, t_slug, str(effective_tid)} if effective_tid else set()
+        for d in all_rows:
+            row_tid = str(d.get("tenant_id") or "")
+            if allowed_tids and row_tid not in allowed_tids:
+                continue
+            tags = d.get("tags") or ""
+            if isinstance(tags, (list, dict)):
+                tags = str(tags)
+            searchable = " ".join([
+                (d.get("title") or "").lower(),
+                (d.get("content") or "").lower(),
+                tags.lower(),
+            ])
+            score = sum(2 for w in words if w in searchable)
+            if score > 0:
+                scored.append((score, d))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [d for _, d in scored[:limit]]
 
     if t_id_str and t_slug and t_id_str != t_slug:
         tenant_clause = " AND (tenant_id = ? OR tenant_id = ? OR tenant_id = ?)"

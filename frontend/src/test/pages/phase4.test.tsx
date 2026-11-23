@@ -225,7 +225,7 @@ describe('phase 4 — activity log & errors', () => {
   })
 
   it('errors & health shows the failed request with a copyable request id', async () => {
-    testState.respond('GET /api/admin/errors', () => ({
+    testState.respond('POST /api/admin/errors', () => ({
       body: {
         count: 1,
         errors: [

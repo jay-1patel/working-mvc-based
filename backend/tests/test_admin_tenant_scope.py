@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -20,9 +22,7 @@ from routes import auth
 
 class AdminTenantScopeTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_patch = patch.object(database, "DB_PATH", os.path.join(self.temp.name, "admins.sqlite3"))
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         database.init_db()
         self._create_admin("admin-a", "admin", "tenant-a")
         self._create_admin("sub-a", "sub_admin", "tenant-a")
@@ -30,8 +30,7 @@ class AdminTenantScopeTests(unittest.TestCase):
         self._create_admin("sub-b", "sub_admin", "tenant-b")
 
     def tearDown(self):
-        self.db_patch.stop()
-        self.temp.cleanup()
+        self.mongo.stop()
 
     @staticmethod
     def _admin(username, role, tenant_id):

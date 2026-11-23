@@ -75,9 +75,10 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
   )
   const errors = useAsync(
     (s) =>
-      api.get<{ count: number; errors: ErrorRow[] }>(
+      api.post<{ count: number; errors: ErrorRow[] }>(
         `/api/admin/errors?limit=100&tenant_id=${encodeURIComponent(tenantId)}`,
-        s,
+        undefined,
+        { signal: s },
       ),
     [tenantId],
   )
@@ -147,7 +148,7 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
         action={
           <span className="flex items-center gap-2">
             <SourceChip source="web" />
-            <PrimaryButton onClick={() => navigate(`/tenants/${tenantId}/website-knowledge`)}>
+            <PrimaryButton onClick={() => navigate(`/tenants/${tenantId}/website-crawler`)}>
               Review
             </PrimaryButton>
           </span>

@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession, seed_campaign_audience
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -40,11 +42,8 @@ VALID = {
 
 class CampaignTests(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
         self.temp = tempfile.TemporaryDirectory()
-        self.db_patch = patch.object(
-            database, "DB_PATH", os.path.join(self.temp.name, "camp.sqlite3")
-        )
-        self.db_patch.start()
         database.init_db()
 
         self.app = FastAPI()
@@ -108,34 +107,19 @@ class CampaignTests(unittest.TestCase):
         )
         assert res.status_code == 201, res.text
 
-        # Distributors with states and tiers for the segments.
-        with database.get_db_context() as conn:
-            for wa, tier, region, city in (
-                ("100012345678901", "Gold", "Gujarat", "Ahmedabad"),
-                ("100012345678902", "Platinum", "Gujarat", "Surat"),
-                ("100012345678903", "Bronze", "Maharashtra", "Pune"),
-            ):
-                conn.execute(
-                    "INSERT INTO distributors (wa_id, tenant_id, name, tier, region, city) "
-                    "VALUES (?, 'acme', ?, ?, ?, ?)",
-                    (wa, wa, tier, region, city),
-                )
-            # Two chat contacts with different lifetime purchase values.
-            for wa in ("919876543210", "919876543211"):
-                conn.execute(
-                    "INSERT INTO chat_history (wa_id, tenant_id, message, response, route) "
-                    "VALUES (?, 'acme', 'hi', 'hello', 'faq')",
-                    (wa,),
-                )
-            conn.execute(
-                "INSERT INTO orders (order_number, wa_id, total_amount) VALUES ('O1', '919876543210', 15000)"
-            )
-            conn.execute(
-                "INSERT INTO orders (order_number, wa_id, total_amount) VALUES ('O2', '919876543211', 2000)"
-            )
+        seed_campaign_audience(self.mongo.database, tenant_id="acme")
+        from db.mongo import Repository
+
+        orders = Repository("orders", self.mongo.database)
+        orders.insert(
+            {"order_number": "O1", "wa_id": "919876543210", "total_amount": 15000, "tenant_id": "acme"}
+        )
+        orders.insert(
+            {"order_number": "O2", "wa_id": "919876543211", "total_amount": 2000, "tenant_id": "acme"}
+        )
 
     def tearDown(self):
-        self.db_patch.stop()
+        self.mongo.stop()
         self.temp.cleanup()
 
     def _create(self, **overrides):
@@ -337,10 +321,11 @@ class CampaignTests(unittest.TestCase):
 
     def test_opt_out_excludes_contacts(self):
         """Consent: a STOP contact never appears in an audience count."""
-        with database.get_db_context() as conn:
-            conn.execute(
-                "INSERT INTO campaign_opt_outs (tenant_id, wa_id) VALUES ('acme', '100012345678901')"
-            )
+        from db.mongo import Repository
+
+        Repository("campaign_opt_outs", self.mongo.database).insert(
+            {"tenant_id": "acme", "wa_id": "100012345678901"}
+        )
         segment_id = self._create_segment("Gold tier", "distributors", {"tiers": ["Gold"]})
         segments = self.client.get(f"{BASE}/segments", headers=self.headers).json()["segments"]
         gold = next(s2 for s2 in segments if s2["id"] == segment_id)

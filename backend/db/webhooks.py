@@ -1,19 +1,9 @@
 """Webhook request/response logging and inbound dedupe data access — extracted from backend/database.py."""
-import os
 import json
-import re
-import sqlite3
-import logging
 import hashlib
-from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from datetime import datetime
 
-from .core import (
-    DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
-    _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-    get_request_tenant
-)
+from .core import logger, get_db_context, use_mongodb
 
 
 WEBHOOK_LOG_MAX_ROWS = 5000
@@ -36,6 +26,24 @@ def log_webhook(
         # Compute hash of the payload for secure storage
         payload_hash = hashlib.sha256(payload_str.encode('utf-8', errors='replace')).hexdigest()
         payload_size = len(payload_str)
+        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if use_mongodb():
+            from .mongo import Repository
+            Repository("webhook_logs").insert({
+                "direction": direction,
+                "endpoint": endpoint,
+                "payload_hash": payload_hash,
+                "payload_size": payload_size,
+                "status_code": status_code,
+                "notes": notes,
+                "response_time_ms": response_time_ms,
+                "wa_id": wa_id,
+                "tenant_id": tenant_id,
+                "message_id": message_id,
+                "created_at": created_at,
+            })
+            _trim_webhook_logs(None)
+            return
         with get_db_context() as conn:
             conn.execute(
                 "INSERT INTO webhook_logs "
@@ -53,7 +61,7 @@ def log_webhook(
                     wa_id,
                     tenant_id,
                     message_id,
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    created_at,
                 ),
             )
             _trim_webhook_logs(conn)
@@ -63,6 +71,17 @@ def log_webhook(
 
 def _trim_webhook_logs(conn, max_rows: int = WEBHOOK_LOG_MAX_ROWS):
     try:
+        if use_mongodb() or conn is None:
+            from .mongo import Repository
+            repo = Repository("webhook_logs")
+            count = repo.count()
+            if count > max_rows:
+                excess = count - max_rows
+                oldest = repo.find_all(sort=[("created_at", 1), ("id", 1)], limit=excess)
+                ids = [row["id"] for row in oldest if row.get("id") is not None]
+                if ids:
+                    repo.delete_many({"id": {"$in": ids}})
+            return
         count = conn.execute("SELECT COUNT(*) FROM webhook_logs").fetchone()[0]
         if count > max_rows:
             excess = count - max_rows
@@ -75,7 +94,53 @@ def _trim_webhook_logs(conn, max_rows: int = WEBHOOK_LOG_MAX_ROWS):
         logger.error(f"Failed to trim webhook_logs: {e}")
 
 
+def list_webhook_logs(limit: int = 50, direction: str | None = None) -> list:
+    """Recent webhook log rows for admin diagnostics."""
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("webhook_logs")
+        flt = {"direction": direction} if direction else {}
+        rows = repo.find(flt, sort=[("created_at", -1), ("id", -1)], limit=limit)
+        return [dict(r) for r in rows]
+    with get_db_context() as conn:
+        if direction:
+            rows = conn.execute(
+                "SELECT * FROM webhook_logs WHERE direction = ? ORDER BY created_at DESC LIMIT ?",
+                (direction, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM webhook_logs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def clear_webhook_logs() -> None:
+    if use_mongodb():
+        from .mongo import Repository
+        Repository("webhook_logs").delete_many({})
+        return
+    with get_db_context() as conn:
+        conn.execute("DELETE FROM webhook_logs")
+
+
 def get_webhook_stats():
+    if use_mongodb():
+        from .mongo import Repository
+        repo = Repository("webhook_logs")
+        total = repo.count()
+        incoming = repo.count({"direction": "incoming"})
+        outgoing = repo.count({"direction": "outgoing"})
+        last_in = repo.find({"direction": "incoming"}, sort=[("created_at", -1)], limit=1)
+        last_out = repo.find({"direction": "outgoing"}, sort=[("created_at", -1)], limit=1)
+        return {
+            "total": total,
+            "incoming": incoming,
+            "outgoing": outgoing,
+            "last_incoming": last_in[0]["created_at"] if last_in else None,
+            "last_outgoing": last_out[0]["created_at"] if last_out else None,
+        }
     with get_db_context() as conn:
         total = conn.execute("SELECT COUNT(*) as cnt FROM webhook_logs").fetchone()["cnt"]
         incoming = conn.execute("SELECT COUNT(*) as cnt FROM webhook_logs WHERE direction = 'incoming'").fetchone()["cnt"]
@@ -100,6 +165,11 @@ def was_inbound_processed(message_id: str, channel: str = "send2") -> bool:
     if not message_id:
         return False
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            if Repository("processed_inbound_messages").find_one({"message_id": message_id}):
+                return True
+            return Repository("webhook_dedup").find_one({"message_id": message_id}) is not None
         with get_db_context() as conn:
             row1 = conn.execute(
                 "SELECT 1 FROM processed_inbound_messages WHERE message_id=?",
@@ -126,6 +196,23 @@ def mark_inbound_processed(message_id: str, wa_id: str, channel: str = "send2") 
     if not message_id:
         return
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            processed = Repository("processed_inbound_messages")
+            if not processed.find_one({"message_id": message_id}):
+                processed.insert({
+                    "message_id": message_id,
+                    "wa_id": wa_id,
+                    "channel": channel,
+                })
+            dedup = Repository("webhook_dedup")
+            if not dedup.find_one({"message_id": message_id}):
+                dedup.insert({
+                    "message_id": message_id,
+                    "wa_id": wa_id,
+                    "processed_at": datetime.utcnow(),
+                })
+            return
         with get_db_context() as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO processed_inbound_messages (message_id, wa_id, channel) VALUES (?, ?, ?)",

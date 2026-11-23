@@ -252,7 +252,7 @@ def _apply_repeat_detection(
     entity_values: Dict[str, str],
     cfg: Any,
 ) -> None:
-    from routing.database import get_db_context
+    from db.core import use_mongodb
 
     window_days = int(getattr(cfg, "window_days", 90) or 90)
     min_repeats = int(getattr(cfg, "min_repeats", 2) or 2)
@@ -272,60 +272,35 @@ def _apply_repeat_detection(
             parts.append(f"{key}:{val}")
     entity_key = "|".join(parts) if parts else f"wa_id:{entity_values.get('wa_id') or ''}"
 
-    with get_db_context() as conn:
-        # Per-customer / per-asset repeats on same topic
-        row = conn.execute(
-            """
-            SELECT COUNT(*) AS n FROM message_intelligence
-            WHERE tenant_id = ?
-              AND entity_key = ?
-              AND (
-                    (topics_json LIKE ? AND ? != '')
-                    OR (message_type = ? AND ? != '')
-                  )
-              AND created_at >= ?
-            """,
-            (
-                tenant_id,
-                entity_key,
-                f'%"{topic}"%',
-                topic,
-                topic,
-                topic,
-                since,
-            ),
-        ).fetchone()
-        prior = int(row["n"] if row is not None else 0)
-        # +1 for the current message (not yet inserted when called before persist)
+    if use_mongodb():
+        from db.mongo import Repository
+
+        repo = Repository("message_intelligence")
+        base = {"tenant_id": tenant_id, "entity_key": entity_key, "created_at": {"$gte": since}}
+        prior = repo.count({
+            **base,
+            "$or": [
+                {"topics_json": {"$regex": topic}},
+                {"message_type": topic},
+            ],
+        })
         result.repeat_count = prior + 1
         result.is_repeat = result.repeat_count >= min_repeats
-
-        # Cross-customer surge on same topic
-        surge = conn.execute(
-            """
-            SELECT COUNT(DISTINCT entity_key) AS n FROM message_intelligence
-            WHERE tenant_id = ?
-              AND topics_json LIKE ?
-              AND created_at >= ?
-            """,
-            (tenant_id, f'%"{topic}"%', since),
-        ).fetchone()
-        surge_n = int(surge["n"] if surge is not None else 0)
-        # Current customer may not be in prior rows yet
-        if entity_key:
-            exists = conn.execute(
-                """
-                SELECT 1 FROM message_intelligence
-                WHERE tenant_id = ? AND entity_key = ? AND topics_json LIKE ? AND created_at >= ?
-                LIMIT 1
-                """,
-                (tenant_id, entity_key, f'%"{topic}"%', since),
-            ).fetchone()
-            if not exists:
-                surge_n += 1
+        surge_rows = repo.find_all({
+            "tenant_id": tenant_id,
+            "topics_json": {"$regex": topic},
+            "created_at": {"$gte": since},
+        })
+        surge_keys = {r.get("entity_key") for r in surge_rows if r.get("entity_key")}
+        surge_n = len(surge_keys)
+        if entity_key and entity_key not in surge_keys:
+            surge_n += 1
         if surge_n >= surge_threshold:
             result.surge_topic = topic
             result.surge_count = surge_n
+        return
+
+    raise RuntimeError("message_intelligence repeat detection requires MongoDB")
 
 
 def save_intelligence_row(
@@ -336,44 +311,38 @@ def save_intelligence_row(
     result: MessageIntelligenceResult,
     entity_values: Optional[Dict[str, str]] = None,
 ) -> None:
-    from routing.database import get_db_context
+    from db.core import use_mongodb
 
     entity_values = dict(entity_values or {})
     entity_values.setdefault("wa_id", wa_id or "")
     parts = [f"{k}:{v}" for k, v in entity_values.items() if (v or "").strip()]
     entity_key = "|".join(parts) if parts else f"wa_id:{wa_id or ''}"
 
-    with get_db_context() as conn:
-        conn.execute(
-            """
-            INSERT INTO message_intelligence (
-                tenant_id, wa_id, entity_key, message_text,
-                sentiment, message_type, topics_json, safety_json,
-                is_repeat, repeat_count, surge_topic, surge_count,
-                escalate, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                tenant_id,
-                wa_id or "",
-                entity_key,
-                (text or "")[:2000],
-                result.sentiment,
-                result.message_type,
-                json.dumps(result.topics),
-                json.dumps({
-                    "labels": result.safety_labels,
-                    "severity": result.safety_severity,
-                    "hit": result.safety_hit,
-                }),
-                1 if result.is_repeat else 0,
-                int(result.repeat_count or 0),
-                result.surge_topic,
-                int(result.surge_count or 0),
-                1 if result.escalate else 0,
-                json.dumps(result.to_dict()),
-            ),
-        )
+    row = {
+        "tenant_id": tenant_id,
+        "wa_id": wa_id or "",
+        "entity_key": entity_key,
+        "message_text": (text or "")[:2000],
+        "sentiment": result.sentiment,
+        "message_type": result.message_type,
+        "topics_json": result.topics,
+        "safety_json": {
+            "labels": result.safety_labels,
+            "severity": result.safety_severity,
+            "hit": result.safety_hit,
+        },
+        "is_repeat": 1 if result.is_repeat else 0,
+        "repeat_count": int(result.repeat_count or 0),
+        "surge_topic": result.surge_topic,
+        "surge_count": int(result.surge_count or 0),
+        "escalate": 1 if result.escalate else 0,
+        "raw_json": result.to_dict(),
+    }
+    if use_mongodb():
+        from db.mongo import Repository
+        Repository("message_intelligence").insert(row)
+        return
+    raise RuntimeError("message_intelligence save requires MongoDB")
 
 
 def topic_surge_report(
@@ -383,21 +352,39 @@ def topic_surge_report(
     limit: int = 20,
 ) -> List[Dict[str, Any]]:
     """Admin helper: top topics by distinct customers in the window."""
-    from routing.database import get_db_context
+    from db.core import use_mongodb
 
     since = (datetime.now().astimezone() - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
-    with get_db_context() as conn:
-        rows = conn.execute(
-            """
-            SELECT topics_json, COUNT(DISTINCT entity_key) AS customers, COUNT(*) AS messages
-            FROM message_intelligence
-            WHERE tenant_id = ? AND created_at >= ? AND topics_json != '[]' AND topics_json IS NOT NULL
-            GROUP BY topics_json
-            ORDER BY customers DESC
-            LIMIT ?
-            """,
-            (tenant_id, since, limit),
-        ).fetchall()
+    if use_mongodb():
+        from db.mongo import Repository
+        from collections import defaultdict
+
+        rows = Repository("message_intelligence").find_all({
+            "tenant_id": tenant_id,
+            "created_at": {"$gte": since},
+        })
+        grouped: dict = defaultdict(lambda: {"customers": set(), "messages": 0})
+        for r in rows:
+            topics_raw = r.get("topics_json")
+            if not topics_raw or topics_raw == []:
+                continue
+            key = json.dumps(topics_raw, sort_keys=True) if not isinstance(topics_raw, str) else topics_raw
+            grouped[key]["customers"].add(r.get("entity_key") or "")
+            grouped[key]["messages"] += 1
+        rows = sorted(
+            (
+                {
+                    "topics_json": k,
+                    "customers": len(v["customers"]),
+                    "messages": v["messages"],
+                }
+                for k, v in grouped.items()
+            ),
+            key=lambda x: x["customers"],
+            reverse=True,
+        )[:limit]
+    else:
+        raise RuntimeError("topic_surge_report requires MongoDB")
     out = []
     for r in rows:
         try:

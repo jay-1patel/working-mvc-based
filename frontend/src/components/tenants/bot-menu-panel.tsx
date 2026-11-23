@@ -2,7 +2,7 @@ import { GripVertical, Pencil } from 'lucide-react'
 import { usePermissions } from '@/lib/permissions'
 import { navigate } from '@/lib/router'
 import { menuButtonSource } from '@/lib/source'
-import { GhostButton, Panel, Pill, SourceChip } from '@/components/remake/ui'
+import { GhostButton, IconButton, Panel, Pill, SourceChip } from '@/components/remake/ui'
 import { Alert, LoadingBlock } from '@/components/ui/feedback'
 import { useResolved, useTenantDetail } from './hooks'
 
@@ -19,7 +19,7 @@ import { useResolved, useTenantDetail } from './hooks'
  */
 export function BotMenuPanel({ tenantId }: { tenantId: string }) {
   const { canWriteTenant, isSuperAdmin } = usePermissions()
-  const canWrite = canWriteTenant('manage_content')
+  const canWrite = canWriteTenant('manage_operations')
   const resolved = useResolved(tenantId)
   const detail = useTenantDetail(tenantId)
 
@@ -86,6 +86,16 @@ export function BotMenuPanel({ tenantId }: { tenantId: string }) {
                         )}
                       </div>
                       <SourceChip source={source} />
+                      {canWrite && (
+                        <IconButton
+                          onClick={() => openEditor(button.id)}
+                          title={`Edit ${button.title}`}
+                          className="shrink-0"
+                        >
+                          <Pencil className="h-4 w-4" aria-hidden />
+                          <span className="sr-only">Edit {button.title}</span>
+                        </IconButton>
+                      )}
                       {canWrite ? (
                         <button
                           type="button"

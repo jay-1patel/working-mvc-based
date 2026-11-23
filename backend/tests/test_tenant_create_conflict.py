@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -26,10 +28,7 @@ from shared.tenancy import store as tenancy_store
 
 class TenantCreateConflictTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "create_conflict.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         database.init_db()
         tenancy_store.ensure_tenant(
             "leewaytest",
@@ -39,8 +38,7 @@ class TenantCreateConflictTests(unittest.TestCase):
         )
 
     def tearDown(self):
-        self.db_patch.stop()
-        self.temp.cleanup()
+        self.mongo.stop()
 
     def test_get_tenant_still_resolves_display_name_alias(self):
         hit = tenancy_store.get_tenant("leeway-softech")

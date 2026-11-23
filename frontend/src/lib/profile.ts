@@ -111,8 +111,22 @@ export const isValidPhoneInput = (raw: string, wanted: number = 10): boolean => 
   return false
 }
 
-/** Scheme optional, domain required: "example.com", "https://x.io/a?b=1". */
-export const URL_RE = /^(https?:\/\/)?([\w-]+\.)+[A-Za-z]{2,}(:\d+)?(\/\S*)?$/
+/** Scheme optional; host is a domain or IPv4 (matches shared/tenancy/schemas.py). */
+export const URL_RE =
+  /^(https?:\/\/)?((?:[\w-]+\.)+[A-Za-z]{2,}|(?:\d{1,3}\.){3}\d{1,3})(:\d+)?(\/\S*)?$/
+
+/** Local upload path the media host / PDF pipeline stores for brochures. */
+const UPLOAD_PATH_RE = /^\/uploaded_files\/\S+$/
+
+/** Dev / LAN hosts that are not a public domain. */
+const LOCALHOST_URL_RE = /^(https?:\/\/)?localhost(:\d+)?(\/\S*)?$/i
+
+/** Brochure may be a public URL, IP host, localhost, or /uploaded_files/... path. */
+export function isValidBrochureUrl(raw: string): boolean {
+  const v = raw.trim()
+  if (!v) return true
+  return URL_RE.test(v) || UPLOAD_PATH_RE.test(v) || LOCALHOST_URL_RE.test(v)
+}
 
 /** Contact-detail errors for the profile editor. Empty array = all valid. */
 export function editorContactErrors(form: EditorForm): string[] {
@@ -136,8 +150,10 @@ export function editorContactErrors(form: EditorForm): string[] {
     errors.push('The sales / enquiries email does not look valid.')
   if (notes.supportEmail.trim() && !EMAIL_RE.test(notes.supportEmail.trim()))
     errors.push('The notifications support email does not look valid.')
-  if (notes.brochureUrl.trim() && !URL_RE.test(notes.brochureUrl.trim()))
-    errors.push('The brochure URL does not look like a valid URL.')
+  if (notes.brochureUrl.trim() && !isValidBrochureUrl(notes.brochureUrl))
+    errors.push(
+      'The brochure URL does not look like a valid URL (use https://…, http://IP/…, or /uploaded_files/…).',
+    )
   return errors
 }
 

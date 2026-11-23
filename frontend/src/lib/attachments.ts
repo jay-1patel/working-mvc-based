@@ -1,8 +1,8 @@
 /**
  * Chat attachments for the internal admin chat and the live inbox.
  *
- * Both upload a file to a tenant-scoped endpoint that hosts it publicly
- * (Imghippo for images, catbox.moe otherwise) and returns a descriptor.
+ * Both upload a file to a tenant-scoped endpoint that hosts it on the
+ * application's configured public domain and returns a descriptor.
  * Inbox replies send the descriptor as native WhatsApp image/document media.
  */
 
@@ -34,8 +34,8 @@ export const attachmentsApi = {
       throw new Error(`Attachments must be under ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`)
     }
     const content = await readAsBase64(file)
-    const suffix = area === 'chat' ? 'chat/attach' : 'inbox/attach'
-    return api.post<Attachment>(`${base(tenantId)}/${suffix}`, {
+    const path = area === 'chat' ? `${base(tenantId)}/chat/attach` : '/api/admin/tenants/inbox/attach'
+    return api.post<Attachment>(path, {
       filename: file.name,
       content,
       media_type: file.type || undefined,

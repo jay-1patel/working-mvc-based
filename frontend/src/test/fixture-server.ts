@@ -75,8 +75,9 @@ function routeDefault(
     return json({ status: 'password reset' })
 
   // ── dashboard / analytics (overview home) ───────────────────────────
-  if (path === '/api/admin/dashboard/stats')
+  if (path === '/api/admin/dashboard/overview')
     return json({
+      days: 7,
       kb_files: 2,
       faq_files: 1,
       products: 4,
@@ -86,10 +87,6 @@ function routeDefault(
       orders_solved: 3,
       total_complaints: 2,
       complaints_solved: 1,
-    })
-  if (path === '/api/admin/analytics/overview')
-    return json({
-      days: 7,
       total_messages: 40,
       unique_users: 8,
       avg_response_ms: 120,
@@ -98,27 +95,45 @@ function routeDefault(
         { route: 'kb', count: 12 },
         { route: 'agent', count: 8 },
       ],
-    })
-  if (path === '/api/admin/analytics/response-time')
-    return json({
-      days: 7,
-      data: [
+      response_time: [
         { date: '2026-11-09', avg_ms: 110, count: 4 },
         { date: '2026-11-10', avg_ms: 130, count: 6 },
         { date: '2026-11-11', avg_ms: 100, count: 5 },
       ],
+      total_unique_questions: 1,
+      frequent_questions: [{ query: 'hours?', count: 3, last_asked: '2026-11-11T10:00:00Z' }],
     })
-  if (path === '/api/admin/analytics/frequent-questions')
-    return json({
-      days: 7,
-      total_unique: 1,
-      questions: [{ query: 'hours?', count: 3, last_asked: '2026-11-11T10:00:00Z' }],
-    })
+  if (path === '/api/admin/onboarding-kits/list' && method === 'POST')
+    return json({ templates: [] })
 
   // ── tenants ─────────────────────────────────────────────────────────
   if (path === '/api/admin/tenants' && method === 'GET') return json({ tenants: fixtures.tenants })
   if (path === '/api/admin/tenants' && method === 'POST')
     return json({ ok: true, tenant: { ...fixtures.tenant, ...body } })
+  if (method === 'POST') {
+    if (path === '/api/admin/tenants/resolved') return json(fixtures.resolved)
+    if (path === '/api/admin/tenants/chat/thread' || path === '/api/admin/tenants/conversations/detail')
+      return json({ wa_id: body?.wa_id, messages: fixtures.turns })
+    const threadMatch = path.match(/^\/api\/admin\/tenants\/([^/]+)\/conversations\/([^/?]+)/)
+    if (threadMatch) return json({ wa_id: decodeURIComponent(threadMatch[2]), messages: fixtures.turns })
+    if (path === '/api/admin/tenants/chat-history') return json({ history: fixtures.turns })
+    if (path === '/api/admin/tenants/inbox') return json({ queue: fixtures.inbox, count: fixtures.inbox.length, handoff_count: 1 })
+    if (path === '/api/admin/tenants/agents') return json({ agents: fixtures.agents })
+    if (path === '/api/admin/tenants/inbox/reply') return json({ status: 'sent' })
+    if (path === '/api/admin/tenants/inbox/assign') return json({ status: 'assigned' })
+    if (path === '/api/admin/tenants/inbox/handover') return json({ status: 'updated' })
+    if (path === '/api/admin/tenants/inbox/resolve') return json({ status: 'resolved' })
+    if (path === '/api/admin/tenants/complaints') return json({ complaints: fixtures.complaints, count: fixtures.complaints.length, open_count: 1 })
+    if (path === '/api/admin/tenants/complaints/update') return json({ status: 'updated' })
+    if (path === '/api/admin/tenants/complaints/reply') return json({ status: 'sent' })
+    if (path === '/api/admin/tenants/complaints/delete') return json({ status: 'deleted' })
+    if (path === '/api/admin/tenants/customers') return json({ customers: fixtures.customers, count: fixtures.customers.length })
+    if (path === '/api/admin/tenants/files') return json({ files: fixtures.files })
+    if (path === '/api/admin/tenants/files/upload') return json({ status: 'uploaded', filename: body?.filename, chunks: 3, size: 1234, file_url: '/f' })
+    if (path === '/api/admin/tenants/files/delete') return json({ status: 'deleted' })
+    if (path === '/api/admin/tenants/knowledge-gaps') return json({ gaps: [], summary: { total_unresolved: 0, top_queries: [] } })
+    if (path === '/api/admin/tenants/knowledge-gaps/resolve') return json({ status: 'ok', gap_id: body?.gap_id, resolved: true })
+  }
   const m = path.match(/^\/api\/admin\/tenants\/([^/]+)(\/.*)?$/)
   if (m) {
     const id = decodeURIComponent(m[1])
@@ -127,9 +142,9 @@ function routeDefault(
     if (sub === '' && method === 'GET')
       return json({ count: fixtures.offerings.length, columns: fixtures.recordSchema.columns, offerings: fixtures.offerings })
     if (sub === '/phone-id' && method === 'POST') return json({ ok: true })
-    if (sub === '/detail') return json(fixtures.layerDetail)
+    if (sub === '/detail' && method === 'POST') return json(fixtures.layerDetail)
     if (sub === '/resolved') return json(fixtures.resolved)
-    if (sub === '/profile' && method === 'PUT') return json({ ok: true, validation: [] })
+    if (sub === '/profile' && method === 'POST') return json({ ok: true, validation: [] })
     if (sub === '/publish') return json({ ok: true, version: 3, active_intents: ['greeting'], visible_buttons: ['menu_help'] })
     if (sub === '/versions' && method === 'GET') return json(fixtures.versions)
     if (sub === '/versions' && method === 'POST') return json({ ok: true, version: 3, active: 3 })

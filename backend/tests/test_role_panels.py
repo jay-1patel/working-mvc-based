@@ -20,6 +20,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -44,19 +46,11 @@ PASSWORD = "RootPass123!"
 
 class RolePanelTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "roles.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
-        # The gate environment has no ADMIN_SECRET_KEY configured (the known
-        # baseline gap behind many pre-existing failures); these tests patch
-        # one in so the auth flows can actually sign/verify tokens.
-        self.key_patch = patch.object(auth_routes, "ADMIN_SECRET_KEY", "test-admin-signing-key")
-        self.key_patch.start()
         database.init_db()
 
         self.app = FastAPI()
@@ -87,10 +81,8 @@ class RolePanelTests(unittest.TestCase):
         self.acme_admin = self._create_admin("acme-admin", tenant_id="acme")
 
     def tearDown(self):
-        self.key_patch.stop()
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     # ── helpers ────────────────────────────────────────────────────────
 
@@ -127,10 +119,11 @@ class RolePanelTests(unittest.TestCase):
         self.assertTrue(guard("POST", "/api/admin/tenants/acme/publish"))
         self.assertTrue(guard("POST", "/api/admin/tenants/acme/tokens"))
         self.assertTrue(guard("DELETE", "/api/admin/tenants/acme/files/faq.pdf"))
-        self.assertTrue(guard("PUT", "/api/admin/tenants/acme/profile"))
+        self.assertTrue(guard("POST", "/api/admin/tenants/acme/profile"))
         self.assertTrue(guard("POST", "/api/admin/files/upload"))
         # Reads are never writes.
         self.assertFalse(guard("GET", "/api/admin/tenants/acme/files"))
+        self.assertFalse(guard("POST", "/api/admin/tenants/acme/detail"))
         # System powers a super admin keeps.
         self.assertFalse(guard("POST", "/api/admin/tenants"))
         self.assertFalse(guard("DELETE", "/api/admin/tenants/acme"))
@@ -171,7 +164,9 @@ class RolePanelTests(unittest.TestCase):
         self.assertEqual(res.status_code, 403, res.text)
 
     def test_super_admin_reads_and_system_powers_still_work(self):
-        detail = self.client.get("/api/admin/tenants/acme/detail", headers=self.root)
+        detail = self.client.post(
+            "/api/admin/tenants/acme/detail", json={}, headers=self.root
+        )
         self.assertEqual(detail.status_code, 200, detail.text)
         created = self.client.post(
             "/api/admin/tenants",
@@ -187,7 +182,7 @@ class RolePanelTests(unittest.TestCase):
 
     def test_super_admin_registration_with_website_still_works(self):
         # Regression (2026-11-11): the register wizard's super flow used to
-        # save the basics through PUT /{tenant}/profile after creating,
+        # save the basics through POST /{tenant}/profile after creating,
         # which the view-only guard correctly refuses — registration itself
         # failed. The basics (incl. website) now travel with the create
         # call; the profile endpoint must stay refused for super admins.
@@ -204,7 +199,7 @@ class RolePanelTests(unittest.TestCase):
             headers=self.root,
         )
         self.assertEqual(created.status_code, 200, created.text)
-        draft = self.client.put(
+        draft = self.client.post(
             "/api/admin/tenants/leeway/profile",
             json={"snapshot": {"brand": {"name": "Leeway"}}},
             headers=self.root,
@@ -241,7 +236,7 @@ class RolePanelTests(unittest.TestCase):
     # ── tenant admin still works ───────────────────────────────────────
 
     def test_tenant_admin_write_still_works(self):
-        saved = self.client.put(
+        saved = self.client.post(
             "/api/admin/tenants/acme/profile",
             json={"snapshot": {"brand": {"name": "Acme Ltd"}}},
             headers=self.acme_admin,
@@ -252,15 +247,14 @@ class RolePanelTests(unittest.TestCase):
     # ── audit: PDF export + tenant scoping ─────────────────────────────
 
     def _record_event(self, action, tenant_id, *, role="super_admin", username="root"):
-        with database.get_db_context() as conn:
-            database.record_admin_audit_event(
-                conn,
-                action=action,
-                actor={"id": 1, "username": username, "role": role},
-                resource_type="tenant",
-                resource_id=tenant_id,
-                tenant_id=tenant_id,
-            )
+        database.record_admin_audit_event(
+            None,
+            action=action,
+            actor={"id": 1, "username": username, "role": role},
+            resource_type="tenant",
+            resource_id=tenant_id,
+            tenant_id=tenant_id,
+        )
 
     def test_audit_pdf_export_returns_pdf(self):
         self._record_event("tenant_created", "acme")
@@ -371,7 +365,6 @@ class RolePanelTests(unittest.TestCase):
         )
         self.assertEqual(edit.status_code, 403, edit.text)
         self.assertIn("view-only", edit.json()["detail"])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -52,10 +54,7 @@ class HandoverHelpersTest(unittest.TestCase):
 
 class EscalateShowsHiHintTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "handover.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         database.init_db()
 
         tenancy_store.ensure_tenant(
@@ -65,10 +64,9 @@ class EscalateShowsHiHintTest(unittest.TestCase):
         self.capture_tokens = whatsapp_sender.begin_capture(capture_only=True)
 
     def tearDown(self):
+        self.mongo.stop()
         whatsapp_sender.end_capture(self.capture_tokens)
         tenancy_cache.purge(TENANT)
-        self.db_patch.stop()
-        self.temp.cleanup()
 
     def _outcome_text(self, outcome) -> str:
         return flow_runner.messages_text(outcome.get("messages") or [])
@@ -87,12 +85,11 @@ class EscalateShowsHiHintTest(unittest.TestCase):
         return outcome
 
     def test_book_callback_escalates_and_shows_hi_hint(self):
+        # Phone is taken from the WhatsApp number; email/Meet are not required.
         outcome = self._finish_flow(
             "book_callback",
             [
                 "Riya Shah",
-                "9876543210",
-                "skip",
                 "Tomorrow 4 PM",
                 "Need help with onboarding",
             ],
@@ -102,10 +99,9 @@ class EscalateShowsHiHintTest(unittest.TestCase):
         self.assertIn("Type *hi*", text)
         self.assertEqual(database.get_user_state(WA).get("human_handover"), 1)
 
-        with database.get_db_context() as conn:
-            handoff = conn.execute(
-                "SELECT reason, status FROM handoffs WHERE wa_id=?", (WA,)
-            ).fetchone()
+        from db.mongo import Repository
+
+        handoff = Repository("handoffs").find_one({"wa_id": WA})
         self.assertIsNotNone(handoff)
         self.assertEqual(handoff["reason"], "callback_request")
 
@@ -128,10 +124,7 @@ class EscalateShowsHiHintTest(unittest.TestCase):
 
 class OrchestratorHiResumeTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "handover.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         database.init_db()
         tenancy_store.ensure_tenant(
             TENANT, vertical="generic", display_name="Handover Test",
@@ -141,10 +134,9 @@ class OrchestratorHiResumeTest(unittest.IsolatedAsyncioTestCase):
         self.capture_tokens = whatsapp_sender.begin_capture(capture_only=True)
 
     def tearDown(self):
+        self.mongo.stop()
         whatsapp_sender.end_capture(self.capture_tokens)
         tenancy_cache.purge(TENANT)
-        self.db_patch.stop()
-        self.temp.cleanup()
 
     async def test_hi_clears_handover_and_is_not_ignored(self):
         from services.orchestrator import process_incoming_message

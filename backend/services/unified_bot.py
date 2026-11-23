@@ -17,8 +17,9 @@ from enum import Enum
 from database import (
     get_db_context, get_user_state, set_user_state,
     get_recent_history, save_chat, get_session_info,
-    search_products, list_products
+    search_products, list_products,
 )
+from db.core import use_mongodb
 from routing.config import DB_PATH, OLLAMA_API_URL, OLLAMA_MODEL
 
 logger = logging.getLogger("unified_bot")
@@ -79,52 +80,53 @@ class UnifiedBotService:
     def get_customer_context(self, wa_id: str) -> Dict[str, Any]:
         """Get comprehensive customer context across all bots"""
         try:
-            with get_db_context() as conn:
+            user_state = get_user_state(wa_id)
+            session_info = get_session_info(wa_id)
 
-                # Get user session and state
-                user_state = get_user_state(wa_id)
-                session_info = get_session_info(wa_id)
+            if use_mongodb():
+                from db.mongo import Repository
+                recent_chats = Repository("chat_history").find(
+                    {"wa_id": wa_id},
+                    sort=[("created_at", -1)],
+                    limit=20,
+                )
+            else:
+                with get_db_context() as conn:
+                    recent_chats = conn.execute(
+                        """SELECT route, message, response, created_at
+                           FROM chat_history
+                           WHERE wa_id = ?
+                           ORDER BY created_at DESC
+                           LIMIT 20""",
+                        (wa_id,),
+                    ).fetchall()
+                    recent_chats = [dict(row) for row in recent_chats]
 
-                # Get recent chat history across all bots
-                recent_chats = conn.execute(
-                    """SELECT route, message, response, created_at
-                       FROM chat_history
-                       WHERE wa_id = ?
-                       ORDER BY created_at DESC
-                       LIMIT 20""",
-                    (wa_id,)
-                ).fetchall()
+            support_context = self._get_support_context(wa_id)
+            sales_context = self._get_sales_context(wa_id)
+            product_interests = self._get_product_interests(wa_id)
 
-                # Get open support tickets (when table exists)
-                support_context = self._get_support_context(conn, wa_id)
-
-                # Get sales lead info (when table exists)
-                sales_context = self._get_sales_context(conn, wa_id)
-
-                # Get product interactions
-                product_interests = self._get_product_interests(conn, wa_id)
-
-                return {
-                    'wa_id': wa_id,
-                    'profile': {
-                        'user_state': user_state,
-                        'session_info': session_info,
-                        'preferred_bot': user_state.get('preferred_bot', 'auto'),
-                        'language': user_state.get('lang', 'en')
-                    },
-                    'recent_interactions': {
-                        'chat_history': [dict(row) for row in recent_chats],
-                        'total_messages': len(recent_chats),
-                        'last_interaction': recent_chats[0]['created_at'] if recent_chats else None
-                    },
-                    'support_context': support_context,
-                    'sales_context': sales_context,
-                    'product_interests': product_interests,
-                    'routing_metadata': {
-                        'last_updated': datetime.now().isoformat(),
-                        'data_sources': ['user_state', 'chat_history', 'products']
-                    }
+            return {
+                'wa_id': wa_id,
+                'profile': {
+                    'user_state': user_state,
+                    'session_info': session_info,
+                    'preferred_bot': user_state.get('preferred_bot', 'auto'),
+                    'language': user_state.get('lang', 'en')
+                },
+                'recent_interactions': {
+                    'chat_history': [dict(row) for row in recent_chats],
+                    'total_messages': len(recent_chats),
+                    'last_interaction': recent_chats[0].get('created_at') if recent_chats else None
+                },
+                'support_context': support_context,
+                'sales_context': sales_context,
+                'product_interests': product_interests,
+                'routing_metadata': {
+                    'last_updated': datetime.now().isoformat(),
+                    'data_sources': ['user_state', 'chat_history', 'products']
                 }
+            }
 
         except Exception as e:
             logger.error(f"Error getting customer context for {wa_id}: {e}")
@@ -143,24 +145,38 @@ class UnifiedBotService:
                 }
             }
 
-    def _get_support_context(self, conn, wa_id: str) -> Dict[str, Any]:
+    def _get_support_context(self, wa_id: str) -> Dict[str, Any]:
         """Get support-related context (graceful fallback for missing tables)"""
         try:
-            # Try to query support tickets table
-            row = conn.execute(
-                """SELECT status, COUNT(*) as count
-                   FROM support_tickets
-                   WHERE wa_id = ? AND status != 'closed'
-                   GROUP BY status""",
-                (wa_id,)
-            ).fetchone()
-
-            if row:
-                return {
-                    'has_active_tickets': True,
-                    'ticket_counts': dict(row),
-                    'requires_attention': row.get('open', 0) > 0
-                }
+            if use_mongodb():
+                from db.mongo import Repository
+                rows = Repository("support_tickets").find_all({"wa_id": wa_id})
+                rows = [r for r in rows if r.get("status") != "closed"]
+                if rows:
+                    counts: dict = {}
+                    for r in rows:
+                        st = r.get("status") or "unknown"
+                        counts[st] = counts.get(st, 0) + 1
+                    return {
+                        'has_active_tickets': True,
+                        'ticket_counts': counts,
+                        'requires_attention': counts.get('open', 0) > 0,
+                    }
+            else:
+                with get_db_context() as conn:
+                    row = conn.execute(
+                        """SELECT status, COUNT(*) as count
+                           FROM support_tickets
+                           WHERE wa_id = ? AND status != 'closed'
+                           GROUP BY status""",
+                        (wa_id,),
+                    ).fetchone()
+                if row:
+                    return {
+                        'has_active_tickets': True,
+                        'ticket_counts': dict(row),
+                        'requires_attention': row.get('open', 0) > 0
+                    }
         except Exception:
             # deliberate: table doesn't exist yet (or is unreadable) —
             # return the default context.
@@ -172,17 +188,26 @@ class UnifiedBotService:
             'requires_attention': False
         }
 
-    def _get_sales_context(self, conn, wa_id: str) -> Dict[str, Any]:
+    def _get_sales_context(self, wa_id: str) -> Dict[str, Any]:
         """Get sales-related context (graceful fallback for missing tables)"""
         try:
-            # Try to query sales leads table
-            row = conn.execute(
-                """SELECT stage, product_interest, estimated_value
-                   FROM sales_leads
-                   WHERE wa_id = ? AND stage != 'closed'
-                   LIMIT 1""",
-                (wa_id,)
-            ).fetchone()
+            if use_mongodb():
+                from db.mongo import Repository
+                rows = Repository("sales_leads").find(
+                    {"wa_id": wa_id, "stage": {"$ne": "closed"}},
+                    limit=1,
+                )
+                row = rows[0] if rows else None
+            else:
+                with get_db_context() as conn:
+                    row = conn.execute(
+                        """SELECT stage, product_interest, estimated_value
+                           FROM sales_leads
+                           WHERE wa_id = ? AND stage != 'closed'
+                           LIMIT 1""",
+                        (wa_id,),
+                    ).fetchone()
+                    row = dict(row) if row else None
 
             if row:
                 return {
@@ -203,24 +228,38 @@ class UnifiedBotService:
             'estimated_value': 0
         }
 
-    def _get_product_interests(self, conn, wa_id: str) -> Dict[str, Any]:
+    def _get_product_interests(self, wa_id: str) -> Dict[str, Any]:
         """Get product-related interests from chat history"""
         try:
-            # Analyze recent chats for product mentions
-            product_chats = conn.execute(
-                """SELECT message, response, route
-                   FROM chat_history
-                   WHERE wa_id = ?
-                   AND (message LIKE '%product%' OR message LIKE '%order%')
-                   ORDER BY created_at DESC
-                   LIMIT 10""",
-                (wa_id,)
-            ).fetchall()
+            if use_mongodb():
+                from db.mongo import Repository
+                product_chats = Repository("chat_history").find(
+                    {
+                        "wa_id": wa_id,
+                        "$or": [
+                            {"message": {"$regex": "product", "$options": "i"}},
+                            {"message": {"$regex": "order", "$options": "i"}},
+                        ],
+                    },
+                    sort=[("created_at", -1)],
+                    limit=10,
+                )
+            else:
+                with get_db_context() as conn:
+                    product_chats = conn.execute(
+                        """SELECT message, response, route
+                           FROM chat_history
+                           WHERE wa_id = ?
+                           AND (message LIKE '%product%' OR message LIKE '%order%')
+                           ORDER BY created_at DESC
+                           LIMIT 10""",
+                        (wa_id,),
+                    ).fetchall()
+                    product_chats = [dict(r) for r in product_chats]
 
             # Extract product categories mentioned
             categories_mentioned = set()
             for chat in product_chats:
-                # Convert sqlite3.Row to dict
                 chat_dict = dict(chat)
                 message = chat_dict.get('message', '').lower()
                 if 'protein' in message or 'powder' in message:
@@ -459,58 +498,74 @@ class UnifiedBotService:
     def get_cross_bot_analytics(self, wa_id: str = None, time_range: int = 30) -> Dict[str, Any]:
         """Get analytics across all bot types"""
         try:
-            with get_db_context() as conn:
+            since = (datetime.now() - timedelta(days=time_range)).strftime("%Y-%m-%d %H:%M:%S")
+            if use_mongodb():
+                from db.mongo import Repository
+                from collections import Counter
+                import re
 
-                # Check if bot_type column exists
-                column_check = conn.execute("PRAGMA table_info(chat_history)").fetchall()
-                has_bot_type = any(col['name'] == 'bot_type' for col in column_check)
+                rows = Repository("chat_history").find_all({"created_at": {"$gte": since}})
+                if wa_id:
+                    rows = [r for r in rows if r.get("wa_id") == wa_id]
+                bot_distribution: dict = {}
+                for r in rows:
+                    if r.get("bot_type"):
+                        key = r["bot_type"]
+                    else:
+                        msg = r.get("message") or ""
+                        m = re.match(r"^\[([^\]]+)\]", msg)
+                        key = m.group(1) if m else (r.get("route") or "unknown")
+                    bot_distribution[key] = bot_distribution.get(key, 0) + 1
+                most_used_bot = (
+                    max(bot_distribution, key=lambda k: bot_distribution[k])
+                    if bot_distribution else None
+                )
+                total_messages = len(rows)
+                active_users = len({r.get("wa_id") for r in rows if r.get("wa_id")})
+            else:
+                with get_db_context() as conn:
+                    column_check = conn.execute("PRAGMA table_info(chat_history)").fetchall()
+                    has_bot_type = any(col['name'] == 'bot_type' for col in column_check)
 
-                if has_bot_type:
-                    # Message counts by bot type
-                    bot_counts = conn.execute(
-                        """SELECT bot_type, COUNT(*) as count
-                           FROM chat_history
-                           WHERE created_at >= date('now', '-{} days')
-                           GROUP BY bot_type
-                           ORDER BY count DESC""".format(time_range)
-                    ).fetchall()
+                    if has_bot_type:
+                        bot_counts = conn.execute(
+                            """SELECT bot_type, COUNT(*) as count
+                               FROM chat_history
+                               WHERE created_at >= date('now', '-{} days')
+                               GROUP BY bot_type
+                               ORDER BY count DESC""".format(time_range)
+                        ).fetchall()
+                    else:
+                        bot_counts = conn.execute(
+                            """SELECT SUBSTR(message, 2, INSTR(message, ']') - 2) as bot_type, COUNT(*) as count
+                               FROM chat_history
+                               WHERE created_at >= date('now', '-{} days')
+                               AND message LIKE '[%] %'
+                               GROUP BY bot_type
+                               ORDER BY count DESC""".format(time_range)
+                        ).fetchall()
 
                     bot_distribution = {row['bot_type']: row['count'] for row in bot_counts}
                     most_used_bot = bot_counts[0]['bot_type'] if bot_counts else None
-                else:
-                    # Fallback for legacy schema
-                    bot_counts = conn.execute(
-                        """SELECT SUBSTR(message, 2, INSTR(message, ']') - 2) as bot_type, COUNT(*) as count
-                           FROM chat_history
-                           WHERE created_at >= date('now', '-{} days')
-                           AND message LIKE '[%] %'
-                           GROUP BY bot_type
-                           ORDER BY count DESC""".format(time_range)
-                    ).fetchall()
+                    total_msg = conn.execute(
+                        """SELECT COUNT(*) as count FROM chat_history
+                           WHERE created_at >= date('now', '-{} days')""".format(time_range)
+                    ).fetchone()
+                    active_users_row = conn.execute(
+                        """SELECT COUNT(DISTINCT wa_id) as count FROM chat_history
+                           WHERE created_at >= date('now', '-{} days')""".format(time_range)
+                    ).fetchone()
+                total_messages = total_msg['count'] if total_msg else 0
+                active_users = active_users_row['count'] if active_users_row else 0
 
-                    bot_distribution = {row['bot_type']: row['count'] for row in bot_counts}
-                    most_used_bot = bot_counts[0]['bot_type'] if bot_counts else None
-
-                # Get total interactions
-                total_msg = conn.execute(
-                    """SELECT COUNT(*) as count FROM chat_history
-                       WHERE created_at >= date('now', '-{} days')""".format(time_range)
-                ).fetchone()
-
-                # Active users
-                active_users = conn.execute(
-                    """SELECT COUNT(DISTINCT wa_id) as count FROM chat_history
-                       WHERE created_at >= date('now', '-{} days')""".format(time_range)
-                ).fetchone()
-
-                return {
-                    'time_range_days': time_range,
-                    'total_messages': total_msg['count'] if total_msg else 0,
-                    'active_users': active_users['count'] if active_users else 0,
-                    'bot_distribution': bot_distribution if bot_distribution else {},
-                    'most_used_bot': most_used_bot,
-                    'generated_at': datetime.now().isoformat()
-                }
+            return {
+                'time_range_days': time_range,
+                'total_messages': total_messages,
+                'active_users': active_users,
+                'bot_distribution': bot_distribution if bot_distribution else {},
+                'most_used_bot': most_used_bot,
+                'generated_at': datetime.now().isoformat()
+            }
 
         except Exception as e:
             logger.error(f"Error getting analytics: {e}")

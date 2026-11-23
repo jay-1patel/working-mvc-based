@@ -65,7 +65,7 @@ def run_crawl_pipeline(
     run_id: int,
     trigger: str = "manual",
     max_pages: Optional[int] = None,
-    max_depth: int = 4,
+    max_depth: Optional[int] = None,
     actor: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """Execute a full crawl run and write results to staging only."""
@@ -92,11 +92,24 @@ def run_crawl_pipeline(
 
     update_crawl_run(run_id, status="running", mark_started=True)
 
+    def persist_progress(*, pages_found, pages_scraped):
+        """Persist counts for UI polling while the crawler is still running."""
+        update_crawl_run(
+            run_id,
+            status="running",
+            pages_found=int(pages_found or 0),
+            pages_scraped=int(pages_scraped or 0),
+        )
+
     try:
         crawler = SiteCrawler(
             base_url=url,
-            max_pages=max_pages,
-            max_depth=max_depth,
+            # Manual and scheduled knowledge crawls always consume the full
+            # discovered same-domain graph. Keep legacy arguments in the
+            # function signature for compatibility, but do not truncate runs.
+            max_pages=None,
+            max_depth=None,
+            progress_callback=persist_progress,
         )
         crawl_res = crawler.crawl()
 
@@ -260,28 +273,32 @@ def run_crawl_pipeline(
             mark_crawl_finished(tenant_id, "success", pages_found=pages_found)
 
         try:
-            with get_db_context() as conn:
-                record_admin_audit_event(
-                    conn,
-                    action="crawl_run_staged",
-                    actor=actor or {"username": "crawl_pipeline", "role": "system"},
-                    resource_type="crawl_run",
-                    resource_id=str(run_id),
-                    tenant_id=tenant_id,
-                    details={
-                        "pages_found": pages_found,
-                        "pages_scraped": pages_scraped,
-                        "pages_skipped": len(kb["skipped"]),
-                        "kb_chunks": len(kb["chunks"]),
-                        "offerings": len((bifurcation or {}).get("offerings") or []),
-                        "faqs": len((bifurcation or {}).get("faqs") or []),
-                        "images_stored": payload["images_summary"]["stored"],
-                        "images_captured": len(knowledge_images),
-                        "bifurcation_source": payload["bifurcation_source"],
-                        "trigger": trigger,
-                        "url": url[:200],
-                    },
-                )
+            from db.core import use_mongodb
+            audit_kwargs = dict(
+                action="crawl_run_staged",
+                actor=actor or {"username": "crawl_pipeline", "role": "system"},
+                resource_type="crawl_run",
+                resource_id=str(run_id),
+                tenant_id=tenant_id,
+                details={
+                    "pages_found": pages_found,
+                    "pages_scraped": pages_scraped,
+                    "pages_skipped": len(kb["skipped"]),
+                    "kb_chunks": len(kb["chunks"]),
+                    "offerings": len((bifurcation or {}).get("offerings") or []),
+                    "faqs": len((bifurcation or {}).get("faqs") or []),
+                    "images_stored": payload["images_summary"]["stored"],
+                    "images_captured": len(knowledge_images),
+                    "bifurcation_source": payload["bifurcation_source"],
+                    "trigger": trigger,
+                    "url": url[:200],
+                },
+            )
+            if use_mongodb():
+                record_admin_audit_event(None, **audit_kwargs)
+            else:
+                with get_db_context() as conn:
+                    record_admin_audit_event(conn, **audit_kwargs)
         except Exception:
             logger.exception("AUDIT_EVENT_RECORD_FAILED | action=crawl_run_staged run=%s", run_id)
 
@@ -645,24 +662,28 @@ def approve_crawl_run(
     )
 
     try:
-        with get_db_context() as conn:
-            record_admin_audit_event(
-                conn,
-                action="crawl_run_approved",
-                actor=actor,
-                resource_type="crawl_run",
-                resource_id=str(run_id),
-                tenant_id=tenant_id,
-                details={
-                    "offerings_created": summary.get("offerings_created"),
-                    "faqs_created": faqs_created,
-                    "kb_chunks_published": len(chunk_articles),
-                    "images_promoted": len(url_map),
-                    "skipped_fields": skipped_fields,
-                    "rule1_locked_sections": sorted(profile_lock.keys()),
-                    "profile_sections_restored": profile_sections_restored,
-                },
-            )
+        from db.core import use_mongodb
+        audit_kwargs = dict(
+            action="crawl_run_approved",
+            actor=actor,
+            resource_type="crawl_run",
+            resource_id=str(run_id),
+            tenant_id=tenant_id,
+            details={
+                "offerings_created": summary.get("offerings_created"),
+                "faqs_created": faqs_created,
+                "kb_chunks_published": len(chunk_articles),
+                "images_promoted": len(url_map),
+                "skipped_fields": skipped_fields,
+                "rule1_locked_sections": sorted(profile_lock.keys()),
+                "profile_sections_restored": profile_sections_restored,
+            },
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **audit_kwargs)
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **audit_kwargs)
     except Exception:
         logger.exception("AUDIT_EVENT_RECORD_FAILED | action=crawl_run_approved run=%s", run_id)
 
@@ -740,16 +761,20 @@ def reject_crawl_run(
     )
 
     try:
-        with get_db_context() as conn:
-            record_admin_audit_event(
-                conn,
-                action="crawl_run_rejected",
-                actor=actor or {"username": "crawl_reject", "role": "system"},
-                resource_type="crawl_run",
-                resource_id=str(run_id),
-                tenant_id=tenant_id,
-                details={"images_deleted": deleted},
-            )
+        from db.core import use_mongodb
+        audit_kwargs = dict(
+            action="crawl_run_rejected",
+            actor=actor or {"username": "crawl_reject", "role": "system"},
+            resource_type="crawl_run",
+            resource_id=str(run_id),
+            tenant_id=tenant_id,
+            details={"images_deleted": deleted},
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **audit_kwargs)
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **audit_kwargs)
     except Exception:
         logger.exception("AUDIT_EVENT_RECORD_FAILED | action=crawl_run_rejected run=%s", run_id)
 

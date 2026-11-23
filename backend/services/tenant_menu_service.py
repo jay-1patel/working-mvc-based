@@ -240,18 +240,28 @@ class TenantMenuService:
             self.create_menu(menu_type, f"{menu_type.title()} Menu", [])
             menu_config = self._get_menu_config(menu_type)
         
-        # Find the menu config ID in the database
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT id FROM tenant_menu_configs WHERE tenant_id = ? AND menu_type = ?",
-                (self.tenant_id, menu_type)
-            ).fetchone()
-            
+        from db.core import use_mongodb, get_db_context
+
+        if use_mongodb():
+            from db.mongo import Repository
+            row = Repository("tenant_menu_configs").find_one({
+                "tenant_id": self.tenant_id,
+                "menu_type": menu_type,
+            })
             if not row:
-                # Create the menu config first
                 menu_config_id = self.create_menu(menu_type, f"{menu_type.title()} Menu", [])
             else:
-                menu_config_id = row['id']
+                menu_config_id = row["id"]
+        else:
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT id FROM tenant_menu_configs WHERE tenant_id = ? AND menu_type = ?",
+                    (self.tenant_id, menu_type),
+                ).fetchone()
+            if not row:
+                menu_config_id = self.create_menu(menu_type, f"{menu_type.title()} Menu", [])
+            else:
+                menu_config_id = row["id"]
         
         # Create the menu item
         item_data['menu_config_id'] = menu_config_id
@@ -307,14 +317,20 @@ def get_legacy_menus_by_tenant(tenant_id: int) -> List[Dict[str, Any]]:
     Get all legacy menu items for a tenant from the old menus table.
     This provides backward compatibility during migration.
     """
-    from backend.database import get_db_context
-    
+    from db.core import use_mongodb, get_db_context
+
+    if use_mongodb():
+        from db.mongo import Repository
+        rows = Repository("menus").find_all(
+            {"tenant_id": tenant_id},
+            sort=[("sort_order", 1), ("id", 1)],
+        )
+        return [dict(r) for r in rows]
     with get_db_context() as conn:
         rows = conn.execute(
             "SELECT * FROM menus WHERE tenant_id = ? ORDER BY sort_order",
-            (tenant_id,)
+            (tenant_id,),
         ).fetchall()
-    
     return [dict(row) for row in rows]
 
 

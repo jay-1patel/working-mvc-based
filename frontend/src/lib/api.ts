@@ -1,14 +1,33 @@
 /**
  * Single fetch wrapper for the whole app.
  *
- * The admin JWT is kept in localStorage and attached as a bearer token. Every
- * non-2xx response is normalised into an `ApiError` carrying the server's
- * `detail`, so screens can surface backend validation text (publish failures,
- * permission refusals) instead of a generic "something went wrong".
+ * After login, every API call passes the live admin session_id as:
+ *   - Authorization: Basic base64(username:session_id)
+ *   - X-Username / X-Session-Id headers
+ *   - session_id field on JSON request bodies
+ *
+ * Every non-2xx response is normalised into an `ApiError` carrying the
+ * server's `detail`, so screens can surface backend validation text.
  */
 
+import { captureClientError } from './client-errors'
+
 const TOKEN_KEY = 'tenant-console.token'
+const USERNAME_KEY = 'tenant-console.username'
+const SESSION_KEY = 'tenant-console.session_id'
 const TENANT_KEY = 'tenant-console.tenant'
+
+/**
+ * Leave empty when the frontend and API share an origin. Set
+ * VITE_API_ORIGIN (for example https://api.example.com) when this console is
+ * hosted separately; every API call below is then forwarded to that origin.
+ */
+const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.replace(/\/$/, '') ?? ''
+
+export function apiUrl(path: string): string {
+  if (!API_ORIGIN || /^(?:https?:)?\/\//i.test(path)) return path
+  return `${API_ORIGIN}${path.startsWith('/') ? path : `/${path}`}`
+}
 
 export class ApiError extends Error {
   status: number
@@ -79,13 +98,83 @@ export function getToken(): string | null {
   }
 }
 
-export function setToken(token: string | null) {
+export function getUsername(): string | null {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token)
-    else localStorage.removeItem(TOKEN_KEY)
+    return localStorage.getItem(USERNAME_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function getSessionId(): string | null {
+  try {
+    return localStorage.getItem(SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+/** Persist username + session_id and the Basic token derived from them. */
+export function setCredentials(username: string, sessionId: string) {
+  const user = username.trim()
+  const session = sessionId.trim()
+  const token = btoa(`${user}:${session}`)
+  try {
+    localStorage.setItem(TOKEN_KEY, token)
+    localStorage.setItem(USERNAME_KEY, user)
+    localStorage.setItem(SESSION_KEY, session)
   } catch {
     /* private mode — the session simply does not persist */
   }
+}
+
+export function setToken(token: string | null) {
+  try {
+    if (!token) {
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USERNAME_KEY)
+      localStorage.removeItem(SESSION_KEY)
+      return
+    }
+    localStorage.setItem(TOKEN_KEY, token)
+    try {
+      const decoded = atob(token)
+      const idx = decoded.indexOf(':')
+      if (idx > 0) {
+        localStorage.setItem(USERNAME_KEY, decoded.slice(0, idx))
+        localStorage.setItem(SESSION_KEY, decoded.slice(idx + 1))
+      }
+    } catch {
+      /* keep whatever username/session keys already exist */
+    }
+  } catch {
+    /* private mode — the session simply does not persist */
+  }
+}
+
+/** Auth headers — lowercase username + session_id (no Authorization). */
+export function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {}
+  const username = getUsername()
+  const sessionId = getSessionId()
+  if (username) headers.username = username
+  if (sessionId) headers.session_id = sessionId
+  return headers
+}
+
+/** Attach lowercase username + session_id on every JSON body. */
+function withSessionBody(body: unknown): unknown {
+  const username = getUsername()
+  const sessionId = getSessionId()
+  if ((!username && !sessionId) || body === undefined || body === null) return body
+  if (typeof body === 'object' && !Array.isArray(body)) {
+    return {
+      ...(body as Record<string, unknown>),
+      ...(username ? { username } : {}),
+      ...(sessionId ? { session_id: sessionId } : {}),
+    }
+  }
+  return body
 }
 
 export function getActiveTenantId(): string | null {
@@ -151,8 +240,20 @@ export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   signal?: AbortSignal
-  /** Skip the bearer token (used by the login and bootstrap calls). */
+  /** Skip the admin credential (used by the login and bootstrap calls). */
   anonymous?: boolean
+}
+
+async function parseResponse<T>(res: Response, method: string, path: string): Promise<T> {
+  try {
+    const text = await res.text()
+    return (text ? JSON.parse(text) : undefined) as T
+  } catch (error) {
+    if ((error as Error)?.name === 'AbortError') throw error
+    const detail = 'The backend returned an unreadable response.'
+    const requestId = captureClientError(detail, 'Response parsing failed; response contents were not recorded.', `${method} ${path}`)
+    throw new ApiError(res.status, withErrorId(detail, requestId), requestId)
+  }
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -161,24 +262,23 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
-  if (!anonymous) {
-    const token = getToken()
-    if (token) headers.Authorization = `Bearer ${token}`
-  }
+  const payload = anonymous ? body : withSessionBody(body)
+  if (!anonymous) Object.assign(headers, authHeaders())
 
   let res: Response
   try {
-    res = await fetch(path, {
+    res = await fetch(apiUrl(path), {
       method,
       headers,
       signal,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: payload === undefined ? undefined : JSON.stringify(payload),
     })
   } catch (err) {
     if ((err as Error)?.name === 'AbortError') throw err
     const detail = 'Cannot reach the backend. Is it running on port 9000?'
     logApiError(method, path, 0, detail, startedAt)
-    throw new ApiError(0, detail)
+    const requestId = captureClientError(detail, (err as Error)?.message || '', `${method} ${path}`)
+    throw new ApiError(0, withErrorId(detail, requestId), requestId)
   }
 
   if (res.status === 401) {
@@ -194,25 +294,27 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
   logApiCall(method, path, res.status, startedAt)
   if (res.status === 204) return undefined as T
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  return parseResponse<T>(res, method, path)
 }
 
 /** Multipart upload: the browser sets the boundary Content-Type. */
 export async function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
   const startedAt = timerNow()
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  const token = getToken()
-  if (token) headers.Authorization = `Bearer ${token}`
+  const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders() }
+  const username = getUsername()
+  const sessionId = getSessionId()
+  if (username && !form.has('username')) form.append('username', username)
+  if (sessionId && !form.has('session_id')) form.append('session_id', sessionId)
 
   let res: Response
   try {
-    res = await fetch(path, { method: 'POST', headers, body: form, signal })
+    res = await fetch(apiUrl(path), { method: 'POST', headers, body: form, signal })
   } catch (err) {
     if ((err as Error)?.name === 'AbortError') throw err
     const detail = 'Cannot reach the backend. Is it running on port 9000?'
     logApiError('POST', path, 0, detail, startedAt)
-    throw new ApiError(0, detail)
+    const requestId = captureClientError(detail, (err as Error)?.message || '', `POST ${path}`)
+    throw new ApiError(0, withErrorId(detail, requestId), requestId)
   }
   if (res.status === 401) {
     onUnauthorized()
@@ -226,8 +328,7 @@ export async function postForm<T>(path: string, form: FormData, signal?: AbortSi
     throw new ApiError(res.status, withErrorId(detail, requestId), requestId ?? undefined)
   }
   logApiCall('POST', path, res.status, startedAt)
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  return parseResponse<T>(res, 'POST', path)
 }
 
 export const api = {

@@ -7,16 +7,17 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { api, getToken, setToken, setUnauthorizedHandler } from './api'
+import { api, getToken, setCredentials, setToken, setUnauthorizedHandler } from './api'
 import { navigate } from './router'
 import type { AdminIdentity } from './types'
+import { isMockMode, mockIdentity } from './mock'
 
 interface AuthState {
   loading: boolean
   /** The server has no admin accounts yet — the UI offers first-run setup. */
   needsSetup: boolean
   identity: AdminIdentity | null
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, sessionId: string) => Promise<void>
   setup: (username: string, password: string, email?: string) => Promise<void>
   logout: () => void
   can: (permission: string) => boolean
@@ -39,6 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if (isMockMode()) {
+      setIdentity(mockIdentity)
+      setNeedsSetup(false)
+      setLoading(false)
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {
@@ -67,13 +74,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const login = useCallback(async (username: string, password: string) => {
-    const res = await api.post<{ token: string; permissions: Record<string, boolean> }>(
-      '/api/auth/login',
-      { username, password },
-      { anonymous: true },
-    )
-    setToken(res.token)
+  const login = useCallback(async (username: string, sessionId: string) => {
+    const res = await api.post<{
+      token: string
+      session_id?: string
+      username?: string
+      permissions: Record<string, boolean>
+    }>('/api/auth/login', { username, session_id: sessionId }, { anonymous: true })
+    // Store username + session_id so every later API call sends them.
+    setCredentials(res.username || username, res.session_id || sessionId)
     const me = await api.get<AdminIdentity>('/api/auth/me')
     setIdentity(me)
     setNeedsSetup(false)

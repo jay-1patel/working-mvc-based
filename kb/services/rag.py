@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import sqlite3
 from typing import List, Dict
 from threading import Lock
 
@@ -16,7 +15,8 @@ import numpy as np
 # Import from services/embeddings.py instead of loading SentenceTransformer directly
 from .embeddings import get_embedding_model, get_embedding_dim
 
-from routing.config import DB_PATH, logger
+from db.core import get_db_context, use_mongodb
+from routing.config import logger
 
 
 _kb_build_lock = Lock()
@@ -141,27 +141,42 @@ def clean_text(text: str) -> str:
 def build_chunks_for_kb():
     """Chunk all KB docs and store chunks_json in the database."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, content, chunks_json FROM knowledge_base ORDER BY id"
-        ).fetchall()
-        for row in rows:
-            if row["chunks_json"]:
-                continue
-            content = row["content"] or ""
-            if not content.strip():
-                continue
-            chunks = chunk_by_sections(content)
-            if not chunks:
-                chunks = chunk_text(content)
-            conn.execute(
-                "UPDATE knowledge_base SET chunks_json = ? WHERE id = ?",
-                (json.dumps(chunks), row["id"]),
-            )
-        conn.commit()
-        conn.close()
-        logger.info(f"Chunks built for {len([r for r in rows if not r['chunks_json']])} KB docs")
+        built = 0
+        if use_mongodb():
+            from db.mongo import Repository
+            repo = Repository("knowledge_base")
+            rows = repo.find_all({}, sort=[("id", 1)], limit=None)
+            for row in rows:
+                if row.get("chunks_json"):
+                    continue
+                built += 1
+                content = row.get("content") or ""
+                if not content.strip():
+                    continue
+                chunks = chunk_by_sections(content)
+                if not chunks:
+                    chunks = chunk_text(content)
+                repo.update({"id": row["id"]}, {"chunks_json": chunks})
+        else:
+            with get_db_context() as conn:
+                rows = conn.execute(
+                    "SELECT id, content, chunks_json FROM knowledge_base ORDER BY id"
+                ).fetchall()
+                for row in rows:
+                    if row["chunks_json"]:
+                        continue
+                    built += 1
+                    content = row["content"] or ""
+                    if not content.strip():
+                        continue
+                    chunks = chunk_by_sections(content)
+                    if not chunks:
+                        chunks = chunk_text(content)
+                    conn.execute(
+                        "UPDATE knowledge_base SET chunks_json = ? WHERE id = ?",
+                        (json.dumps(chunks), row["id"]),
+                    )
+        logger.info(f"Chunks built for {built} KB docs")
     except Exception as e:
         logger.error(f"Failed to build chunks for KB: {e}")
 
@@ -273,17 +288,31 @@ def add_document_to_kb(filename: str, text: str, category: str = "", media_url: 
 
     embeddings = _get_embeddings(chunks)
     embedding_blob = embeddings.tobytes()
+    resolved_tid = _resolve_tenant_id(tenant_id)
 
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        cur = conn.execute(
-            "INSERT INTO knowledge_base (title, category, content, chunks_json, tags, source, embedding_blob, media_url, media_type, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (filename, category, text, json.dumps(chunks), json.dumps([]), filename, embedding_blob, media_url, media_type, _resolve_tenant_id(tenant_id)),
-        )
-        doc_id = cur.lastrowid
-        conn.commit()
-    finally:
-        conn.close()
+    if use_mongodb():
+        from db.mongo import Repository
+        inserted = Repository("knowledge_base").insert({
+            "title": filename,
+            "category": category,
+            "content": text,
+            "chunks_json": chunks,
+            "tags": json.dumps([]),
+            "source": filename,
+            "embedding_blob": embedding_blob,
+            "media_url": media_url,
+            "media_type": media_type,
+            "tenant_id": resolved_tid,
+        })
+        doc_id = inserted["id"]
+    else:
+        with get_db_context() as conn:
+            cur = conn.execute(
+                "INSERT INTO knowledge_base (title, category, content, chunks_json, tags, source, embedding_blob, media_url, media_type, tenant_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (filename, category, text, json.dumps(chunks), json.dumps([]), filename, embedding_blob, media_url, media_type, resolved_tid),
+            )
+            doc_id = cur.lastrowid
 
     return {"success": True, "chunks": len(chunks), "doc_id": doc_id}
 
@@ -292,19 +321,24 @@ def rebuild_faiss_index():
     """Rebuild the FAISS index from all KB documents, partitioning by tenant."""
     global _kb_faiss_index, _kb_faiss_ids, _kb_tenant_indexes
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, tenant_id, chunks_json, embedding_blob FROM knowledge_base"
-        ).fetchall()
-        conn.close()
+        if use_mongodb():
+            from db.mongo import Repository
+            rows = Repository("knowledge_base").find_all({}, limit=None)
+        else:
+            with get_db_context() as conn:
+                rows = conn.execute(
+                    "SELECT id, tenant_id, chunks_json, embedding_blob FROM knowledge_base"
+                ).fetchall()
 
-        missing = [r for r in rows if r["embedding_blob"] is None]
+        def _field(row, key):
+            return row.get(key) if isinstance(row, dict) else row[key]
+
+        missing = [r for r in rows if _field(r, "embedding_blob") is None]
         if missing:
             logger.info("rebuild_faiss_index: generating embeddings for %d docs", len(missing))
             generate_missing_embeddings()
 
-        rows_with_emb = [r for r in rows if r["embedding_blob"] is not None]
+        rows_with_emb = [r for r in rows if _field(r, "embedding_blob") is not None]
         if not rows_with_emb:
             logger.info("rebuild_faiss_index: no documents with embeddings found")
             _kb_faiss_index = None
@@ -318,13 +352,13 @@ def rebuild_faiss_index():
         tenant_data = {}
 
         for row in rows_with_emb:
-            chunks = _safe_json_loads(row["chunks_json"], [])
+            chunks = _safe_json_loads(_field(row, "chunks_json"), [])
             if not chunks:
                 continue
-            emb = np.frombuffer(row["embedding_blob"], dtype="float32").reshape(len(chunks), dim)
+            emb = np.frombuffer(_field(row, "embedding_blob"), dtype="float32").reshape(len(chunks), dim)
             all_embeddings.append(emb)
-            tid = row["tenant_id"] or "default"
-            chunk_records = [(row["id"], i, tid) for i in range(len(chunks))]
+            tid = _field(row, "tenant_id") or "default"
+            chunk_records = [(_field(row, "id"), i, tid) for i in range(len(chunks))]
             all_ids.extend(chunk_records)
 
             if tid not in tenant_data:
@@ -365,35 +399,56 @@ def rebuild_faiss_index():
 
 def generate_missing_embeddings():
     """Generate embeddings for KB documents that are missing them."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute(
-            "SELECT id, chunks_json FROM knowledge_base WHERE embedding_blob IS NULL"
-        ).fetchall()
+        if use_mongodb():
+            from db.mongo import Repository
+            repo = Repository("knowledge_base")
+            rows = [
+                r for r in repo.find_all({}, limit=None)
+                if not r.get("embedding_blob")
+            ]
+        else:
+            with get_db_context() as conn:
+                rows = conn.execute(
+                    "SELECT id, chunks_json FROM knowledge_base WHERE embedding_blob IS NULL"
+                ).fetchall()
         if not rows:
-            conn.close()
             return
         logger.info("generate_missing_embeddings: %d docs need embeddings", len(rows))
         updated = 0
-        for row in rows:
-            chunks = _safe_json_loads(row["chunks_json"], [])
+
+        def _ingest_row(row, apply_update):
+            chunks_raw = row.get("chunks_json") if isinstance(row, dict) else row["chunks_json"]
+            chunks = _safe_json_loads(chunks_raw, [])
             if not chunks:
-                continue
+                return 0
             texts = _normalize_chunks(chunks)
             if not texts:
-                continue
+                return 0
             embeddings = _get_embeddings(texts)
             embedding_blob = embeddings.tobytes()
-            conn.execute(
-                "UPDATE knowledge_base SET embedding_blob = ? WHERE id = ?",
-                (embedding_blob, row["id"]),
-            )
-            updated += 1
-        conn.commit()
+            doc_id = row.get("id") if isinstance(row, dict) else row["id"]
+            apply_update(doc_id, embedding_blob)
+            return 1
+
+        if use_mongodb():
+            from db.mongo import Repository
+            repo = Repository("knowledge_base")
+            for row in rows:
+                updated += _ingest_row(row, lambda doc_id, blob: repo.update({"id": doc_id}, {"embedding_blob": blob}))
+        else:
+            with get_db_context() as conn:
+                for row in rows:
+                    updated += _ingest_row(
+                        row,
+                        lambda doc_id, blob: conn.execute(
+                            "UPDATE knowledge_base SET embedding_blob = ? WHERE id = ?",
+                            (blob, doc_id),
+                        ),
+                    )
         logger.info("generate_missing_embeddings: updated %d docs", updated)
-    finally:
-        conn.close()
+    except Exception as e:
+        logger.error("generate_missing_embeddings failed: %s", e)
 
 
 def search_kb_faiss(query: str, limit: int = 5, tenant_id: str = None) -> List[Dict]:
@@ -512,32 +567,54 @@ def _product_searchable_text(row) -> str:
 
 def generate_product_embeddings():
     """Generate embeddings for products that are missing them."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute(
-            "SELECT id, name, description, short_description, category, ingredients, nutritional_facts "
-            "FROM products WHERE is_active = 1 AND embedding IS NULL"
-        ).fetchall()
+        if use_mongodb():
+            from db.mongo import Repository
+            repo = Repository("products")
+            rows = [
+                r for r in repo.find_all({"is_active": 1}, limit=None)
+                if not r.get("embedding")
+            ]
+        else:
+            with get_db_context() as conn:
+                rows = conn.execute(
+                    "SELECT id, name, description, short_description, category, ingredients, nutritional_facts "
+                    "FROM products WHERE is_active = 1 AND embedding IS NULL"
+                ).fetchall()
         if not rows:
             return
         logger.info("generate_product_embeddings: %d products need embeddings", len(rows))
         model = get_embedding_model()
         updated = 0
-        for row in rows:
-            text = _product_searchable_text(dict(row))
+
+        def _update_product(row, apply_update):
+            nonlocal updated
+            payload = dict(row) if not isinstance(row, dict) else row
+            text = _product_searchable_text(payload)
             if not text:
-                continue
+                return
             emb = model.encode([text], normalize_embeddings=True).astype("float32")
-            conn.execute(
-                "UPDATE products SET embedding = ? WHERE id = ?",
-                (emb.tobytes(), row["id"]),
-            )
+            apply_update(payload["id"], emb.tobytes())
             updated += 1
-        conn.commit()
+
+        if use_mongodb():
+            from db.mongo import Repository
+            repo = Repository("products")
+            for row in rows:
+                _update_product(row, lambda product_id, blob: repo.update({"id": product_id}, {"embedding": blob}))
+        else:
+            with get_db_context() as conn:
+                for row in rows:
+                    _update_product(
+                        row,
+                        lambda product_id, blob: conn.execute(
+                            "UPDATE products SET embedding = ? WHERE id = ?",
+                            (blob, product_id),
+                        ),
+                    )
         logger.info("generate_product_embeddings: updated %d products", updated)
-    finally:
-        conn.close()
+    except Exception as e:
+        logger.error("generate_product_embeddings failed: %s", e)
 
 
 def rebuild_product_faiss_index():
@@ -546,12 +623,17 @@ def rebuild_product_faiss_index():
     try:
         generate_product_embeddings()
 
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, tenant_id, embedding FROM products WHERE is_active = 1 AND embedding IS NOT NULL"
-        ).fetchall()
-        conn.close()
+        if use_mongodb():
+            from db.mongo import Repository
+            rows = [
+                r for r in Repository("products").find_all({"is_active": 1}, limit=None)
+                if r.get("embedding")
+            ]
+        else:
+            with get_db_context() as conn:
+                rows = conn.execute(
+                    "SELECT id, tenant_id, embedding FROM products WHERE is_active = 1 AND embedding IS NOT NULL"
+                ).fetchall()
 
         if not rows:
             logger.info("rebuild_product_faiss_index: no products with embeddings")
@@ -566,13 +648,16 @@ def rebuild_product_faiss_index():
         tenant_data = {}
 
         for row in rows:
-            arr = np.frombuffer(row["embedding"], dtype="float32")
+            embedding = row["embedding"] if not isinstance(row, dict) else row.get("embedding")
+            row_id = row["id"] if not isinstance(row, dict) else row.get("id")
+            row_tid = row["tenant_id"] if not isinstance(row, dict) else row.get("tenant_id")
+            arr = np.frombuffer(embedding, dtype="float32")
             if arr.size != dim:
                 continue
             emb = arr.reshape(1, dim)
             all_embeddings.append(emb)
-            tid = row["tenant_id"] or "default"
-            rec = (row["id"], tid)
+            tid = row_tid or "default"
+            rec = (row_id, tid)
             all_ids.append(rec)
             if tid not in tenant_data:
                 tenant_data[tid] = {"embs": [], "ids": []}

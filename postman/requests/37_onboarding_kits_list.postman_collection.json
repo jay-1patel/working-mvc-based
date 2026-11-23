@@ -1,0 +1,81 @@
+{
+  "info": {
+    "name": "Onboarding kits list",
+    "description": "POST /api/admin/onboarding-kits/list",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:9000"
+    },
+    {
+      "key": "username",
+      "value": "cars"
+    },
+    {
+      "key": "session_id",
+      "value": "cars-static-session"
+    },
+    {
+      "key": "wa_id",
+      "value": "919876543210"
+    },
+    {
+      "key": "ticket_id",
+      "value": "TKT-DUMMY-001"
+    },
+    {
+      "key": "tenant_id",
+      "value": "c"
+    },
+    {
+      "key": "run_id",
+      "value": "1"
+    },
+    {
+      "key": "filename",
+      "value": "sample.pdf"
+    },
+    {
+      "key": "gap_id",
+      "value": "1"
+    },
+    {
+      "key": "agent_id",
+      "value": "cars"
+    }
+  ],
+  "item": [
+    {
+      "name": "Onboarding kits list",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "username",
+            "value": "{{username}}"
+          },
+          {
+            "key": "session_id",
+            "value": "{{session_id}}"
+          }
+        ],
+        "url": "{{base_url}}/api/admin/onboarding-kits/list",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

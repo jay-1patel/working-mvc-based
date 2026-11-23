@@ -1,0 +1,116 @@
+[
+  {
+    "file": "clean_multi_page.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file",
+    "completeness": {
+      "has_brand": false,
+      "has_phone": false,
+      "has_email": false,
+      "has_price": false,
+      "has_faq": false
+    }
+  },
+  {
+    "file": "scanned_ocr.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file",
+    "ocr_missing_content": true,
+    "silent_failure_candidate": true
+  },
+  {
+    "file": "embedded_images.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "table_spanning_pages.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "large_bulky.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "empty_no_text.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "password_protected.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "corrupted.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "lie_extension.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "same_content.docx",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "same_content.txt",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "same_content.md",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "same_content.csv",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "same_content.xlsx",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  },
+  {
+    "file": "zero_byte.pdf",
+    "exists": false,
+    "size": 0,
+    "verdict": "BLOCKED",
+    "reason": "missing file"
+  }
+]

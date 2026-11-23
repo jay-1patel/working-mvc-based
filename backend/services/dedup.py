@@ -10,6 +10,8 @@ double-answer the same "hi" when each path carries a different message id.
 import time
 import logging
 import hashlib
+from datetime import datetime, timezone
+
 from database import get_db_context
 
 logger = logging.getLogger("dedup")
@@ -17,6 +19,16 @@ _DEDUP_TTL = 300  # 5 minutes
 _CONTENT_TTL = 25  # seconds — covers poller lag vs push webhook
 _l1_cache: dict = {}
 _content_cache: dict = {}
+
+
+def _use_mongodb():
+    from db.core import use_mongodb
+    return use_mongodb()
+
+
+def _dedup_repos():
+    from db.mongo import Repository
+    return Repository("webhook_dedup"), Repository("processed_inbound_messages")
 
 
 def clear_ephemeral_caches() -> None:
@@ -44,8 +56,20 @@ def _l1_check_and_set(message_id: str) -> bool:
 def _l2_check_and_set(message_id: str, wa_id: str) -> bool:
     """True if ANY worker already claimed this message (authoritative)."""
     try:
+        if _use_mongodb():
+            dedup_repo, processed_repo = _dedup_repos()
+            if processed_repo.find_one({"message_id": message_id}):
+                return True
+            if dedup_repo.find_one({"message_id": message_id}):
+                return True
+            processed_repo.insert({"message_id": message_id, "wa_id": wa_id, "channel": "webhook"})
+            dedup_repo.insert({
+                "message_id": message_id,
+                "wa_id": wa_id,
+                "processed_at": datetime.now(timezone.utc),
+            })
+            return False
         with get_db_context() as conn:
-            # Check if send2 poller already claimed it
             row = conn.execute(
                 "SELECT 1 FROM processed_inbound_messages WHERE message_id = ? LIMIT 1",
                 (message_id,),
@@ -57,16 +81,13 @@ def _l2_check_and_set(message_id: str, wa_id: str) -> bool:
                 "VALUES (?, ?, CURRENT_TIMESTAMP)",
                 (message_id, wa_id),
             )
-            # Also keep processed_inbound_messages in sync so poller won't re-answer
             conn.execute(
                 "INSERT OR IGNORE INTO processed_inbound_messages (message_id, wa_id, channel) "
                 "VALUES (?, ?, 'webhook')",
                 (message_id, wa_id),
             )
-            return cur.rowcount == 0  # ignored insert = already existed
+            return cur.rowcount == 0
     except Exception as e:
-        # Fail closed: treat as already seen so we do not re-answer old poll rows
-        # when SQLite is locked / unavailable. L1 already stamped this worker.
         logger.error(
             "DEDUP_FAIL_CLOSED | L2 DB error for %s — treating as duplicate: %s",
             message_id, e,
@@ -96,12 +117,31 @@ def try_claim_message(message_id: str, wa_id: str, channel: str = "send2") -> bo
     this worker does not re-answer until the durable ledger is writable again.
     """
     if not message_id:
-        return True  # no id → fall through to content fingerprint
+        return True
     if message_id in _l1_cache and _l1_cache[message_id] >= time.time():
         return False
-    # Stamp L1 only after a successful durable claim — unless DB fails, in which
-    # case we stamp L1 and refuse the claim (fail closed).
     try:
+        if _use_mongodb():
+            dedup_repo, processed_repo = _dedup_repos()
+            if processed_repo.find_one({"message_id": message_id}):
+                _l1_check_and_set(message_id)
+                return False
+            if dedup_repo.find_one({"message_id": message_id}):
+                _l1_check_and_set(message_id)
+                return False
+            inserted = processed_repo.insert({
+                "message_id": message_id, "wa_id": wa_id, "channel": channel,
+            })
+            dedup_repo.insert({
+                "message_id": message_id,
+                "wa_id": wa_id,
+                "processed_at": datetime.now(timezone.utc),
+            })
+            if inserted:
+                _l1_check_and_set(message_id)
+                return True
+            _l1_check_and_set(message_id)
+            return False
         with get_db_context() as conn:
             row = conn.execute(
                 "SELECT 1 FROM processed_inbound_messages WHERE message_id = ? LIMIT 1",
@@ -152,6 +192,11 @@ def release_inbound_claim(message_id: str) -> None:
         return
     _l1_cache.pop(message_id, None)
     try:
+        if _use_mongodb():
+            dedup_repo, processed_repo = _dedup_repos()
+            processed_repo.delete_one({"message_id": message_id})
+            dedup_repo.delete_one({"message_id": message_id})
+            return
         with get_db_context() as conn:
             conn.execute(
                 "DELETE FROM processed_inbound_messages WHERE message_id = ?",
@@ -171,6 +216,23 @@ def _content_key(wa_id: str, text: str) -> str:
     return f"c:{digest}"
 
 
+def _content_age_seconds(raw) -> float | None:
+    if raw is None:
+        return None
+    try:
+        if isinstance(raw, datetime):
+            stamped = raw.astimezone(timezone.utc).replace(tzinfo=None)
+        else:
+            text = str(raw)
+            if "T" in text:
+                stamped = datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+            else:
+                stamped = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
+        return (datetime.utcnow() - stamped).total_seconds()
+    except Exception:
+        return 0
+
+
 def is_duplicate_content(wa_id: str, text: str, window_seconds: int = _CONTENT_TTL) -> bool:
     """True if the same wa_id + text was claimed within the short window.
 
@@ -187,46 +249,58 @@ def is_duplicate_content(wa_id: str, text: str, window_seconds: int = _CONTENT_T
     for k in expired:
         del _content_cache[k]
     if key in _content_cache:
-        # Refresh so a long poll window does not re-open mid-session.
         _content_cache[key] = now + ttl
         logger.debug("Dedup content hit: wa_id=%s text=%r", wa_id, text[:40])
         return True
 
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT processed_at FROM webhook_dedup WHERE message_id = ? LIMIT 1",
-                (key,),
-            ).fetchone()
+        if _use_mongodb():
+            dedup_repo, _ = _dedup_repos()
+            row = dedup_repo.find_one({"message_id": key})
             if row is not None:
-                raw = row[0] if not hasattr(row, "keys") else row["processed_at"]
-                age = None
-                if raw is not None:
-                    try:
-                        # SQLite CURRENT_TIMESTAMP is UTC "YYYY-MM-DD HH:MM:SS"
-                        from datetime import datetime
-                        stamped = datetime.strptime(str(raw)[:19], "%Y-%m-%d %H:%M:%S")
-                        age = (datetime.utcnow() - stamped).total_seconds()
-                    except Exception:
-                        age = 0
+                age = _content_age_seconds(row.get("processed_at"))
                 if age is not None and age < ttl:
                     _content_cache[key] = now + (ttl - max(0, age))
+                    logger.debug("Dedup content L2 hit: wa_id=%s text=%r", wa_id, text[:40])
+                    return True
+                dedup_repo.delete_one({"message_id": key})
+            try:
+                dedup_repo.insert({
+                    "message_id": key,
+                    "wa_id": wa_id,
+                    "processed_at": datetime.now(timezone.utc),
+                })
+            except Exception:
+                _content_cache[key] = now + ttl
+                logger.debug("Dedup content L2 race: wa_id=%s text=%r", wa_id, text[:40])
+                return True
+        else:
+            with get_db_context() as conn:
+                row = conn.execute(
+                    "SELECT processed_at FROM webhook_dedup WHERE message_id = ? LIMIT 1",
+                    (key,),
+                ).fetchone()
+                if row is not None:
+                    raw = row[0] if not hasattr(row, "keys") else row["processed_at"]
+                    age = _content_age_seconds(raw)
+                    if age is not None and age < ttl:
+                        _content_cache[key] = now + (ttl - max(0, age))
+                        logger.debug(
+                            "Dedup content L2 hit: wa_id=%s text=%r", wa_id, text[:40]
+                        )
+                        return True
+                    conn.execute("DELETE FROM webhook_dedup WHERE message_id = ?", (key,))
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO webhook_dedup (message_id, wa_id, processed_at) "
+                    "VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    (key, wa_id),
+                )
+                if cur.rowcount == 0:
+                    _content_cache[key] = now + ttl
                     logger.debug(
-                        "Dedup content L2 hit: wa_id=%s text=%r", wa_id, text[:40]
+                        "Dedup content L2 race: wa_id=%s text=%r", wa_id, text[:40]
                     )
                     return True
-                conn.execute("DELETE FROM webhook_dedup WHERE message_id = ?", (key,))
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO webhook_dedup (message_id, wa_id, processed_at) "
-                "VALUES (?, ?, CURRENT_TIMESTAMP)",
-                (key, wa_id),
-            )
-            if cur.rowcount == 0:
-                _content_cache[key] = now + ttl
-                logger.debug(
-                    "Dedup content L2 race: wa_id=%s text=%r", wa_id, text[:40]
-                )
-                return True
     except Exception as e:
         logger.debug(f"content dedup DB skip: {e}")
 

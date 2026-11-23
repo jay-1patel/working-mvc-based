@@ -212,7 +212,7 @@ export function TeamScreen() {
           <p className="-mt-1 mb-4 flex items-center gap-2 text-sm text-txmuted">
             <UserRound className="h-4 w-4" />
             {isSuperAdmin
-              ? 'Super admins create a company admin for a tenant. That admin then adds sub-admins.'
+              ? 'Super admins create company admins for a tenant (several allowed). Those admins then add sub-admins.'
               : 'A sub admin gets exactly the switches you turn on here.'}
           </p>
           <div className="space-y-4">

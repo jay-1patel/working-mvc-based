@@ -11,7 +11,8 @@ export interface AdminRecord {
 }
 
 export const adminsApi = {
-  list: () => api.get<{ admins: AdminRecord[] }>('/api/auth/admins').then((r) => r.admins),
+  list: () =>
+    api.post<{ admins: AdminRecord[] }>('/api/auth/admins', {}).then((r) => r.admins),
 
   create: (body: {
     username: string

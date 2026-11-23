@@ -20,14 +20,14 @@ always approves what was reviewed, not what the draft looks like later.
 
 import json
 import logging
-import sqlite3
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from database import get_db, get_db_context, record_admin_audit_event
+from database import get_db, get_db_context, record_admin_audit_event, update_admin_record
+from db.core import unique_violation_error_types, use_mongodb
 from routes.auth import get_current_admin, has_permission
 
 logger = logging.getLogger("tenant-approvals")
@@ -81,11 +81,14 @@ def _require_submitter(admin: dict) -> dict:
 
 def _request_dict(row) -> dict:
     out = dict(row)
-    try:
-        out["payload"] = json.loads(out.pop("payload_json") or "{}")
-    except (ValueError, TypeError):
-        out["payload"] = {}
-        out.pop("payload_json", None)
+    raw = out.pop("payload_json", "{}")
+    if isinstance(raw, dict):
+        out["payload"] = raw
+    else:
+        try:
+            out["payload"] = json.loads(raw or "{}")
+        except (ValueError, TypeError):
+            out["payload"] = {}
     return out
 
 
@@ -95,16 +98,14 @@ def _enrich_with_tenant(rows) -> list:
     number is bound to the tenants table, not the profile snapshot."""
     if not rows:
         return []
+    from shared.tenancy import store as tenancy_store
+
     tenant_ids = {str(r["tenant_id"]) for r in rows}
-    with get_db_context() as conn:
-        records = {}
-        for tid in tenant_ids:
-            record = conn.execute(
-                "SELECT id, display_name, vertical, waba_phone_id FROM tenants WHERE id = ?",
-                (tid,),
-            ).fetchone()
-            if record:
-                records[tid] = dict(record)
+    records = {}
+    for tid in tenant_ids:
+        record = tenancy_store.get_tenant(tid)
+        if record:
+            records[tid] = record
     out = []
     for row in rows:
         request = _request_dict(row)
@@ -116,17 +117,30 @@ def _enrich_with_tenant(rows) -> list:
     return out
 
 
+_AUTH_BODY_KEYS = frozenset({"username", "session_id"})
+
+
 async def _parse_body(request: Request, model):
+    """Validate JSON after dropping panel auth fields the frontend always sends.
+
+    ``frontend/src/lib/api.ts`` attaches ``username`` + ``session_id`` to every
+    JSON body. Models use ``extra="forbid"``, so those auth-only keys must be
+    stripped before Pydantic runs or every submit returns HTTP 422.
+    """
     try:
-        return model.model_validate(await request.json())
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
+    if isinstance(payload, dict):
+        payload = {k: v for k, v in payload.items() if k not in _AUTH_BODY_KEYS}
+    try:
+        return model.model_validate(payload)
     except ValidationError as exc:
         errors = [
             {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
             for error in exc.errors()
         ]
         raise HTTPException(status_code=422, detail=errors) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
 
 
 def _add_event(
@@ -139,20 +153,35 @@ def _add_event(
     new_status: str,
     note: str = "",
 ) -> None:
+    values = {
+        "request_id": int(request_id),
+        "actor_id": actor.get("id"),
+        "actor_username": actor.get("username", ""),
+        "actor_role": actor.get("role", ""),
+        "event_type": event_type,
+        "old_status": old_status,
+        "new_status": new_status,
+        "note": note,
+    }
+    if use_mongodb():
+        from db.mongo import Repository
+
+        Repository("tenant_change_request_events").insert(values)
+        return
     conn.execute(
         """INSERT INTO tenant_change_request_events
            (request_id, actor_id, actor_username, actor_role, event_type,
             old_status, new_status, note)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            request_id,
-            actor.get("id"),
-            actor.get("username", ""),
-            actor.get("role", ""),
-            event_type,
-            old_status,
-            new_status,
-            note,
+            values["request_id"],
+            values["actor_id"],
+            values["actor_username"],
+            values["actor_role"],
+            values["event_type"],
+            values["old_status"],
+            values["new_status"],
+            values["note"],
         ),
     )
 
@@ -303,42 +332,45 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
         payload = {"snapshot": draft}
         summary = f"Publish profile for tenant '{tenant_id}'"
 
-    with get_db_context() as conn:
-        duplicate = conn.execute(
-            """SELECT id FROM tenant_change_requests
-               WHERE request_type = ? AND tenant_id = ? AND status = 'pending'""",
-            (body.request_type, tenant_id),
-        ).fetchone()
-        if duplicate:
+    if use_mongodb():
+        from db.mongo import Repository
+
+        repo = Repository("tenant_change_requests")
+        if repo.find_one(
+            {
+                "request_type": body.request_type,
+                "tenant_id": tenant_id,
+                "status": "pending",
+            }
+        ):
             raise HTTPException(
                 status_code=409,
                 detail=f"A pending {body.request_type} request already exists for tenant '{tenant_id}'",
             )
         try:
-            cursor = conn.execute(
-                """INSERT INTO tenant_change_requests
-                   (request_type, tenant_id, payload_json, summary, status,
-                    requester_id, requester_username)
-                   VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
-                (
-                    body.request_type,
-                    tenant_id,
-                    json.dumps(payload, ensure_ascii=False),
-                    summary,
-                    current_admin.get("id"),
-                    current_admin.get("username", ""),
-                ),
+            row = repo.insert(
+                {
+                    "request_type": body.request_type,
+                    "tenant_id": tenant_id,
+                    "payload_json": payload,
+                    "summary": summary,
+                    "status": "pending",
+                    "requester_id": current_admin.get("id"),
+                    "requester_username": current_admin.get("username", ""),
+                    "decision_note": "",
+                    "applied": 0,
+                }
             )
-        except sqlite3.IntegrityError as exc:
-            if "tenant_change_requests" in str(exc):
+        except unique_violation_error_types() as exc:
+            if "tenant_change_requests" in str(exc) or "duplicate key" in str(exc).lower():
                 raise HTTPException(
                     status_code=409,
                     detail=f"A pending request already exists for tenant '{tenant_id}'",
                 ) from exc
             raise
-        request_id = cursor.lastrowid
+        request_id = int(row["id"])
         _add_event(
-            conn,
+            None,
             request_id,
             actor=current_admin,
             event_type="submitted",
@@ -347,7 +379,7 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
             note=body.note,
         )
         record_admin_audit_event(
-            conn,
+            None,
             action="tenant_change_request_submitted",
             actor=current_admin,
             resource_type="tenant_change_request",
@@ -355,10 +387,63 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
             tenant_id=tenant_id,
             details={"request_type": body.request_type},
         )
-        row = conn.execute(
-            "SELECT * FROM tenant_change_requests WHERE id = ?",
-            (request_id,),
-        ).fetchone()
+    else:
+        with get_db_context() as conn:
+            duplicate = conn.execute(
+                """SELECT id FROM tenant_change_requests
+                   WHERE request_type = ? AND tenant_id = ? AND status = 'pending'""",
+                (body.request_type, tenant_id),
+            ).fetchone()
+            if duplicate:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"A pending {body.request_type} request already exists for tenant '{tenant_id}'",
+                )
+            try:
+                cursor = conn.execute(
+                    """INSERT INTO tenant_change_requests
+                       (request_type, tenant_id, payload_json, summary, status,
+                        requester_id, requester_username)
+                       VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
+                    (
+                        body.request_type,
+                        tenant_id,
+                        json.dumps(payload, ensure_ascii=False),
+                        summary,
+                        current_admin.get("id"),
+                        current_admin.get("username", ""),
+                    ),
+                )
+            except unique_violation_error_types() as exc:
+                if "tenant_change_requests" in str(exc) or "duplicate key" in str(exc).lower():
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"A pending request already exists for tenant '{tenant_id}'",
+                    ) from exc
+                raise
+            request_id = cursor.lastrowid
+            _add_event(
+                conn,
+                request_id,
+                actor=current_admin,
+                event_type="submitted",
+                old_status=None,
+                new_status="pending",
+                note=body.note,
+            )
+            record_admin_audit_event(
+                conn,
+                action="tenant_change_request_submitted",
+                actor=current_admin,
+                resource_type="tenant_change_request",
+                resource_id=request_id,
+                tenant_id=tenant_id,
+                details={"request_type": body.request_type},
+            )
+            row = conn.execute(
+                "SELECT * FROM tenant_change_requests WHERE id = ?",
+                (request_id,),
+            ).fetchone()
     logger.info(
         "TENANT_CHANGE_SUBMITTED | type=%s | tenant=%s | by=%s",
         body.request_type, tenant_id, current_admin.get("username"),
@@ -387,26 +472,34 @@ def queue_publish_for_approval(tenant_id: str, current_admin: dict) -> dict:
     from shared.tenancy import store as tenancy_store
 
     draft = tenancy_store.get_draft(tenant_id) or {}
-    with get_db_context() as conn:
-        row = conn.execute(
-            """SELECT * FROM tenant_change_requests
-               WHERE request_type = 'publish_profile' AND tenant_id = ?
-                 AND status = 'pending'
-               ORDER BY id DESC LIMIT 1""",
-            (tenant_id,),
-        ).fetchone()
+    if use_mongodb():
+        from db.mongo import Repository
+
+        repo = Repository("tenant_change_requests")
+        rows = repo.find(
+            {
+                "request_type": "publish_profile",
+                "tenant_id": tenant_id,
+                "status": "pending",
+            },
+            sort=[("id", -1)],
+            limit=1,
+        )
+        row = rows[0] if rows else None
         if not row:
             raise HTTPException(
                 status_code=409,
                 detail=f"A pending publish_profile request already exists for tenant '{tenant_id}'",
             )
-        conn.execute(
-            "UPDATE tenant_change_requests SET payload_json = ?, updated_at = CURRENT_TIMESTAMP "
-            "WHERE id = ?",
-            (json.dumps({"snapshot": draft}, ensure_ascii=False), row["id"]),
+        repo.update(
+            {"id": row["id"]},
+            {
+                "payload_json": {"snapshot": draft},
+                "updated_at": datetime.now(timezone.utc),
+            },
         )
         _add_event(
-            conn,
+            None,
             row["id"],
             actor=current_admin,
             event_type="submitted",
@@ -414,10 +507,39 @@ def queue_publish_for_approval(tenant_id: str, current_admin: dict) -> dict:
             new_status="pending",
             note="Snapshot refreshed with the latest draft",
         )
-        refreshed = conn.execute(
-            "SELECT * FROM tenant_change_requests WHERE id = ?",
-            (row["id"],),
-        ).fetchone()
+        refreshed = repo.find_one({"id": row["id"]})
+    else:
+        with get_db_context() as conn:
+            row = conn.execute(
+                """SELECT * FROM tenant_change_requests
+                   WHERE request_type = 'publish_profile' AND tenant_id = ?
+                     AND status = 'pending'
+                   ORDER BY id DESC LIMIT 1""",
+                (tenant_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"A pending publish_profile request already exists for tenant '{tenant_id}'",
+                )
+            conn.execute(
+                "UPDATE tenant_change_requests SET payload_json = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE id = ?",
+                (json.dumps({"snapshot": draft}, ensure_ascii=False), row["id"]),
+            )
+            _add_event(
+                conn,
+                row["id"],
+                actor=current_admin,
+                event_type="submitted",
+                old_status="pending",
+                new_status="pending",
+                note="Snapshot refreshed with the latest draft",
+            )
+            refreshed = conn.execute(
+                "SELECT * FROM tenant_change_requests WHERE id = ?",
+                (row["id"],),
+            ).fetchone()
     logger.info(
         "TENANT_CHANGE_RESUBMITTED | type=publish_profile | tenant=%s | by=%s",
         tenant_id, current_admin.get("username"),
@@ -429,6 +551,14 @@ def queue_publish_for_approval(tenant_id: str, current_admin: dict) -> dict:
 def list_my_requests(current_admin: dict = Depends(get_current_admin)):
     """The signed-in admin's own submissions, newest first."""
     _require_submitter(current_admin)
+    if use_mongodb():
+        from db.mongo import Repository
+
+        rows = Repository("tenant_change_requests").find_all(
+            {"requester_id": current_admin.get("id")},
+            sort=[("created_at", -1), ("id", -1)],
+        )
+        return {"requests": _enrich_with_tenant(rows)}
     conn = get_db()
     try:
         rows = conn.execute(
@@ -447,6 +577,14 @@ def list_all_requests(
     current_admin: dict = Depends(get_current_admin),
 ):
     _require_super_admin(current_admin)
+    if use_mongodb():
+        from db.mongo import Repository
+
+        flt = {"status": status} if status else None
+        rows = Repository("tenant_change_requests").find_all(
+            flt, sort=[("created_at", -1), ("id", -1)]
+        )
+        return {"requests": _enrich_with_tenant(rows)}
     conn = get_db()
     try:
         if status:
@@ -471,6 +609,16 @@ def list_request_events(
     current_admin: dict = Depends(get_current_admin),
 ):
     _require_super_admin(current_admin)
+    if use_mongodb():
+        from db.mongo import Repository
+
+        reqs = Repository("tenant_change_requests")
+        if not reqs.find_one({"id": int(request_id)}):
+            raise HTTPException(status_code=404, detail="Request not found")
+        rows = Repository("tenant_change_request_events").find_all(
+            {"request_id": int(request_id)}, sort=[("id", 1)]
+        )
+        return {"events": [dict(row) for row in rows]}
     conn = get_db()
     try:
         if not conn.execute(
@@ -571,10 +719,9 @@ def _apply_request(row: dict) -> int:
 
 def _scope_requester_to_tenant(row: dict) -> None:
     """Approving a company's registration claims it for the admin who
-    submitted it: an unscoped admin becomes that tenant's admin, so the
-    console unlocks for them once the tenant is live. One admin per
-    company is respected."""
-    from database import get_admin_record, count_tenant_admins
+    submitted it: an unscoped admin becomes a tenant admin for that company.
+    Multiple company admins may share the same tenant_id."""
+    from database import get_admin_record
     username = str(row.get("requester_username") or "").strip()
     tenant_id = str(row.get("tenant_id") or "").strip()
     if not username or not tenant_id:
@@ -584,14 +731,9 @@ def _scope_requester_to_tenant(row: dict) -> None:
         not requester
         or requester.get("role") != "admin"
         or str(requester.get("tenant_id") or "").strip()
-        or count_tenant_admins(tenant_id)
     ):
         return
-    with get_db_context() as conn:
-        conn.execute(
-            "UPDATE admins SET tenant_id = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
-            (tenant_id, username),
-        )
+    update_admin_record(username, tenant_id=tenant_id)
     logger.info(
         "TENANT_CHANGE_SCOPED | admin=%s | tenant=%s", username, tenant_id,
     )
@@ -605,14 +747,20 @@ async def decide_request(
 ):
     _require_super_admin(current_admin)
     body = await _parse_body(request, DecisionBody)
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT * FROM tenant_change_requests WHERE id = ?", (request_id,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Request not found")
-        if row["status"] != "pending":
-            raise HTTPException(status_code=409, detail="Only pending requests can be reviewed")
+    if use_mongodb():
+        from db.mongo import Repository
+
+        repo = Repository("tenant_change_requests")
+        row = repo.find_one({"id": int(request_id)})
+    else:
+        with get_db_context() as conn:
+            row = conn.execute(
+                "SELECT * FROM tenant_change_requests WHERE id = ?", (request_id,)
+            ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if row["status"] != "pending":
+        raise HTTPException(status_code=409, detail="Only pending requests can be reviewed")
 
     if body.decision == "approved":
         record = dict(row)
@@ -622,28 +770,27 @@ async def decide_request(
         version = None
 
     decided_at = datetime.now(timezone.utc).isoformat()
-    with get_db_context() as conn:
-        updated = conn.execute(
-            """UPDATE tenant_change_requests
-               SET status = ?, reviewer_id = ?, reviewer_username = ?, decision_note = ?,
-                   decided_at = ?, applied = ?, applied_version = ?,
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE id = ? AND status = 'pending'""",
-            (
-                body.decision,
-                current_admin.get("id"),
-                current_admin.get("username", ""),
-                body.note,
-                decided_at,
-                1 if body.decision == "approved" else 0,
-                version,
-                request_id,
-            ),
+    if use_mongodb():
+        from db.mongo import Repository
+
+        repo = Repository("tenant_change_requests")
+        modified = repo.update(
+            {"id": int(request_id), "status": "pending"},
+            {
+                "status": body.decision,
+                "reviewer_id": current_admin.get("id"),
+                "reviewer_username": current_admin.get("username", ""),
+                "decision_note": body.note,
+                "decided_at": decided_at,
+                "applied": 1 if body.decision == "approved" else 0,
+                "applied_version": version,
+                "updated_at": datetime.now(timezone.utc),
+            },
         )
-        if updated.rowcount != 1:
+        if modified != 1:
             raise HTTPException(status_code=409, detail="Request was already reviewed")
         _add_event(
-            conn,
+            None,
             request_id,
             actor=current_admin,
             event_type="decision",
@@ -652,7 +799,7 @@ async def decide_request(
             note=body.note,
         )
         record_admin_audit_event(
-            conn,
+            None,
             action="tenant_change_request_reviewed",
             actor=current_admin,
             resource_type="tenant_change_request",
@@ -660,10 +807,50 @@ async def decide_request(
             tenant_id=row["tenant_id"],
             details={"decision": body.decision, "request_type": row["request_type"]},
         )
-        result = conn.execute(
-            "SELECT * FROM tenant_change_requests WHERE id = ?",
-            (request_id,),
-        ).fetchone()
+        result = repo.find_one({"id": int(request_id)})
+    else:
+        with get_db_context() as conn:
+            updated = conn.execute(
+                """UPDATE tenant_change_requests
+                   SET status = ?, reviewer_id = ?, reviewer_username = ?, decision_note = ?,
+                       decided_at = ?, applied = ?, applied_version = ?,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ? AND status = 'pending'""",
+                (
+                    body.decision,
+                    current_admin.get("id"),
+                    current_admin.get("username", ""),
+                    body.note,
+                    decided_at,
+                    1 if body.decision == "approved" else 0,
+                    version,
+                    request_id,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise HTTPException(status_code=409, detail="Request was already reviewed")
+            _add_event(
+                conn,
+                request_id,
+                actor=current_admin,
+                event_type="decision",
+                old_status="pending",
+                new_status=body.decision,
+                note=body.note,
+            )
+            record_admin_audit_event(
+                conn,
+                action="tenant_change_request_reviewed",
+                actor=current_admin,
+                resource_type="tenant_change_request",
+                resource_id=request_id,
+                tenant_id=row["tenant_id"],
+                details={"decision": body.decision, "request_type": row["request_type"]},
+            )
+            result = conn.execute(
+                "SELECT * FROM tenant_change_requests WHERE id = ?",
+                (request_id,),
+            ).fetchone()
     logger.info(
         "TENANT_CHANGE_DECIDED | id=%s | tenant=%s | decision=%s | by=%s",
         request_id, row["tenant_id"], body.decision, current_admin.get("username"),

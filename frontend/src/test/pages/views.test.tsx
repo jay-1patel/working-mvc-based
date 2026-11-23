@@ -126,8 +126,14 @@ describe('complaints page', () => {
 describe('uploads page', () => {
   it('lists uploaded files', async () => {
     await renderView(`#/tenants/${T}/uploads`)
-    await expectHeading('Knowledge & uploads')
+    await expectHeading('Website crawler')
+    expect(screen.getByRole('tab', { name: 'Files (FAQ, KB, …)' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
     expect(await screen.findByText('faq.pdf')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'File library' })).toBeInTheDocument()
+    expect(screen.getByText(/Store raw files under a module/)).toBeInTheDocument()
   })
 })
 

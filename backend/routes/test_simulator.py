@@ -80,25 +80,29 @@ def _ensure_user_type(wa_id: str, user_type: str) -> str:
     If the tester explicitly picks a persona, ensure the corresponding row
     exists (a distributor row for b2b) so routing matches a real connection.
     """
-    from database import get_db_context
+    from database import distributor_exists_globally, get_db_context
+    from db.core import use_mongodb
 
-    with get_db_context() as conn:
-        is_dist = conn.execute(
-            "SELECT 1 FROM distributors WHERE wa_id=?", (wa_id,)
-        ).fetchone()
+    is_dist = distributor_exists_globally(wa_id)
 
     resolved = user_type
     if resolved == "auto":
         resolved = "b2b" if is_dist else "b2c"
 
     if resolved == "b2b" and not is_dist:
-        # Simulate a real distributor registration so B2B routing works.
-        with get_db_context() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO distributors (wa_id, name, outstanding_payments) "
-                "VALUES (?, ?, 0)",
-                (wa_id, "Test Distributor"),
-            )
+        if use_mongodb():
+            from db.mongo import Repository
+
+            repo = Repository("distributors")
+            if not repo.find_one({"wa_id": wa_id}):
+                repo.insert({"wa_id": wa_id, "name": "Test Distributor", "outstanding_payments": 0})
+        else:
+            with get_db_context() as conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO distributors (wa_id, name, outstanding_payments) "
+                    "VALUES (?, ?, 0)",
+                    (wa_id, "Test Distributor"),
+                )
     return resolved
 
 
@@ -121,16 +125,29 @@ async def simulate_message(
 
     if request.tenant_id:
         try:
-            from database import set_request_tenant, get_db_context
+            from database import set_request_tenant
+            from db.core import use_mongodb
             from backend.services import state_manager as sm
             set_request_tenant(request.tenant_id)
             sm.set_tenant(wa_id, request.tenant_id)
-            with get_db_context() as conn:
-                try:
-                    conn.execute("UPDATE user_states SET tenant_id=? WHERE wa_id=?", (request.tenant_id, wa_id))
-                except Exception:
-                    # deliberate: tenant stamp is best-effort; the outer handler logs failures
-                    logger.debug("SIMULATOR_TENANT_STAMP_FAILED | wa_id=%s", wa_id, exc_info=True)
+            if use_mongodb():
+                from db.mongo import Repository
+
+                Repository("user_states").update(
+                    {"wa_id": wa_id},
+                    {"tenant_id": request.tenant_id},
+                )
+            else:
+                from database import get_db_context
+
+                with get_db_context() as conn:
+                    try:
+                        conn.execute(
+                            "UPDATE user_states SET tenant_id=? WHERE wa_id=?",
+                            (request.tenant_id, wa_id),
+                        )
+                    except Exception:
+                        logger.debug("SIMULATOR_TENANT_STAMP_FAILED | wa_id=%s", wa_id, exc_info=True)
         except Exception as exc:
             logger.debug(f"Could not stamp simulator tenant: {exc}")
 
@@ -170,7 +187,7 @@ async def reset_conversation(
     registered distributor row created by the tester), so the next message
     behaves like the very first message of a fresh WhatsApp chat.
     """
-    from database import get_db_context
+    from db.core import use_mongodb
 
     wa_id = (request.wa_id or "").strip() or "test-user-001"
     logger.info(f"TEST_SIMULATOR_RESET | wa_id={wa_id}")
@@ -185,9 +202,17 @@ async def reset_conversation(
         # deliberate: reset continues even if no live flow state exists to clear
         logger.debug("SIMULATOR_FLOW_CLEAR_FAILED | wa_id=%s", wa_id, exc_info=True)
 
-    with get_db_context() as conn:
-        conn.execute("DELETE FROM user_states WHERE wa_id=?", (wa_id,))
-        conn.execute("DELETE FROM distributors WHERE wa_id=?", (wa_id,))
+    if use_mongodb():
+        from db.mongo import Repository
+
+        Repository("user_states").delete_many({"wa_id": wa_id})
+        Repository("distributors").delete_many({"wa_id": wa_id})
+    else:
+        from database import get_db_context
+
+        with get_db_context() as conn:
+            conn.execute("DELETE FROM user_states WHERE wa_id=?", (wa_id,))
+            conn.execute("DELETE FROM distributors WHERE wa_id=?", (wa_id,))
 
     return {
         "wa_id": wa_id,
@@ -200,22 +225,40 @@ async def reset_conversation(
 
 def _ensure_distributor_for_preview(wa_id: str, tier: Optional[str], outstanding: Optional[float]):
     """Create or update a distributor row so the B2B menu preview is realistic."""
-    from database import get_db_context
+    from db.core import use_mongodb
 
     name = "Test Distributor"
     tier = tier or "Bronze"
     outstanding = outstanding if outstanding is not None else 0.0
 
-    with get_db_context() as conn:
-        conn.execute(
-            """INSERT INTO distributors (wa_id, name, tier, outstanding_payments)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(wa_id) DO UPDATE SET
-                 name = excluded.name,
-                 tier = excluded.tier,
-                 outstanding_payments = excluded.outstanding_payments""",
-            (wa_id, name, tier, outstanding),
-        )
+    payload = {
+        "wa_id": wa_id,
+        "name": name,
+        "tier": tier,
+        "outstanding_payments": outstanding,
+    }
+    if use_mongodb():
+        from db.mongo import Repository
+
+        repo = Repository("distributors")
+        existing = repo.find_one({"wa_id": wa_id})
+        if existing:
+            repo.update({"wa_id": wa_id}, payload)
+        else:
+            repo.insert(payload)
+    else:
+        from database import get_db_context
+
+        with get_db_context() as conn:
+            conn.execute(
+                """INSERT INTO distributors (wa_id, name, tier, outstanding_payments)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(wa_id) DO UPDATE SET
+                     name = excluded.name,
+                     tier = excluded.tier,
+                     outstanding_payments = excluded.outstanding_payments""",
+                (wa_id, name, tier, outstanding),
+            )
 
 
 def _count_list_rows(menu: dict) -> int:

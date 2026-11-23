@@ -7,7 +7,7 @@
  * what it staged (nothing is live yet), download it, then approve or
  * reject. Approval publishes knowledge only — never the menu or brand.
  */
-import { api, apiCallStart, getToken, logApiCall, logApiError } from './api'
+import { api, apiCallStart, apiUrl, authHeaders, getSessionId, getUsername, logApiCall, logApiError } from './api'
 
 export interface CrawlRun {
   id: number
@@ -151,34 +151,34 @@ export interface CrawlStagedResponse {
 
 export type CrawlExportFormat = 'json' | 'csv' | 'pdf'
 
-const base = (tenantId: string) =>
-  `/api/admin/tenants/${encodeURIComponent(tenantId)}`
-
 export const crawlApi = {
   listRuns: (tenantId: string, signal?: AbortSignal) =>
-    api.get<CrawlRunsResponse>(`${base(tenantId)}/crawl-runs`, signal),
+    api.post<CrawlRunsResponse>('/api/admin/tenants/crawl-runs', {}, { signal }),
 
   // No max_pages is sent: crawls are unlimited and fetch every page found.
   start: (tenantId: string, url: string) =>
     api.post<{ ok: boolean; status: string; run_id: number; run: CrawlRun }>(
-      `${base(tenantId)}/crawl`,
+      '/api/admin/tenants/crawl',
       { url },
     ),
 
   staged: (tenantId: string, runId: number, signal?: AbortSignal) =>
-    api.get<CrawlStagedResponse>(
-      `${base(tenantId)}/crawl-runs/${runId}/staged`,
-      signal,
+    api.post<CrawlStagedResponse>(
+      '/api/admin/tenants/crawl-runs/staged',
+      { run_id: runId },
+      { signal },
     ),
 
   approve: (tenantId: string, runId: number) =>
     api.post<{ ok: boolean; result: Record<string, unknown> }>(
-      `${base(tenantId)}/crawl-runs/${runId}/approve`,
+      '/api/admin/tenants/crawl-runs/approve',
+      { run_id: runId },
     ),
 
   reject: (tenantId: string, runId: number) =>
     api.post<{ ok: boolean; result: Record<string, unknown> }>(
-      `${base(tenantId)}/crawl-runs/${runId}/reject`,
+      '/api/admin/tenants/crawl-runs/reject',
+      { run_id: runId },
     ),
 
   /** Fetch the export file with the bearer token; caller saves the blob. */
@@ -187,23 +187,32 @@ export const crawlApi = {
     runId: number,
     format: CrawlExportFormat,
   ): Promise<Blob> => {
-    const token = getToken()
-    const path = `${base(tenantId)}/crawl-runs/${runId}/export?format=${format}`
+    const path = '/api/admin/tenants/crawl-runs/export'
     const startedAt = apiCallStart()
     let res: Response
     try {
-      res = await fetch(path, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      res = await fetch(apiUrl(path), {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          run_id: runId,
+          format,
+          ...(getUsername() ? { username: getUsername() } : {}),
+          ...(getSessionId() ? { session_id: getSessionId() } : {}),
+        }),
       })
     } catch (err) {
-      logApiError('GET', path, 0, (err as Error)?.message || 'Network error', startedAt)
+      logApiError('POST', path, 0, (err as Error)?.message || 'Network error', startedAt)
       throw err
     }
     if (!res.ok) {
-      logApiError('GET', path, res.status, `Export failed (${res.status})`, startedAt)
+      logApiError('POST', path, res.status, `Export failed (${res.status})`, startedAt)
       throw new Error(`Export failed (${res.status})`)
     }
-    logApiCall('GET', path, res.status, startedAt)
+    logApiCall('POST', path, res.status, startedAt)
     return res.blob()
   },
 }

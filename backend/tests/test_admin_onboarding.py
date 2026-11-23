@@ -22,6 +22,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -76,17 +78,11 @@ STAGED = {
 
 class AdminOnboardingTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "onboarding.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
-        # Same ADMIN_SECRET_KEY patch as test_role_panels (gate-env gap).
-        self.key_patch = patch.object(auth_routes, "ADMIN_SECRET_KEY", "test-admin-signing-key")
-        self.key_patch.start()
         database.init_db()
 
         self.app = FastAPI()
@@ -118,10 +114,8 @@ class AdminOnboardingTests(unittest.TestCase):
         self.leeway_admin = self._create_admin("leeway-admin", tenant_id="leeway")
 
     def tearDown(self):
-        self.key_patch.stop()
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     # ── helpers ────────────────────────────────────────────────────────
 
@@ -227,6 +221,29 @@ class AdminOnboardingTests(unittest.TestCase):
         self.assertEqual(res.status_code, 403, res.text)
         self.assertIn("view-only", res.json()["detail"])
 
+    def test_reupload_publish_uses_filename_as_replaceable_source(self):
+        captured = {}
+
+        def fake_apply(self, **kwargs):
+            captured.update(kwargs)
+            return {"status": "configured", "version": 2}
+
+        revised = dict(STAGED)
+        revised["source_files"] = ["../../company-revised.pdf"]
+        with patch.object(AutoBifurcator, "apply_bifurcation", fake_apply):
+            res = self.client.post(
+                "/api/admin/tenants/leeway/onboarding/publish",
+                json={"draft": revised},
+                headers=self.leeway_admin,
+            )
+
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["status"], "published")
+        # The basename is both the replacement key for a future re-upload and
+        # safe to persist as a source label.
+        self.assertEqual(captured["source_file"], "company-revised.pdf")
+        self.assertTrue(captured["auto_publish"])
+
     # ── the completion path the wizard submits ─────────────────────────
 
     def test_awaiting_approval_admin_completion_path(self):
@@ -257,7 +274,7 @@ class AdminOnboardingTests(unittest.TestCase):
                 ],
             },
         }
-        saved = self.client.put(
+        saved = self.client.post(
             "/api/admin/tenants/leeway/profile",
             json={"snapshot": snapshot},
             headers=self.leeway_admin,

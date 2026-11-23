@@ -7,7 +7,6 @@ imports its globals from here; backend/database.py re-exports from here too.
 import os
 import sys as _sys
 import json
-import sqlite3
 import logging
 import hashlib
 import re
@@ -19,15 +18,12 @@ from typing import Optional, Any, Dict, List
 
 logger = logging.getLogger("chiki_webhook")
 
-# ── Single database shared by the app, the FAQ bot and the KB bot ─────────
-# routing.config resolves DB_PATH from ROUTING_DB_PATH (routing/.env) and the
-# FAQ/KB indexes open that file. This module must open the SAME file, otherwise
-# the admin UI (chat_history / webhook_logs / customers) reads a different,
-# empty faq.db than the bot writes to.
+# MongoDB is the only production database backend (see use_mongodb()).
+# DB_PATH / ROUTING_DB_PATH remain for legacy test harnesses that patch
+# database.DB_PATH; the running app does not open SQLite.
 #
-# routing/.env is loaded here too because this module can be imported before
-# the app calls load_dotenv(). The resolution logic mirrors routing.config
-# exactly (relative paths resolve against the repo root).
+# routing/.env is loaded here because this module can be imported before
+# the app calls load_dotenv().
 # Anchored so paths resolve identically to the old backend/database.py.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # backend/
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
@@ -45,7 +41,8 @@ def _resolve_db_path() -> str:
         if not os.path.isabs(raw):
             raw = os.path.join(PROJECT_ROOT, raw)
         return os.path.normpath(raw)
-    return os.path.join(PROJECT_ROOT, "faq.db")
+    # Legacy fallback when ROUTING_DB_PATH unset (tests only; app uses MongoDB).
+    return os.path.join(PROJECT_ROOT, "legacy-unused.db")
 
 
 DB_PATH = _resolve_db_path()
@@ -165,27 +162,27 @@ def _facade_ref(name, default=None):
     return default
 
 
+def use_mongodb() -> bool:
+    """The application runs on MongoDB only."""
+    return True
+
+
+def unique_violation_error_types():
+    """Exception types raised on unique-index conflicts for the active backend."""
+    from pymongo.errors import DuplicateKeyError
+
+    return (DuplicateKeyError,)
+
+
 def get_db():
-    # Uses the absolute path we defined at the top of the file
-    conn = sqlite3.connect(active_db_path(), timeout=30.0)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-    except Exception:
-        # deliberate: pragmas are tuning — the connection is still usable
-        # with sqlite defaults.
-        logger.debug("DB_PRAGMA_SKIPPED", exc_info=True)
-    return conn
+    raise RuntimeError(
+        "SQL connection requested; use db.mongo.Repository or native MongoDB accessors"
+    )
 
 
 @contextmanager
 def get_db_context():
-    # Resolved at call time so a test that patches `database.get_db`
-    # (in-memory fixture connections) also steers every context user.
-    conn = _facade_ref("get_db", get_db)()
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+    raise RuntimeError(
+        "SQL connection requested; use db.mongo.Repository or native MongoDB accessors"
+    )
+    yield  # pragma: no cover - unreachable

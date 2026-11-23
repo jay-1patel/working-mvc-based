@@ -2,7 +2,6 @@ import os
 import re
 import json
 import logging
-import sqlite3
 import threading
 import subprocess
 from functools import lru_cache
@@ -14,6 +13,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from rank_bm25 import BM25Okapi
 import faiss
 
+from db.core import get_db_context, use_mongodb
 from routing.config import (
     DB_PATH, EMBEDDING_MODEL_PATH, BRAND_NAME, SUPPORT_EMAIL, SUPPORT_PHONE,
     BRAND_WEBSITE, OLLAMA_API_URL, OLLAMA_MODEL, OLLAMA_BASE_URL,
@@ -218,18 +218,43 @@ def _canonical_tenant_id(tenant_id=None) -> str:
         # deliberate: resolver chain — fall through to the DB lookup.
         logger.debug("CANONICAL_TENANT_RESOLVE_STEP_SKIPPED | source=store tid=%s", tid, exc_info=True)
     try:
-        from database import get_db_context
-        with get_db_context() as conn:
-            clean_tid = tid.replace("-", "").replace("_", "")
-            row = conn.execute(
-                "SELECT id FROM tenants WHERE slug = ? OR lower(replace(slug, '-', '')) = lower(?) OR lower(replace(company_name, ' ', '')) = lower(?)",
-                (tid, clean_tid, clean_tid),
-            ).fetchone()
-            if row:
-                return str(row[0])
+        from shared.tenancy import store as tenancy_store
+        clean_tid = tid.replace("-", "").replace("_", "")
+        for candidate in (tid, clean_tid):
+            rec = tenancy_store.get_tenant(candidate)
+            if rec and rec.get("id"):
+                return str(rec["id"])
     except Exception:
-        # deliberate: resolver chain — fall back to the raw tenant id.
-        logger.debug("CANONICAL_TENANT_RESOLVE_STEP_SKIPPED | source=db tid=%s", tid, exc_info=True)
+        logger.debug(
+            "CANONICAL_TENANT_RESOLVE_STEP_SKIPPED | source=tenancy_store tid=%s",
+            tid,
+            exc_info=True,
+        )
+    try:
+        from db.mongo import Repository
+
+        clean_tid = tid.replace("-", "").replace("_", "").lower()
+        repo = Repository("tenants")
+        row = (
+            repo.find_one({"slug": tid})
+            or repo.find_one({"id": tid})
+            or repo.find_one({"slug": {"$regex": f"^{re.escape(tid)}$", "$options": "i"}})
+        )
+        if not row:
+            for r in repo.find_all({}, limit=500):
+                slug_norm = (str(r.get("slug") or "")).replace("-", "").replace("_", "").lower()
+                name_norm = (str(r.get("company_name") or r.get("display_name") or "")).replace(" ", "").lower()
+                if slug_norm == clean_tid or name_norm == clean_tid:
+                    row = r
+                    break
+        if row and row.get("id"):
+            return str(row["id"])
+    except Exception:
+        logger.debug(
+            "CANONICAL_TENANT_RESOLVE_STEP_SKIPPED | source=tenants_repo tid=%s",
+            tid,
+            exc_info=True,
+        )
     return tid
 
 
@@ -822,10 +847,12 @@ class FAQIndex:
             if self.is_built and not force:
                 return
             try:
-                conn = sqlite3.connect(DB_PATH)
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute("SELECT * FROM faq_dataset").fetchall()
-                conn.close()
+                if use_mongodb():
+                    from db.mongo import Repository
+                    rows = Repository("faq_dataset").find_all({}, limit=None)
+                else:
+                    with get_db_context() as conn:
+                        rows = conn.execute("SELECT * FROM faq_dataset").fetchall()
             except Exception as exc:
                 logger.error(f"Failed to load chunks: {exc}")
                 return
@@ -837,24 +864,28 @@ class FAQIndex:
             chunks, metadatas, all_embeddings, missing = [], [], [], []
 
             for row in rows:
-                chunks.append(row["content"])
+                # Mongo docs (and sparse SQLite rows) may omit optional columns.
+                row = dict(row) if not isinstance(row, dict) else row
+                chunks.append(row.get("content") or "")
                 metadatas.append({
                     "source":       "document",
-                    "id":           row["id"],
-                    "source_file":  row["source_file"],
-                    "content_type": row["content_type"],
-                    "page_number":  row["page_number"],
-                    "tenant_id":    row["tenant_id"] if "tenant_id" in row.keys() else "default",
-                    "media_url":    row["media_url"]  if "media_url"  in row.keys() else None,
-                    "media_type":   row["media_type"] if "media_type" in row.keys() else None,
+                    "id":           row.get("id"),
+                    "source_file":  row.get("source_file"),
+                    "content_type": row.get("content_type"),
+                    "page_number":  row.get("page_number"),
+                    "tenant_id":    row.get("tenant_id") or "default",
+                    "media_url":    row.get("media_url"),
+                    "media_type":   row.get("media_type"),
                 })
 
-                if row["embedding"]:
+                emb = row.get("embedding")
+                if emb:
+                    # bson.Binary / memoryview / bytes are all buffer-protocol.
                     all_embeddings.append(
-                        np.frombuffer(row["embedding"], dtype=np.float32)
+                        np.frombuffer(bytes(emb), dtype=np.float32)
                     )
                 else:
-                    missing.append((len(chunks) - 1, row["id"], row["content"]))
+                    missing.append((len(chunks) - 1, row.get("id"), row.get("content") or ""))
 
             # Compute missing embeddings
             if missing:
@@ -1187,16 +1218,26 @@ def _fetch_module_full_content(modules: tuple[str, ...], tenant_id: str | None =
     order. Fully dynamic — reads the database on every request."""
     marks = ",".join("?" * len(modules))
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
         resolved_tid = _resolve_tenant_id(tenant_id)
         raw_tid = str(tenant_id or resolved_tid)
-        rows = conn.execute(
-            f"SELECT content, content_type FROM faq_dataset "
-            f"WHERE module IN ({marks}) AND (tenant_id = ? OR tenant_id = ? OR strftime(tenant_id) = ?) ORDER BY page_number, id",
-            tuple(modules) + (resolved_tid, raw_tid, resolved_tid),
-        ).fetchall()
-        conn.close()
+        if use_mongodb():
+            from db.mongo import Repository
+            from db.search import _mongo_tenant_filter, _tenant_ids
+            effective_tid = tenant_id or resolved_tid
+            t_id_str, t_slug = _tenant_ids(effective_tid)
+            filters = {"module": {"$in": list(modules)}}
+            filters.update(_mongo_tenant_filter(t_id_str, t_slug, effective_tid))
+            rows = Repository("faq_dataset").find_all(
+                filters, sort=[("page_number", 1), ("id", 1)], limit=None,
+            )
+        else:
+            with get_db_context() as conn:
+                rows = conn.execute(
+                    f"SELECT content, content_type FROM faq_dataset "
+                    f"WHERE module IN ({marks}) AND (tenant_id = ? OR tenant_id = ? OR strftime(tenant_id) = ?) "
+                    f"ORDER BY page_number, id",
+                    tuple(modules) + (resolved_tid, raw_tid, resolved_tid),
+                ).fetchall()
     except Exception as exc:
         logger.warning(f"Listing content fetch failed: {exc}")
         return None

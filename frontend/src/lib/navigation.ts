@@ -2,7 +2,7 @@
  * The tenant sidebar, as data — remake edition.
  *
  * The remake groups the same screens by the job the admin is doing
- * (Today / Talk to customers / Your business data / Grow / Manage /
+ * (Dashboard / Talk to customers / Your business data / Grow / Manage /
  * Settings → Advanced) and renames them in plain words. Every item still
  * maps to the SAME route view it always did; only the label, the icon
  * and the grouping changed. Visibility is unchanged too: an item shows
@@ -10,16 +10,18 @@
  * exactly as before.
  *
  * Route mapping (view id → new label):
- *   overview          → Today                    records   → <Products|Services|…> & prices
- *   inbox             → Chats                    uploads   → Knowledge
- *   chat-history      → Past chats               uploads   → Files (same screen, second door)
- *   complaints        → Help requests            website-knowledge → Website knowledge
+ *   overview          → Dashboard                records   → <Products|Services|…> & prices
+ *   inbox             → Chats                    website-crawler → Website crawler
+ *   chat-history      → Past chats               (was: Knowledge / Website knowledge / Files)
+ *   complaints        → Help requests
  *   callbacks         → Callbacks                customers → Customers
- *   menu              → Bot menu                 orders    → Orders
+ *   menu              → WhatsApp menu (under WhatsApp dropdown)
+ *   profile-menu      → Profile menu (hours + notifications, under WhatsApp dropdown)
  *   distributors      → Partners                 campaigns → Send an offer
  *   intents           → Questions the bot understands
  *   versions          → Versions                 tokens    → Connections
- *   profile           → Profile (Advanced)       menu-edit → Menu editor (Advanced)
+ *   profile           → Profile (below Chats; brand only)
+ *   menu-edit         → Menu editor (Advanced)
  *   layers            → Layers (Advanced)        api-access → API access (Advanced)
  *   chat              → Admin chat (Advanced)    test      → Test & smoke (Advanced)
  *   whatsapp-tester   → WhatsApp Tester (Advanced)
@@ -28,12 +30,10 @@
 
 import {
   AlertTriangle,
-  BookOpen,
   Briefcase,
   ClipboardList,
+  Clock,
   Cpu,
-  FileText,
-  FlaskConical,
   FolderOpen,
   Gift,
   Globe,
@@ -41,16 +41,13 @@ import {
   History,
   Inbox,
   KeyRound,
-  Layers,
   LayoutGrid,
   ListTree,
   Megaphone,
-  MessagesSquare,
+  MessageCircle,
   Package,
   Phone,
-  Plug,
   ScrollText,
-  ShieldCheck,
   ShoppingCart,
   Truck,
   Users,
@@ -59,8 +56,22 @@ import {
 import type { FeatureFlag, Features } from './types'
 import { getVertical } from './verticals'
 
-export interface NavItem {
+export interface NavChild {
   /** Route view id: `#/tenants/<tenant>/<id>`. */
+  id: string
+  label: string
+  icon: LucideIcon
+  /** Visible when the admin holds any of these. Undefined is ungated. */
+  permissions?: string[]
+  /** Visible when the tenant has this feature on. Undefined is ungated. */
+  feature?: FeatureFlag
+}
+
+export interface NavItem {
+  /**
+   * Route view id: `#/tenants/<tenant>/<id>`.
+   * For dropdown parents this is a sidebar key only (not a route).
+   */
   id: string
   label: string
   icon: LucideIcon
@@ -72,10 +83,12 @@ export interface NavItem {
   feature?: FeatureFlag
   /** True when the sidebar should show the tenant's record count. */
   showsCount?: boolean
+  /** Nested items rendered as a sidebar dropdown under this parent. */
+  children?: NavChild[]
 }
 
 export type NavGroup =
-  | 'Today'
+  | 'Dashboard'
   | 'Talk to customers'
   | 'Your business data'
   | 'Grow'
@@ -83,7 +96,7 @@ export type NavGroup =
   | 'Settings → Advanced'
 
 export const NAV_GROUP_ORDER: NavGroup[] = [
-  'Today',
+  'Dashboard',
   'Talk to customers',
   'Your business data',
   'Grow',
@@ -160,7 +173,7 @@ export function buildTenantNav(opts: {
   const hideSuperAdminOnly = opts.isSuperAdmin === false
 
   const items: NavItem[] = [
-    { id: 'overview', label: 'Today', icon: LayoutGrid, group: 'Today' },
+    { id: 'overview', label: 'Dashboard', icon: LayoutGrid, group: 'Dashboard' },
 
     // Talk to customers
     {
@@ -170,6 +183,13 @@ export function buildTenantNav(opts: {
       group: 'Talk to customers',
       permissions: ['view_inbox'],
       feature: 'human_handover',
+    },
+    {
+      id: 'profile',
+      label: 'Profile',
+      icon: ScrollText,
+      group: 'Talk to customers',
+      permissions: ['manage_operations'],
     },
     {
       id: 'chat-history',
@@ -196,8 +216,29 @@ export function buildTenantNav(opts: {
       showsCount: true,
     },
 
-    // Your business data
-    { id: 'menu', label: 'Bot menu', icon: ListTree, group: 'Your business data', permissions: ['manage_operations'] },
+    // Your business data — company console core:
+    // WhatsApp dropdown → Website crawler → Customers
+    {
+      id: 'whatsapp',
+      label: 'WhatsApp',
+      icon: MessageCircle,
+      group: 'Your business data',
+      permissions: ['manage_operations'],
+      children: [
+        { id: 'menu', label: 'WhatsApp menu', icon: ListTree, permissions: ['manage_operations'] },
+        { id: 'profile-menu', label: 'Profile menu', icon: Clock, permissions: ['manage_operations'] },
+      ],
+    },
+    {
+      // One door for crawl + document knowledge + raw files (was three
+      // sidebar entries: Knowledge, Website knowledge, Files).
+      id: 'website-crawler',
+      label: 'Website crawler',
+      icon: Globe,
+      group: 'Your business data',
+      permissions: uploadPermissions,
+    },
+    { id: 'customers', label: 'Customers', icon: Users, group: 'Your business data', permissions: ['view_customers'] },
     {
       id: 'records',
       label: `${content.label} & prices`,
@@ -207,35 +248,7 @@ export function buildTenantNav(opts: {
       feature: 'offerings',
       showsCount: true,
     },
-    {
-      id: 'uploads',
-      label: 'Knowledge',
-      icon: BookOpen,
-      group: 'Your business data',
-      permissions: uploadPermissions,
-    },
-    {
-      // Website Knowledge: the crawl half of onboarding (KB / FAQs /
-      // product knowledge from the tenant's website). Same content
-      // switches as Uploads — the two screens are one knowledge hub.
-      id: 'website-knowledge',
-      label: 'Website knowledge',
-      icon: Globe,
-      group: 'Your business data',
-      permissions: uploadPermissions,
-    },
-    {
-      // Files is the same Uploads screen through a second door: that
-      // screen manages both the knowledge content and the raw files, and
-      // the remake's plain naming keeps both jobs findable.
-      id: 'uploads',
-      label: 'Files',
-      icon: FileText,
-      group: 'Your business data',
-      permissions: uploadPermissions,
-    },
     ...companyInfo,
-    { id: 'customers', label: 'Customers', icon: Users, group: 'Your business data', permissions: ['view_customers'] },
     {
       id: 'orders',
       label: 'Orders',
@@ -274,55 +287,33 @@ export function buildTenantNav(opts: {
     { id: 'versions', label: 'Versions', icon: ClipboardList, group: 'Manage', permissions: ['manage_operations'] },
     { id: 'tokens', label: 'Connections', icon: KeyRound, group: 'Manage', permissions: ['manage_operations'] },
 
-    // Settings → Advanced: the technical screens, kept reachable but out
-    // of the daily path.
-    { id: 'profile', label: 'Profile', icon: ScrollText, group: 'Settings → Advanced', permissions: ['manage_operations'] },
-    { id: 'menu-edit', label: 'Menu editor', icon: ListTree, group: 'Settings → Advanced', permissions: ['manage_operations'] },
-    { id: 'layers', label: 'Layers', icon: Layers, group: 'Settings → Advanced', permissions: ['manage_operations'] },
-    {
-      id: 'api-access',
-      label: 'API access',
-      icon: Plug,
-      group: 'Settings → Advanced',
-      permissions: ['manage_operations'],
-    },
-    {
-      id: 'chat',
-      label: 'Admin chat',
-      icon: MessagesSquare,
-      group: 'Settings → Advanced',
-      permissions: ['chat'],
-    },
-    {
-      id: 'test',
-      label: 'Test & smoke',
-      icon: ShieldCheck,
-      group: 'Settings → Advanced',
-      permissions: ['manage_operations'],
-    },
-    {
-      id: 'whatsapp-tester',
-      label: 'WhatsApp Tester',
-      icon: FlaskConical,
-      group: 'Settings → Advanced',
-      permissions: ['manage_operations'],
-    },
+    // Settings → Advanced tools still have routes and implementations, but
+    // are intentionally hidden from the admin panel for now.
   ]
-  return items.filter((item) => {
-    if (
-      hideSuperAdminOnly &&
-      (SUPER_ADMIN_ONLY_NAV_GROUPS.includes(item.group) ||
-        (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(item.id))
-    ) {
-      return false
-    }
-    return isVisible(item, opts.can, features)
-  })
+  return items
+    .map((item) => {
+      if (!item.children?.length) return item
+      return {
+        ...item,
+        children: item.children.filter((child) => isVisible(child, opts.can, features)),
+      }
+    })
+    .filter((item) => {
+      if (
+        hideSuperAdminOnly &&
+        (SUPER_ADMIN_ONLY_NAV_GROUPS.includes(item.group) ||
+          (SUPER_ADMIN_ONLY_VIEWS as readonly string[]).includes(item.id))
+      ) {
+        return false
+      }
+      if (item.children) return item.children.length > 0 && isVisible(item, opts.can, features)
+      return isVisible(item, opts.can, features)
+    })
 }
 
 /** Whether one item passes its permission and feature gates. */
 export function isVisible(
-  item: NavItem,
+  item: Pick<NavItem, 'permissions' | 'feature'>,
   can: (permission: string) => boolean,
   features: Features | null,
 ): boolean {
@@ -333,5 +324,7 @@ export function isVisible(
 
 /** The ids a known view can resolve to — used to decide "unknown view". */
 export function knownViews(vertical?: string | null): string[] {
-  return buildTenantNav({ vertical, features: null, can: () => true }).map((i) => i.id)
+  return buildTenantNav({ vertical, features: null, can: () => true }).flatMap((item) =>
+    item.children?.length ? item.children.map((child) => child.id) : [item.id],
+  )
 }

@@ -1,23 +1,16 @@
 """Key/value app settings and the active test tenant data access — extracted from backend/database.py."""
-import os
-import json
-import re
-import sqlite3
-import logging
-import hashlib
-from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Optional
 
-from .core import (
-    DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
-    _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-    get_request_tenant
-)
+from .core import logger, get_db_context, use_mongodb
 
 
 def get_app_setting(key: str, default: str = "") -> str:
     try:
+        if use_mongodb():
+            from .mongo import Repository
+            row = Repository("app_settings").find_one({"key": key})
+            return row["value"] if row and row.get("value") is not None else default
         with get_db_context() as conn:
             conn.execute(
                 """CREATE TABLE IF NOT EXISTS app_settings (
@@ -34,6 +27,17 @@ def get_app_setting(key: str, default: str = "") -> str:
 
 
 def set_app_setting(key: str, value: str) -> None:
+    if use_mongodb():
+        from .mongo import Repository
+        Repository("app_settings").upsert(
+            {"key": key},
+            {
+                "key": key,
+                "value": str(value or ""),
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
+        return
     with get_db_context() as conn:
         conn.execute(
             """CREATE TABLE IF NOT EXISTS app_settings (
@@ -73,10 +77,16 @@ def set_active_test_tenant(tenant_id: Optional[str]) -> None:
     set_app_setting("active_test_tenant", val)
     # Clear conversation user states and carts so tester starts completely fresh with greeting/menu
     try:
-        with get_db_context() as conn:
-            conn.execute("DELETE FROM user_states")
-            conn.execute("DELETE FROM carts")
-            conn.execute("DELETE FROM cart_items")
+        if use_mongodb():
+            from .mongo import Repository
+            Repository("user_states").delete_many({})
+            Repository("carts").delete_many({})
+            Repository("cart_items").delete_many({})
+        else:
+            with get_db_context() as conn:
+                conn.execute("DELETE FROM user_states")
+                conn.execute("DELETE FROM carts")
+                conn.execute("DELETE FROM cart_items")
     except Exception as e:
         logger.debug(f"Could not clear user_states: {e}")
     try:
@@ -110,8 +120,12 @@ def set_active_test_tenant(tenant_id: Optional[str]) -> None:
     # Content-fingerprint rows (c:…) block a repeated "hi" for ~25s across
     # webhook+poller. Clear them on switch so the new tenant can greet.
     try:
-        with get_db_context() as conn:
-            conn.execute("DELETE FROM webhook_dedup WHERE message_id LIKE 'c:%'")
+        if use_mongodb():
+            from .mongo import Repository
+            Repository("webhook_dedup").delete_many({"message_id": {"$regex": "^c:"}})
+        else:
+            with get_db_context() as conn:
+                conn.execute("DELETE FROM webhook_dedup WHERE message_id LIKE 'c:%'")
     except Exception as e:
         logger.debug(f"Could not clear content dedup rows: {e}")
     if val:

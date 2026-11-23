@@ -7,6 +7,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 import bcrypt
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -34,11 +36,7 @@ WEAK = [
 
 class PasswordPolicyTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_patch = patch.object(
-            database, "DB_PATH", os.path.join(self.temp.name, "pw.sqlite3")
-        )
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         database.init_db()
         self.app = FastAPI()
         if auth_routes.RATE_LIMIT_ENABLED:
@@ -47,7 +45,7 @@ class PasswordPolicyTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
     def tearDown(self):
-        self.db_patch.stop()
+        self.mongo.stop()
         self.temp.cleanup()
 
     def _detail(self, response):

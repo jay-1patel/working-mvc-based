@@ -19,6 +19,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -248,11 +250,10 @@ def _start_fixture_server():
 
 class ImageStorageTests(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
         self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "img.sqlite3")
         self.upload = Path(self.temp.name) / "uploads"
         self.upload.mkdir()
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
         self.env_patch = patch.dict(os.environ, {
             "UPLOAD_DIR": str(self.upload),
             # The fixture server is on localhost. The SSRF check stays on;
@@ -262,7 +263,6 @@ class ImageStorageTests(unittest.TestCase):
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.env_patch.start()
         self.resolver_patch.start()
         database.init_db()
@@ -270,10 +270,10 @@ class ImageStorageTests(unittest.TestCase):
         self.run = database.create_crawl_run("img-tenant", "http://example.test", trigger="manual")
 
     def tearDown(self):
-        self.db_patch.stop()
+        self.mongo.stop()
+        self.temp.cleanup()
         self.env_patch.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     def test_limits_dedupe_and_pixel_skip(self):
         server, base = _start_fixture_server()
@@ -346,20 +346,16 @@ class ImageStorageTests(unittest.TestCase):
 
 class ScheduleDefaultsTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "sched.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
+        self.mongo = MongomockSession().start()
         self.resolver_patch = patch(
             "shared.tenancy.resolver.resolve_default_tenant", return_value="default"
         )
-        self.db_patch.start()
         self.resolver_patch.start()
         database.init_db()
 
     def tearDown(self):
-        self.db_patch.stop()
+        self.mongo.stop()
         self.resolver_patch.stop()
-        self.temp.cleanup()
 
     def test_upsert_defaults_weekly_unlimited_no_autopublish(self):
         # Page-count limit removed (2026-11-11): a fresh schedule stores no
@@ -382,14 +378,13 @@ class ScheduleDefaultsTests(unittest.TestCase):
 
 class CrawlApiAndE2ETests(unittest.TestCase):
     def setUp(self):
+        self.mongo = MongomockSession().start()
         self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "crawl.sqlite3")
         self.upload = Path(self.temp.name) / "uploads"
         self.upload.mkdir()
         self.clients_root = Path(self.temp.name) / "clients"
         self.clients_root.mkdir()
 
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
         self.env_patch = patch.dict(os.environ, {
             "UPLOAD_DIR": str(self.upload),
             # The fixture server is on localhost. The SSRF check stays on;
@@ -410,24 +405,29 @@ class CrawlApiAndE2ETests(unittest.TestCase):
             """Insert FAQ rows without loading sentence-transformers."""
             if not faqs:
                 return 0
+            from datetime import datetime, timezone
+
+            from db.mongo import Repository
+
+            repo = Repository("faq_dataset", self.mongo.database)
             count = 0
-            with database.get_db_context() as conn:
-                for f in faqs:
-                    q = (f.get("question") or "").strip()
-                    a = (f.get("answer") or "").strip()
-                    if not q or not a:
-                        continue
-                    conn.execute(
-                        """INSERT INTO faq_dataset
-                               (source_file, content_type, content, page_number, module, tenant_id, created_at)
-                           VALUES (?, 'qa', ?, 1, 'faq', ?, CURRENT_TIMESTAMP)""",
-                        (
-                            "website_faq_test.md",
-                            f"Question: {q}\nAnswer: {a}",
-                            tenant_id,
-                        ),
-                    )
-                    count += 1
+            for f in faqs:
+                q = (f.get("question") or "").strip()
+                a = (f.get("answer") or "").strip()
+                if not q or not a:
+                    continue
+                repo.insert(
+                    {
+                        "source_file": "website_faq_test.md",
+                        "content_type": "qa",
+                        "content": f"Question: {q}\nAnswer: {a}",
+                        "page_number": 1,
+                        "module": "faq",
+                        "tenant_id": tenant_id,
+                        "created_at": datetime.now(timezone.utc),
+                    }
+                )
+                count += 1
             return count
 
         self.faq_ingest_patch = patch(
@@ -436,7 +436,6 @@ class CrawlApiAndE2ETests(unittest.TestCase):
             side_effect=_light_faq_ingest,
         )
 
-        self.db_patch.start()
         self.env_patch.start()
         self.clients_patch.start()
         self.resolver_patch.start()
@@ -494,8 +493,10 @@ class CrawlApiAndE2ETests(unittest.TestCase):
 
     def tearDown(self):
         self.server.shutdown()
+        self.mongo.stop()
+        self.temp.cleanup()
         for p in (
-            self.db_patch, self.env_patch, self.clients_patch, self.resolver_patch,
+            self.env_patch, self.clients_patch, self.resolver_patch,
             self.llm_patch, self.faq_ingest_patch, self.faq_index_patch,
             self.bifurcator_patch,
         ):
@@ -503,24 +504,15 @@ class CrawlApiAndE2ETests(unittest.TestCase):
                 p.stop()
             except Exception:
                 pass
-        self.temp.cleanup()
 
     def _live_counts(self, tenant_id: str):
-        with database.get_db_context() as conn:
-            products = conn.execute(
-                "SELECT COUNT(*) AS c FROM products WHERE tenant_id = ?", (tenant_id,)
-            ).fetchone()["c"]
-            faqs = conn.execute(
-                "SELECT COUNT(*) AS c FROM faq_dataset WHERE tenant_id = ?", (tenant_id,)
-            ).fetchone()["c"]
-            try:
-                kb = conn.execute(
-                    "SELECT COUNT(*) AS c FROM knowledge_base WHERE tenant_id = ?",
-                    (tenant_id,),
-                ).fetchone()["c"]
-            except sqlite3.OperationalError:
-                kb = 0
-        return {"products": products, "faqs": faqs, "kb": kb}
+        from db.mongo import Repository
+
+        return {
+            "products": Repository("products", self.mongo.database).count({"tenant_id": tenant_id}),
+            "faqs": Repository("faq_dataset", self.mongo.database).count({"tenant_id": tenant_id}),
+            "kb": Repository("knowledge_base", self.mongo.database).count({"tenant_id": tenant_id}),
+        }
 
     def test_e2e_crawl_stage_approve_reject(self):
         from services.crawl_pipeline import (
@@ -785,6 +777,41 @@ class UnlimitedCrawlTests(unittest.TestCase):
         self.assertEqual(res["pages_found"], BIG_SITE_PAGE_COUNT, res)
         errors = {item.get("error") for item in res["inventory"]}
         self.assertNotIn("not_fetched_max_pages", errors)
+
+    def test_default_has_no_total_timeout_or_depth_limit(self):
+        crawler = SiteCrawler(self.base, request_delay=0.0)
+        self.assertIsNone(crawler.max_depth)
+        self.assertIsNone(crawler.total_timeout)
+
+    def test_default_crawl_reaches_pages_deeper_than_four_links(self):
+        for depth in range(7):
+            next_link = (
+                f'<a href="/deep-{depth + 1}">next</a>'
+                if depth < 6 else ""
+            )
+            html = (
+                f"<html><body><h1>Deep page {depth}</h1>"
+                f"<p>{ARTICLE}</p>{next_link}</body></html>"
+            ).encode()
+            _FixtureHandler.pages[f"/deep-{depth}"] = ("text/html", html)
+
+        result = SiteCrawler(
+            f"{self.base}/deep-0", request_delay=0.0, respect_robots=False,
+        ).crawl()
+        urls = {page["url"].rstrip("/") for page in result["pages"]}
+        self.assertIn(f"{self.base}/deep-6", urls)
+
+    def test_progress_callback_reports_scraped_counts(self):
+        progress = []
+        crawler = SiteCrawler(
+            self.base,
+            request_delay=0.0,
+            progress_callback=lambda **counts: progress.append(counts),
+        )
+        result = crawler.crawl()
+        self.assertTrue(progress)
+        self.assertEqual(progress[-1]["pages_scraped"], BIG_SITE_PAGE_COUNT)
+        self.assertGreaterEqual(progress[-1]["pages_found"], result["pages_found"])
 
     def test_explicit_cap_still_honoured(self):
         # Backward compatibility: a caller that passes a cap still gets it.

@@ -8,7 +8,18 @@ from typing import Any, Dict, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from database import get_db, get_db_context, record_admin_audit_event
+from database import record_admin_audit_event
+from db.core import use_mongodb
+from db.integrations_ops import (
+    get_tenant_integration,
+    get_tenant_shipment,
+    insert_tenant_payment,
+    insert_tenant_shipment,
+    list_tenant_integrations,
+    pick_active_integration,
+    update_integration_test_status,
+    upsert_tenant_integration,
+)
 from routes.auth import get_current_admin, has_permission, require_tenant_access
 from services.integrations import (
     BlueDartService,
@@ -82,19 +93,14 @@ def _mask_credentials(creds: Dict[str, Any]) -> Dict[str, Any]:
     return masked
 
 
-def _get_tenant_integration(conn, tenant_id: str, provider: str) -> Optional[dict]:
-    row = conn.execute(
-        """SELECT * FROM tenant_integrations WHERE tenant_id = ? AND LOWER(provider) = LOWER(?)""",
-        (tenant_id, provider),
-    ).fetchone()
-    if not row:
-        return None
-    d = dict(row)
-    try:
-        d["credentials"] = json.loads(d.get("credentials_json") or "{}")
-    except Exception:
-        d["credentials"] = {}
-    return d
+def _record_audit(**kwargs):
+    if use_mongodb():
+        record_admin_audit_event(None, **kwargs)
+    else:
+        from database import get_db_context
+
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **kwargs)
 
 
 # ── Routes ───────────────────────────────────────────────────────────
@@ -105,27 +111,18 @@ def list_integrations(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """List all configured integrations and their live connection status."""
-    with get_db_context() as conn:
-        rows = conn.execute(
-            """SELECT id, tenant_id, provider, api_type, environment, is_active,
-                      credentials_json, webhook_secret, status, last_tested_at, last_error,
-                      created_at, updated_at
-               FROM tenant_integrations WHERE tenant_id = ? ORDER BY provider ASC""",
-            (tenant_id,),
-        ).fetchall()
-
     integrations = []
-    for r in rows:
+    for r in list_tenant_integrations(tenant_id):
         d = dict(r)
         try:
             creds = json.loads(d.get("credentials_json") or "{}")
         except Exception:
-            creds = {}
+            creds = d.get("credentials") if isinstance(d.get("credentials"), dict) else {}
         d["credentials_masked"] = _mask_credentials(creds)
         d["has_credentials"] = bool(creds)
-        del d["credentials_json"]
+        d.pop("credentials_json", None)
+        d.pop("credentials", None)
         integrations.append(d)
-
     return {"integrations": integrations}
 
 
@@ -138,55 +135,35 @@ async def save_integration_config(
 ):
     """Save or update real API credentials for Stripe, Razorpay, Blue Dart, Xpressbees or Custom."""
     prov = provider.lower().strip()
-    with get_db_context() as conn:
-        existing = _get_tenant_integration(conn, tenant_id, prov)
-        creds = body.credentials or {}
-        if existing and not creds:
-            # Preserve existing if not overwritten with blanks
-            creds = existing.get("credentials", {})
-
-        creds_json = json.dumps(creds)
-        now = datetime.now(timezone.utc).isoformat()
-
-        conn.execute(
-            """INSERT INTO tenant_integrations
-               (tenant_id, provider, api_type, environment, is_active, credentials_json, webhook_secret, status, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'configured', ?)
-               ON CONFLICT(tenant_id, provider) DO UPDATE SET
-                   api_type = excluded.api_type,
-                   environment = excluded.environment,
-                   is_active = excluded.is_active,
-                   credentials_json = excluded.credentials_json,
-                   webhook_secret = excluded.webhook_secret,
-                   status = 'configured',
-                   updated_at = excluded.updated_at""",
-            (
-                tenant_id,
-                prov,
-                body.api_type,
-                body.environment,
-                1 if body.is_active else 0,
-                creds_json,
-                body.webhook_secret,
-                now,
-            ),
-        )
-        record_admin_audit_event(
-            conn,
-            action="integration_configured",
-            actor=current_admin,
-            resource_type="integration",
-            resource_id=f"{tenant_id}/{prov}",
-            tenant_id=tenant_id,
-            details={
-                "provider": prov,
-                "api_type": body.api_type,
-                "environment": body.environment,
-                "is_active": body.is_active,
-                "has_webhook_secret": bool(body.webhook_secret),
-                "configured_keys": sorted(creds.keys()),
-            },
-        )
+    existing = get_tenant_integration(tenant_id, prov)
+    creds = body.credentials or {}
+    if existing and not creds:
+        creds = existing.get("credentials", {})
+    creds_json = json.dumps(creds)
+    upsert_tenant_integration(
+        tenant_id,
+        prov,
+        api_type=body.api_type,
+        environment=body.environment,
+        is_active=body.is_active,
+        credentials_json=creds_json,
+        webhook_secret=body.webhook_secret,
+    )
+    _record_audit(
+        action="integration_configured",
+        actor=current_admin,
+        resource_type="integration",
+        resource_id=f"{tenant_id}/{prov}",
+        tenant_id=tenant_id,
+        details={
+            "provider": prov,
+            "api_type": body.api_type,
+            "environment": body.environment,
+            "is_active": body.is_active,
+            "has_webhook_secret": bool(body.webhook_secret),
+            "configured_keys": sorted(creds.keys()),
+        },
+    )
 
     return {
         "ok": True,
@@ -208,68 +185,58 @@ async def test_integration_connection(
     creds = body.credentials if (body and body.credentials) else {}
     env = body.environment if body else "sandbox"
 
-    with get_db_context() as conn:
-        if not creds:
-            existing = _get_tenant_integration(conn, tenant_id, prov)
-            if existing:
-                creds = existing.get("credentials", {})
-                env = existing.get("environment", "sandbox")
+    if not creds:
+        existing = get_tenant_integration(tenant_id, prov)
+        if existing:
+            creds = existing.get("credentials", {})
+            env = existing.get("environment", "sandbox")
 
-        if not creds:
-            raise HTTPException(status_code=400, detail="No credentials configured to test")
+    if not creds:
+        raise HTTPException(status_code=400, detail="No credentials configured to test")
 
-        test_result = {"ok": False, "error": "Unknown provider"}
+    test_result = {"ok": False, "error": "Unknown provider"}
 
-        # Route test to specific service
-        if "stripe" in prov:
-            api_key = creds.get("secret_key") or creds.get("api_key") or ""
-            test_result = await StripeService.test_connection(api_key)
-        elif "razorpay" in prov:
-            key_id = creds.get("key_id") or creds.get("api_key") or ""
-            key_secret = creds.get("key_secret") or creds.get("secret") or ""
-            test_result = await RazorpayService.test_connection(key_id, key_secret)
-        elif "bluedart" in prov or "blue_dart" in prov:
-            customer_code = creds.get("customer_code") or ""
-            license_key = creds.get("license_key") or ""
-            login_id = creds.get("login_id") or "BD_USER"
-            test_result = await BlueDartService.test_connection(customer_code, license_key, login_id, sandbox=(env == "sandbox"))
-        elif "xpressbees" in prov:
-            email = creds.get("email") or ""
-            password = creds.get("password") or ""
-            token = creds.get("token") or creds.get("api_token") or ""
-            test_result = await XpressbeesService.test_connection(email, password, token, sandbox=(env == "sandbox"))
-        elif "custom" in prov:
-            endpoint_url = creds.get("endpoint_url") or creds.get("api_url") or ""
-            auth_header = creds.get("auth_header") or creds.get("api_key") or ""
-            test_result = await CustomIntegrationService.test_connection(endpoint_url, auth_header)
+    if "stripe" in prov:
+        api_key = creds.get("secret_key") or creds.get("api_key") or ""
+        test_result = await StripeService.test_connection(api_key)
+    elif "razorpay" in prov:
+        key_id = creds.get("key_id") or creds.get("api_key") or ""
+        key_secret = creds.get("key_secret") or creds.get("secret") or ""
+        test_result = await RazorpayService.test_connection(key_id, key_secret)
+    elif "bluedart" in prov or "blue_dart" in prov:
+        customer_code = creds.get("customer_code") or ""
+        license_key = creds.get("license_key") or ""
+        login_id = creds.get("login_id") or "BD_USER"
+        test_result = await BlueDartService.test_connection(customer_code, license_key, login_id, sandbox=(env == "sandbox"))
+    elif "xpressbees" in prov:
+        email = creds.get("email") or ""
+        password = creds.get("password") or ""
+        token = creds.get("token") or creds.get("api_token") or ""
+        test_result = await XpressbeesService.test_connection(email, password, token, sandbox=(env == "sandbox"))
+    elif "custom" in prov:
+        endpoint_url = creds.get("endpoint_url") or creds.get("api_url") or ""
+        auth_header = creds.get("auth_header") or creds.get("api_key") or ""
+        test_result = await CustomIntegrationService.test_connection(endpoint_url, auth_header)
 
-        # Update integration status in DB
-        new_status = "verified" if test_result.get("ok") else "error"
-        last_error = "" if test_result.get("ok") else test_result.get("error", "Test failed")
-        now = datetime.now(timezone.utc).isoformat()
-
-        conn.execute(
-            """UPDATE tenant_integrations
-               SET status = ?, last_tested_at = ?, last_error = ?, updated_at = ?
-               WHERE tenant_id = ? AND LOWER(provider) = LOWER(?)""",
-            (new_status, now, last_error, now, tenant_id, prov),
-        )
-
-        record_admin_audit_event(
-            conn,
-            action="integration_tested",
-            actor=current_admin,
-            outcome="success" if test_result.get("ok") else "failure",
-            resource_type="integration",
-            resource_id=f"{tenant_id}/{prov}",
-            tenant_id=tenant_id,
-            details={
-                "provider": prov,
-                "environment": env,
-                "test_status": new_status,
-                "error": last_error or None,
-            },
-        )
+    new_status = "verified" if test_result.get("ok") else "error"
+    last_error = "" if test_result.get("ok") else test_result.get("error", "Test failed")
+    update_integration_test_status(
+        tenant_id, prov, status=new_status, last_error=last_error,
+    )
+    _record_audit(
+        action="integration_tested",
+        actor=current_admin,
+        outcome="success" if test_result.get("ok") else "failure",
+        resource_type="integration",
+        resource_id=f"{tenant_id}/{prov}",
+        tenant_id=tenant_id,
+        details={
+            "provider": prov,
+            "environment": env,
+            "test_status": new_status,
+            "error": last_error or None,
+        },
+    )
 
     return {
         "ok": test_result.get("ok", False),
@@ -288,92 +255,78 @@ async def create_payment_session(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Create a real payment link / session using active payment integration (Stripe, Razorpay, or Custom)."""
-    with get_db_context() as conn:
-        prov = (body.provider or "").lower().strip()
-        if not prov:
-            # Pick active verified payment provider
-            row = conn.execute(
-                """SELECT provider, credentials_json FROM tenant_integrations
-                   WHERE tenant_id = ? AND api_type = 'payment_api' AND is_active = 1
-                   ORDER BY CASE WHEN status = 'verified' THEN 1 ELSE 2 END ASC LIMIT 1""",
-                (tenant_id,),
-            ).fetchone()
-            if not row:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No active payment gateway configured. Please configure Stripe, Razorpay, or Custom Payment first.",
-                )
-            prov = row["provider"]
-            creds = json.loads(row["credentials_json"] or "{}")
-        else:
-            integration = _get_tenant_integration(conn, tenant_id, prov)
-            if not integration:
-                raise HTTPException(status_code=404, detail=f"Provider '{prov}' is not configured for this tenant")
-            creds = integration.get("credentials", {})
-
-        result = {"ok": False, "error": "Provider not supported"}
-
-        if "stripe" in prov:
-            api_key = creds.get("secret_key") or creds.get("api_key") or ""
-            result = await StripeService.create_checkout_session(
-                api_key=api_key,
-                amount=body.amount,
-                currency=body.currency,
-                order_id=body.order_id,
-                description=body.description,
-                customer_email=body.customer_email,
-                success_url=body.success_url,
-                cancel_url=body.cancel_url,
+    prov = (body.provider or "").lower().strip()
+    if not prov:
+        picked = pick_active_integration(tenant_id, "payment_api")
+        if not picked:
+            raise HTTPException(
+                status_code=400,
+                detail="No active payment gateway configured. Please configure Stripe, Razorpay, or Custom Payment first.",
             )
-        elif "razorpay" in prov:
-            key_id = creds.get("key_id") or creds.get("api_key") or ""
-            key_secret = creds.get("key_secret") or creds.get("secret") or ""
-            result = await RazorpayService.create_payment_link(
-                key_id=key_id,
-                key_secret=key_secret,
-                amount=body.amount,
-                currency=body.currency,
-                order_id=body.order_id,
-                customer_name=body.customer_name,
-                customer_phone=body.customer_phone,
-                customer_email=body.customer_email,
-                description=body.description,
-            )
-        elif "custom" in prov:
-            endpoint_url = creds.get("endpoint_url") or creds.get("api_url") or ""
-            auth_header = creds.get("auth_header") or creds.get("api_key") or ""
-            result = await CustomIntegrationService.process_custom_payment(
-                endpoint_url=endpoint_url,
-                auth_header=auth_header,
-                amount=body.amount,
-                currency=body.currency,
-                order_id=body.order_id,
-                customer_phone=body.customer_phone,
-            )
+        prov = picked["provider"]
+        creds = picked.get("credentials", {})
+    else:
+        integration = get_tenant_integration(tenant_id, prov)
+        if not integration:
+            raise HTTPException(status_code=404, detail=f"Provider '{prov}' is not configured for this tenant")
+        creds = integration.get("credentials", {})
 
-        if not result.get("ok"):
-            raise HTTPException(status_code=400, detail=result.get("error", "Payment link generation failed"))
+    result = {"ok": False, "error": "Provider not supported"}
 
-        # Save payment transaction in DB
-        payment_id = result.get("payment_link_id") or result.get("session_id") or result.get("payment_id") or ""
-        payment_url = result.get("payment_url") or ""
-
-        conn.execute(
-            """INSERT INTO tenant_payments
-               (tenant_id, order_id, provider, amount, currency, payment_id, session_id, payment_url, status, raw_response)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?)""",
-            (
-                tenant_id,
-                body.order_id,
-                prov,
-                body.amount,
-                body.currency,
-                payment_id,
-                result.get("session_id"),
-                payment_url,
-                json.dumps(result),
-            ),
+    if "stripe" in prov:
+        api_key = creds.get("secret_key") or creds.get("api_key") or ""
+        result = await StripeService.create_checkout_session(
+            api_key=api_key,
+            amount=body.amount,
+            currency=body.currency,
+            order_id=body.order_id,
+            description=body.description,
+            customer_email=body.customer_email,
+            success_url=body.success_url,
+            cancel_url=body.cancel_url,
         )
+    elif "razorpay" in prov:
+        key_id = creds.get("key_id") or creds.get("api_key") or ""
+        key_secret = creds.get("key_secret") or creds.get("secret") or ""
+        result = await RazorpayService.create_payment_link(
+            key_id=key_id,
+            key_secret=key_secret,
+            amount=body.amount,
+            currency=body.currency,
+            order_id=body.order_id,
+            customer_name=body.customer_name,
+            customer_phone=body.customer_phone,
+            customer_email=body.customer_email,
+            description=body.description,
+        )
+    elif "custom" in prov:
+        endpoint_url = creds.get("endpoint_url") or creds.get("api_url") or ""
+        auth_header = creds.get("auth_header") or creds.get("api_key") or ""
+        result = await CustomIntegrationService.process_custom_payment(
+            endpoint_url=endpoint_url,
+            auth_header=auth_header,
+            amount=body.amount,
+            currency=body.currency,
+            order_id=body.order_id,
+            customer_phone=body.customer_phone,
+        )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Payment link generation failed"))
+
+    payment_id = result.get("payment_link_id") or result.get("session_id") or result.get("payment_id") or ""
+    payment_url = result.get("payment_url") or ""
+    insert_tenant_payment({
+        "tenant_id": tenant_id,
+        "order_id": body.order_id,
+        "provider": prov,
+        "amount": body.amount,
+        "currency": body.currency,
+        "payment_id": payment_id,
+        "session_id": result.get("session_id"),
+        "payment_url": payment_url,
+        "raw_response": json.dumps(result),
+    })
 
     return {
         "ok": True,
@@ -395,92 +348,80 @@ async def book_shipment(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Book shipment and generate live AWB with Blue Dart, Xpressbees, or Custom."""
-    with get_db_context() as conn:
-        prov = (body.provider or "").lower().strip()
-        if not prov:
-            row = conn.execute(
-                """SELECT provider, credentials_json FROM tenant_integrations
-                   WHERE tenant_id = ? AND api_type = 'order_api' AND is_active = 1
-                   ORDER BY CASE WHEN status = 'verified' THEN 1 ELSE 2 END ASC LIMIT 1""",
-                (tenant_id,),
-            ).fetchone()
-            if not row:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No active shipping provider configured. Please configure Blue Dart, Xpressbees, or Custom Shipping first.",
-                )
-            prov = row["provider"]
-            creds = json.loads(row["credentials_json"] or "{}")
-        else:
-            integration = _get_tenant_integration(conn, tenant_id, prov)
-            if not integration:
-                raise HTTPException(status_code=404, detail=f"Shipping provider '{prov}' is not configured")
-            creds = integration.get("credentials", {})
-
-        result = {"ok": False, "error": "Provider not supported"}
-
-        if "bluedart" in prov or "blue_dart" in prov:
-            result = await BlueDartService.book_shipment(
-                customer_code=creds.get("customer_code", "DEMO_CUST"),
-                license_key=creds.get("license_key", "DEMO_KEY"),
-                login_id=creds.get("login_id", "BD_USER"),
-                order_id=body.order_id,
-                origin_pincode=body.origin_pincode,
-                destination_pincode=body.destination_pincode,
-                customer_name=body.customer_name,
-                customer_phone=body.customer_phone,
-                weight_kg=body.weight_kg,
-                item_description=body.item_description,
-                cod_amount=body.cod_amount if body.cod else 0.0,
+    prov = (body.provider or "").lower().strip()
+    if not prov:
+        picked = pick_active_integration(tenant_id, "order_api")
+        if not picked:
+            raise HTTPException(
+                status_code=400,
+                detail="No active shipping provider configured. Please configure Blue Dart, Xpressbees, or Custom Shipping first.",
             )
-        elif "xpressbees" in prov:
-            result = await XpressbeesService.book_shipment(
-                order_id=body.order_id,
-                origin_pincode=body.origin_pincode,
-                destination_pincode=body.destination_pincode,
-                customer_name=body.customer_name,
-                customer_phone=body.customer_phone,
-                token=creds.get("token") or creds.get("api_token"),
-                weight_kg=body.weight_kg,
-                cod=body.cod,
-                cod_amount=body.cod_amount,
-            )
-        elif "custom" in prov:
-            endpoint_url = creds.get("endpoint_url") or creds.get("api_url") or ""
-            auth_header = creds.get("auth_header") or creds.get("api_key") or ""
-            result = await CustomIntegrationService.process_custom_shipping(
-                endpoint_url=endpoint_url,
-                auth_header=auth_header,
-                order_id=body.order_id,
-                origin_pincode=body.origin_pincode,
-                destination_pincode=body.destination_pincode,
-                customer_name=body.customer_name,
-                customer_phone=body.customer_phone,
-            )
+        prov = picked["provider"]
+        creds = picked.get("credentials", {})
+    else:
+        integration = get_tenant_integration(tenant_id, prov)
+        if not integration:
+            raise HTTPException(status_code=404, detail=f"Shipping provider '{prov}' is not configured")
+        creds = integration.get("credentials", {})
 
-        if not result.get("ok"):
-            raise HTTPException(status_code=400, detail=result.get("error", "Shipment booking failed"))
+    result = {"ok": False, "error": "Provider not supported"}
 
-        awb = result.get("awb_number", "")
-        tracking_url = result.get("tracking_url", "")
-
-        conn.execute(
-            """INSERT INTO tenant_shipments
-               (tenant_id, order_id, provider, awb_number, tracking_url, status, origin_pincode, destination_pincode, customer_name, customer_phone, raw_response)
-               VALUES (?, ?, ?, ?, ?, 'booked', ?, ?, ?, ?, ?)""",
-            (
-                tenant_id,
-                body.order_id,
-                prov,
-                awb,
-                tracking_url,
-                body.origin_pincode,
-                body.destination_pincode,
-                body.customer_name,
-                body.customer_phone,
-                json.dumps(result),
-            ),
+    if "bluedart" in prov or "blue_dart" in prov:
+        result = await BlueDartService.book_shipment(
+            customer_code=creds.get("customer_code", "DEMO_CUST"),
+            license_key=creds.get("license_key", "DEMO_KEY"),
+            login_id=creds.get("login_id", "BD_USER"),
+            order_id=body.order_id,
+            origin_pincode=body.origin_pincode,
+            destination_pincode=body.destination_pincode,
+            customer_name=body.customer_name,
+            customer_phone=body.customer_phone,
+            weight_kg=body.weight_kg,
+            item_description=body.item_description,
+            cod_amount=body.cod_amount if body.cod else 0.0,
         )
+    elif "xpressbees" in prov:
+        result = await XpressbeesService.book_shipment(
+            order_id=body.order_id,
+            origin_pincode=body.origin_pincode,
+            destination_pincode=body.destination_pincode,
+            customer_name=body.customer_name,
+            customer_phone=body.customer_phone,
+            token=creds.get("token") or creds.get("api_token"),
+            weight_kg=body.weight_kg,
+            cod=body.cod,
+            cod_amount=body.cod_amount,
+        )
+    elif "custom" in prov:
+        endpoint_url = creds.get("endpoint_url") or creds.get("api_url") or ""
+        auth_header = creds.get("auth_header") or creds.get("api_key") or ""
+        result = await CustomIntegrationService.process_custom_shipping(
+            endpoint_url=endpoint_url,
+            auth_header=auth_header,
+            order_id=body.order_id,
+            origin_pincode=body.origin_pincode,
+            destination_pincode=body.destination_pincode,
+            customer_name=body.customer_name,
+            customer_phone=body.customer_phone,
+        )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Shipment booking failed"))
+
+    awb = result.get("awb_number", "")
+    tracking_url = result.get("tracking_url", "")
+    insert_tenant_shipment({
+        "tenant_id": tenant_id,
+        "order_id": body.order_id,
+        "provider": prov,
+        "awb_number": awb,
+        "tracking_url": tracking_url,
+        "origin_pincode": body.origin_pincode,
+        "destination_pincode": body.destination_pincode,
+        "customer_name": body.customer_name,
+        "customer_phone": body.customer_phone,
+        "raw_response": json.dumps(result),
+    })
 
     return {
         "ok": True,
@@ -499,32 +440,26 @@ async def track_shipment(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Track shipment status by AWB."""
-    with get_db_context() as conn:
-        row = conn.execute(
-            """SELECT * FROM tenant_shipments WHERE tenant_id = ? AND awb_number = ?""",
-            (tenant_id, awb),
-        ).fetchone()
+    row = get_tenant_shipment(tenant_id, awb)
+    prov = row["provider"] if row else "bluedart"
+    integration = get_tenant_integration(tenant_id, prov)
+    creds = integration.get("credentials", {}) if integration else {}
 
-        prov = row["provider"] if row else "bluedart"
-        integration = _get_tenant_integration(conn, tenant_id, prov)
-        creds = integration.get("credentials", {}) if integration else {}
-
-        if "bluedart" in prov:
-            return await BlueDartService.track_shipment(
-                awb,
-                license_key=creds.get("license_key", ""),
-                login_id=creds.get("login_id", ""),
-            )
-        elif "xpressbees" in prov:
-            return await XpressbeesService.track_shipment(
-                awb,
-                token=creds.get("token") or creds.get("api_token"),
-            )
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail="No tracking integration is configured for this shipment",
-            )
+    if "bluedart" in prov:
+        return await BlueDartService.track_shipment(
+            awb,
+            license_key=creds.get("license_key", ""),
+            login_id=creds.get("login_id", ""),
+        )
+    if "xpressbees" in prov:
+        return await XpressbeesService.track_shipment(
+            awb,
+            token=creds.get("token") or creds.get("api_token"),
+        )
+    raise HTTPException(
+        status_code=404,
+        detail="No tracking integration is configured for this shipment",
+    )
 
 
 # ── Webhook Handlers ──────────────────────────────────────────────────
@@ -536,25 +471,24 @@ async def payment_webhook(tenant_id: str, provider: str, request: Request):
     payload = await request.body()
     headers = request.headers
 
-    with get_db_context() as conn:
-        integration = _get_tenant_integration(conn, tenant_id, prov)
-        secret = (integration.get("webhook_secret") or "").strip() if integration else ""
-        if not secret:
-            raise HTTPException(
-                status_code=401,
-                detail="Webhook secret is not configured for this provider",
-            )
+    integration = get_tenant_integration(tenant_id, prov)
+    secret = (integration.get("webhook_secret") or "").strip() if integration else ""
+    if not secret:
+        raise HTTPException(
+            status_code=401,
+            detail="Webhook secret is not configured for this provider",
+        )
 
-        if "stripe" in prov:
-            sig = headers.get("stripe-signature", "")
-            if not StripeService.verify_webhook_signature(payload, sig, secret):
-                raise HTTPException(status_code=400, detail="Invalid Stripe signature")
-        elif "razorpay" in prov:
-            sig = headers.get("x-razorpay-signature", "")
-            if not RazorpayService.verify_webhook_signature(payload, sig, secret):
-                raise HTTPException(status_code=400, detail="Invalid Razorpay signature")
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported payment provider")
+    if "stripe" in prov:
+        sig = headers.get("stripe-signature", "")
+        if not StripeService.verify_webhook_signature(payload, sig, secret):
+            raise HTTPException(status_code=400, detail="Invalid Stripe signature")
+    elif "razorpay" in prov:
+        sig = headers.get("x-razorpay-signature", "")
+        if not RazorpayService.verify_webhook_signature(payload, sig, secret):
+            raise HTTPException(status_code=400, detail="Invalid Razorpay signature")
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported payment provider")
 
     order_id = ""
     payment_id = ""

@@ -378,22 +378,37 @@ async def export_chat_history(
 ) -> Dict[str, Any]:
     """Export chat history for a user with optional bot type filtering"""
     try:
-        from database import get_db_context
+        from db.core import use_mongodb
 
-        with get_db_context() as conn:
-            query = """SELECT route, message, response, created_at
-                       FROM chat_history
-                       WHERE wa_id = ?
-                       AND created_at >= date('now', '-{} days')""".format(days)
-            params = [wa_id]
+        if use_mongodb():
+            from datetime import datetime, timedelta, timezone
+            from db.mongo import Repository
 
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            flt: dict = {"wa_id": wa_id, "created_at": {"$gte": cutoff}}
             if bot_type:
-                query += " AND route = ?"
-                params.append(bot_type)
+                flt["route"] = bot_type
+            rows = Repository("chat_history").find(
+                flt, sort=[("created_at", 1), ("id", 1)], limit=5000
+            )
+        else:
+            from database import get_db_context
 
-            query += " ORDER BY created_at ASC"
+            with get_db_context() as conn:
+                query = """SELECT route, message, response, created_at
+                           FROM chat_history
+                           WHERE wa_id = ?
+                           AND created_at >= date('now', '-{} days')""".format(days)
+                params = [wa_id]
 
-            rows = conn.execute(query, params).fetchall()
+                if bot_type:
+                    query += " AND route = ?"
+                    params.append(bot_type)
+
+                query += " ORDER BY created_at ASC"
+
+                rows = conn.execute(query, params).fetchall()
+                rows = [dict(row) for row in rows]
 
             return {
                 'wa_id': wa_id,

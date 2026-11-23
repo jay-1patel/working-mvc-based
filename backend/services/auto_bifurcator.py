@@ -20,8 +20,8 @@ import logging
 import os
 import re
 import shutil
-import sqlite3
 import string
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -30,7 +30,6 @@ from docx import Document
 import openpyxl
 
 from database import (
-    get_db_context,
     list_products,
     product_slug_taken,
     record_admin_audit_event,
@@ -96,9 +95,6 @@ BROCHURE_DOC_TYPES = {
     "technical_brochure": "technical_brochure",
     "case_study": "customer_case_study",
 }
-
-# Public file host used to expose brochure PDFs over WhatsApp
-CATBOX_API_URL = os.environ.get("CATBOX_API_URL", "https://catbox.moe/user/api.php")
 
 # ──────────────────────────────────────────────────────────────────────────
 # OCR setup (scanned / image-only PDFs and image files)
@@ -325,7 +321,13 @@ def _attach_pdf_images_to_offerings(
                                 upload_err,
                             )
                             continue
-                        url = tenancy_schemas.extract_first_url(uploaded_url or "")
+                        # Hosting already returns a clean absolute URL (incl. LAN IPs).
+                        # extract_first_url is only for noisy LLM/kit text.
+                        raw_uploaded = str(uploaded_url or "").strip()
+                        if raw_uploaded.startswith(("http://", "https://")):
+                            url = raw_uploaded
+                        else:
+                            url = tenancy_schemas.extract_first_url(raw_uploaded)
                         if not url:
                             raise RuntimeError(
                                 f"Extracted PDF image {filename} has no public URL "
@@ -500,7 +502,16 @@ class AutoBifurcator:
             len(heuristic.get("knowledge_articles") or []),
         )
 
-        windows = _chunk_text(full_corpus)
+        # Fewer, larger windows are substantially faster for local Ollama.  The
+        # default remains comfortably below the 8k-token context used by the
+        # bifurcation request, while still allowing deployments to tune it.
+        try:
+            chunk_chars = max(2000, int(os.getenv("BIFURCATE_CHUNK_CHARS", "18000")))
+            chunk_overlap = max(0, int(os.getenv("BIFURCATE_CHUNK_OVERLAP", "250")))
+        except ValueError:
+            chunk_chars, chunk_overlap = 18000, 250
+        chunk_overlap = min(chunk_overlap, chunk_chars // 4)
+        windows = _chunk_text(full_corpus, size=chunk_chars, overlap=chunk_overlap)
         if not windows:
             merged = merge_bifurcation_results(heuristic, tenant_id=self.tenant_id)
             merged["_llm_ok"] = False
@@ -515,12 +526,41 @@ class AutoBifurcator:
             len(windows),
             len(windows),
         )
+        provider = (
+            os.getenv("BIFURCATE_PROVIDER")
+            or os.getenv("API_PROVIDER")
+            or "ollama"
+        ).lower().strip()
+        try:
+            total_budget = max(
+                10.0,
+                float(os.getenv("BIFURCATE_TOTAL_TIMEOUT_SECONDS", "75")),
+            )
+        except ValueError:
+            total_budget = 75.0
+        deadline = time.monotonic() + total_budget
         consecutive_failures = 0
         for idx, window in enumerate(windows):
+            remaining = deadline - time.monotonic()
+            if remaining <= 2:
+                logger.warning(
+                    "BIFURCATION_BUDGET_EXHAUSTED | tenant=%s | completed=%s/%s | budget=%ss",
+                    self.tenant_id,
+                    idx,
+                    len(windows),
+                    total_budget,
+                )
+                break
+            # Share the remaining budget across unprocessed windows so one slow
+            # generation cannot consume the complete document deadline.
+            windows_left = len(windows) - idx
+            timeout_for_window = max(2.0, (remaining - 2.0) / windows_left)
             system_prompt = self._bifurcation_system_prompt(focus="full")
             user_prompt = (
                 f"This is chunk {idx + 1} of {len(windows)} from uploaded client collateral.\n"
                 f"Extract per focus='full'. Merge-safe partial JSON is OK.\n\n{window}"
+                "\n\nReturn compact valid JSON. Keep descriptions and answers concise, "
+                "prioritize factual offerings and FAQs, and always close every JSON array/object."
             )
             logger.info(
                 "BIFURCATION_START | tenant=%s | chunk=%s/%s | chars=%s",
@@ -530,7 +570,11 @@ class AutoBifurcator:
                 len(window),
             )
             try:
-                part = self._call_llm_json(system_prompt, user_prompt)
+                part = self._call_llm_json(
+                    system_prompt,
+                    user_prompt,
+                    timeout_override=timeout_for_window,
+                )
             except Exception as exc:
                 logger.warning("LLM bifurcate chunk=%s focus=full failed: %s", idx, exc)
                 part = None
@@ -541,11 +585,6 @@ class AutoBifurcator:
                 consecutive_failures += 1
                 # Local Ollama: stop early on a dead server. Cloud Qwen is fast —
                 # tolerate one bad chunk and keep going so later windows can land.
-                provider = (
-                    os.getenv("BIFURCATE_PROVIDER")
-                    or os.getenv("API_PROVIDER")
-                    or "ollama"
-                ).lower()
                 abort_after = 3 if provider in ("qwen", "groq", "mistral", "dashscope") else 1
                 if consecutive_failures >= abort_after and idx + 1 < len(windows):
                     logger.warning(
@@ -586,7 +625,12 @@ class AutoBifurcator:
             )
         )
 
-    def _call_llm_json(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any]]:
+    def _call_llm_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        timeout_override: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Call bifurcation LLM (Ollama by default; optional cloud Qwen/Groq/Mistral).
 
         Set ``BIFURCATE_PROVIDER=qwen`` + ``QWEN_API_KEY`` for local DashScope
@@ -618,15 +662,25 @@ class AutoBifurcator:
         ]
 
         if provider in ("qwen", "groq", "mistral"):
-            return self._call_openai_compatible_json(provider, messages, _cfg)
+            return self._call_openai_compatible_json(
+                provider,
+                messages,
+                _cfg,
+                timeout_override=timeout_override,
+            )
 
-        return self._call_ollama_json(messages, _cfg)
+        return self._call_ollama_json(
+            messages,
+            _cfg,
+            timeout_override=timeout_override,
+        )
 
     def _call_openai_compatible_json(
         self,
         provider: str,
         messages: list,
         _cfg: Any,
+        timeout_override: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         """DashScope Qwen / Groq / Mistral OpenAI-compatible chat completions."""
         import requests
@@ -695,6 +749,8 @@ class AutoBifurcator:
             or os.getenv("OLLAMA_TIMEOUT")
             or 90
         )
+        if timeout_override is not None:
+            timeout = min(timeout, max(2.0, float(timeout_override)))
         logger.info(
             "CLOUD_BIFURCATION_CALL | provider=%s | model=%s | timeout=%ss",
             provider,
@@ -764,7 +820,12 @@ class AutoBifurcator:
             )
             return None
 
-    def _call_ollama_json(self, messages: list, _cfg: Any) -> Optional[Dict[str, Any]]:
+    def _call_ollama_json(
+        self,
+        messages: list,
+        _cfg: Any,
+        timeout_override: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Local Ollama bifurcation with CUDA→CPU retry."""
         import requests
 
@@ -781,7 +842,7 @@ class AutoBifurcator:
                 (getattr(_cfg, "BIFURCATE_OLLAMA_MODEL", None) if _cfg else None)
                 or os.getenv("BIFURCATE_OLLAMA_MODEL")
                 or (getattr(_cfg, "OLLAMA_MODEL", None) if _cfg else None)
-                or "qwen2.5:1.5b"
+                or "qwen3:8b"
             )
             num_gpu = int(
                 getattr(_cfg, "BIFURCATE_OLLAMA_NUM_GPU", None)
@@ -797,7 +858,7 @@ class AutoBifurcator:
         except Exception:
             ollama_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/chat")
             ollama_mdl = os.getenv("BIFURCATE_OLLAMA_MODEL") or os.getenv(
-                "OLLAMA_MODEL", "qwen2.5:1.5b"
+                "OLLAMA_MODEL", "qwen3:8b"
             )
             try:
                 num_gpu = int(os.getenv("BIFURCATE_OLLAMA_NUM_GPU") or os.getenv("OLLAMA_NUM_GPU") or "0")
@@ -806,6 +867,9 @@ class AutoBifurcator:
             ollama_timeout = float(
                 os.getenv("BIFURCATE_OLLAMA_TIMEOUT") or os.getenv("OLLAMA_TIMEOUT") or "90"
             )
+
+        if timeout_override is not None:
+            ollama_timeout = min(ollama_timeout, max(2.0, float(timeout_override)))
 
         logger.info(
             "OLLAMA_BIFURCATION_CALL | model=%s | num_gpu=%s | timeout=%ss",
@@ -818,7 +882,10 @@ class AutoBifurcator:
             "ngrok-skip-browser-warning": "true",
         }
 
+        call_deadline = time.monotonic() + ollama_timeout
+
         def _post(gpu_layers: int):
+            remaining = max(1.0, call_deadline - time.monotonic())
             # qwen3 "thinking" models often leave content empty unless think is off.
             payload = {
                 "model": ollama_mdl,
@@ -829,16 +896,39 @@ class AutoBifurcator:
                 "options": {
                     "temperature": 0.1,
                     "num_ctx": 8192,
-                    "num_predict": 2048,
+                    "num_predict": int(os.getenv("BIFURCATE_NUM_PREDICT", "1536")),
                     "num_gpu": gpu_layers,
                 },
             }
-            return requests.post(
+            response = requests.post(
                 ollama_url,
                 json=payload,
                 headers=ollama_headers,
-                timeout=ollama_timeout,
+                stream=True,
+                timeout=(min(5.0, remaining), remaining),
             )
+            # Ollama may trickle HTTP bytes while a non-streaming generation is
+            # running, which lets a requests read timeout exceed the intended
+            # wall-clock limit. Consume the response ourselves and close it at
+            # the deadline so document ingestion retains time for indexing.
+            chunks = []
+            try:
+                # One-byte yields are intentional: Ollama can trickle a small
+                # non-streaming JSON response for longer than the read timeout.
+                # Checking each received byte makes the wall-clock deadline real.
+                for chunk in response.iter_content(chunk_size=1):
+                    if time.monotonic() >= call_deadline:
+                        raise requests.Timeout(
+                            f"Ollama bifurcation exceeded {ollama_timeout:.1f}s"
+                        )
+                    if chunk:
+                        chunks.append(chunk)
+                response._content = b"".join(chunks)
+                response._content_consumed = True
+                return response
+            except Exception:
+                response.close()
+                raise
 
         gpu_attempts = [num_gpu]
         if num_gpu != 0:
@@ -847,6 +937,13 @@ class AutoBifurcator:
         try:
             last_body = ""
             for attempt_gpu in gpu_attempts:
+                if call_deadline - time.monotonic() <= 1:
+                    logger.warning(
+                        "OLLAMA_BIFURCATION_DEADLINE | model=%s | timeout=%ss",
+                        ollama_mdl,
+                        ollama_timeout,
+                    )
+                    break
                 resp = _post(attempt_gpu)
                 if resp.status_code == 200:
                     message = resp.json().get("message") or {}
@@ -2976,7 +3073,10 @@ class AutoBifurcator:
                         actor=self.actor,
                         is_active=active_flag,
                     )
-                except sqlite3.IntegrityError as slug_exc:
+                except Exception as slug_exc:
+                    from db.core import unique_violation_error_types
+                    if not isinstance(slug_exc, unique_violation_error_types()):
+                        raise
                     # Same-name/same-slug races must not abort the whole
                     # publish after the profile version is already out.
                     logger.warning(
@@ -3089,30 +3189,33 @@ class AutoBifurcator:
         # publishing first is exactly what stranded sbi on an invalid v2 while
         # the catalog INSERT crashed.
         if should_touch_profile:
-            with get_db_context() as conn:
-                tenancy_store.save_draft(tenant_id, draft, updated_by=self.actor.get("username", "admin"), conn=conn)
-                if auto_publish:
-                    # Gate before writing a version: an invalid profile must
-                    # stay a draft, never become the loader's current version
-                    # (store.publish_version enforces this too, since 2026-10).
+            tenancy_store.save_draft(
+                tenant_id, draft, updated_by=self.actor.get("username", "admin")
+            )
+            if auto_publish:
+                # Gate before writing a version: an invalid profile must
+                # stay a draft, never become the loader's current version
+                # (store.publish_version enforces this too, since 2026-10).
+                try:
+                    tenancy_loader.validate_merged_profile(tenant_id, draft)
+                except Exception as val_exc:
+                    summary["publish_blocked"] = str(val_exc)[:400]
+                    logger.error(
+                        "AUTO_BIFURCATION_PUBLISH_BLOCKED | tenant=%s | draft kept unpublished: %s",
+                        tenant_id, val_exc,
+                    )
+                else:
                     try:
-                        tenancy_loader.validate_merged_profile(tenant_id, draft)
-                    except Exception as val_exc:
-                        summary["publish_blocked"] = str(val_exc)[:400]
-                        logger.error(
-                            "AUTO_BIFURCATION_PUBLISH_BLOCKED | tenant=%s | draft kept unpublished: %s",
-                            tenant_id, val_exc,
+                        version = tenancy_store.publish_version(
+                            tenant_id,
+                            draft,
+                            published_by=self.actor.get("username", "admin"),
                         )
-                    else:
-                        try:
-                            version = tenancy_store.publish_version(
-                                tenant_id, draft, published_by=self.actor.get("username", "admin"), conn=conn
-                            )
-                            summary["version"] = version
-                            tenancy_cache.purge(tenant_id)
-                            logger.info("AUTO_BIFURCATION_PUBLISHED | tenant=%s | v=%s", tenant_id, version)
-                        except Exception as pub_exc:
-                            logger.warning("Could not auto-publish version directly: %s", pub_exc)
+                        summary["version"] = version
+                        tenancy_cache.purge(tenant_id)
+                        logger.info("AUTO_BIFURCATION_PUBLISHED | tenant=%s | v=%s", tenant_id, version)
+                    except Exception as pub_exc:
+                        logger.warning("Could not auto-publish version directly: %s", pub_exc)
 
             try:
                 tenancy_loader.write_client_config_file(tenant_id, draft)
@@ -3120,26 +3223,26 @@ class AutoBifurcator:
                 logger.warning("Could not sync client config file: %s", file_exc)
 
         try:
-            with get_db_context() as conn:
-                record_admin_audit_event(
-                    conn,
-                    action="tenant_auto_bifurcated",
-                    actor=self.actor,
-                    resource_type="tenant",
-                    resource_id=tenant_id,
-                    tenant_id=tenant_id,
-                    details={
-                        "vertical": vertical,
-                        "brand": (summary.get("brand") or {}).get("name"),
-                        "offerings_count": inserted_count,
-                        "faqs_saved": faqs_saved,
-                        "menu_buttons_count": len(menu_buttons),
-                        "intents_count": len(clean_intents),
-                        "chunks_count": summary["kb_chunks_indexed"],
-                        "careful_brand_merge": careful_brand_merge,
-                        "source_file": kb_source,
-                    },
-                )
+            from db.core import use_mongodb
+            audit_kwargs = dict(
+                action="tenant_auto_bifurcated",
+                actor=self.actor,
+                resource_type="tenant",
+                resource_id=tenant_id,
+                tenant_id=tenant_id,
+                details={
+                    "vertical": vertical,
+                    "brand": (summary.get("brand") or {}).get("name"),
+                    "offerings_count": inserted_count,
+                    "faqs_saved": faqs_saved,
+                    "menu_buttons_count": len(menu_buttons),
+                    "intents_count": len(clean_intents),
+                    "chunks_count": summary["kb_chunks_indexed"],
+                    "careful_brand_merge": careful_brand_merge,
+                    "source_file": kb_source,
+                },
+            )
+            record_admin_audit_event(None, **audit_kwargs)
         except Exception:
             logger.exception("AUDIT_EVENT_RECORD_FAILED | action=tenant_auto_bifurcated tenant=%s", tenant_id)
 
@@ -3168,17 +3271,15 @@ class AutoBifurcator:
             # Drop prior auto-extracted QAs for this source so re-process does not
             # duplicate FAQ index rows (leave non-qa raw extract chunks intact).
             try:
-                with get_db_context() as conn:
-                    if self.tenant_id is not None:
-                        conn.execute(
-                            "DELETE FROM faq_dataset WHERE source_file = ? AND tenant_id = ? AND content_type = 'qa'",
-                            (source_file, self.tenant_id),
-                        )
-                    else:
-                        conn.execute(
-                            "DELETE FROM faq_dataset WHERE source_file = ? AND content_type = 'qa'",
-                            (source_file,),
-                        )
+                from db.core import use_mongodb
+                flt = {"source_file": source_file, "content_type": "qa"}
+                if self.tenant_id is not None:
+                    flt["tenant_id"] = self.tenant_id
+                if use_mongodb():
+                    from db.mongo import Repository
+                    Repository("faq_dataset").delete_many(flt)
+                else:
+                    raise RuntimeError("FAQ purge requires MongoDB")
             except Exception as purge_err:
                 logger.warning("FAQ QA purge before save failed: %s", purge_err)
             # E2E D-E2E-6 (known D-08): a Q&A already live for this tenant
@@ -3188,19 +3289,19 @@ class AutoBifurcator:
             # ("Q:/A:" vs "Question:/Answer:") collide correctly; also
             # dedupe repeats inside this batch.
             try:
-                with get_db_context() as conn:
+                from db.core import use_mongodb
+                if use_mongodb():
+                    from db.mongo import Repository
+                    flt = {"content_type": "qa"}
                     if self.tenant_id is not None:
-                        rows = conn.execute(
-                            "SELECT content FROM faq_dataset WHERE tenant_id = ? AND content_type = 'qa'",
-                            (self.tenant_id,),
-                        ).fetchall()
-                    else:
-                        rows = conn.execute(
-                            "SELECT content FROM faq_dataset WHERE content_type = 'qa'"
-                        ).fetchall()
+                        flt["tenant_id"] = self.tenant_id
+                    rows = Repository("faq_dataset").find_all(flt)
+                    contents = [r.get("content") for r in rows]
+                else:
+                    raise RuntimeError("FAQ dedupe requires MongoDB")
                 seen_keys = set()
-                for r in rows:
-                    key = qa_key_from_content(r[0])
+                for raw in contents:
+                    key = qa_key_from_content(raw)
                     if key:
                         seen_keys.add(key)
                 unique_chunks = []

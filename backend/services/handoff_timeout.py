@@ -13,9 +13,9 @@ to text the customer on auto-revert; state is always cleared either way.
 import asyncio
 import logging
 import os
-import sqlite3
+from datetime import datetime, timedelta, timezone
 
-from routing.config import DB_PATH as ROUTING_DB_PATH
+from db.core import get_db_context, use_mongodb
 
 logger = logging.getLogger("handoff_timeout")
 
@@ -40,6 +40,23 @@ def _notify_enabled() -> bool:
     )
 
 
+def _parse_updated_at(value) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _get_stale_handoffs() -> list[str]:
     """Return wa_ids where human_handover=1 and no human reply has arrived
     within the timeout window.
@@ -50,18 +67,27 @@ def _get_stale_handoffs() -> list[str]:
     agent-send route), so this fires only when the human agent has gone
     silent for the full timeout.
     """
-    if not ROUTING_DB_PATH:
-        return []
     try:
-        conn = sqlite3.connect(ROUTING_DB_PATH)
-        rows = conn.execute(
-            "SELECT wa_id, tenant_id FROM user_states "
-            "WHERE human_handover = 1 "
-            "AND updated_at < datetime('now', ?)",
-            (f"-{HANDOFF_TIMEOUT_SECONDS} seconds",),
-        ).fetchall()
-        conn.close()
-        # Return wa_id strings (callers clear by wa_id); tenant kept for send_log.
+        if use_mongodb():
+            from db.mongo import Repository
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=HANDOFF_TIMEOUT_SECONDS)
+            rows = Repository("user_states").find_all({"human_handover": 1}, limit=None)
+            stale: list[str] = []
+            for row in rows:
+                updated = _parse_updated_at(row.get("updated_at"))
+                if updated is not None and updated < cutoff:
+                    wa_id = row.get("wa_id")
+                    if wa_id:
+                        stale.append(str(wa_id))
+            return stale
+
+        with get_db_context() as conn:
+            rows = conn.execute(
+                "SELECT wa_id, tenant_id FROM user_states "
+                "WHERE human_handover = 1 "
+                "AND updated_at < datetime('now', ?)",
+                (f"-{HANDOFF_TIMEOUT_SECONDS} seconds",),
+            ).fetchall()
         return [r[0] for r in rows]
     except Exception as e:
         logger.error(f"Failed to check stale handoffs: {e}")
@@ -70,18 +96,10 @@ def _get_stale_handoffs() -> list[str]:
 
 def _clear_handover(wa_id: str) -> None:
     """Clear human_handover for a single user."""
-    if not ROUTING_DB_PATH:
-        return
     try:
-        conn = sqlite3.connect(ROUTING_DB_PATH)
-        conn.execute(
-            "UPDATE user_states SET human_handover = 0, updated_at = CURRENT_TIMESTAMP, "
-            "handover_resolved_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
-            (wa_id,),
-        )
-        conn.commit()
-        conn.close()
-        logger.info(f"HANDOFF_TIMEOUT | Cleared handover for {wa_id}")
+        from db.state import set_human_handover
+        if set_human_handover(wa_id, False):
+            logger.info(f"HANDOFF_TIMEOUT | Cleared handover for {wa_id}")
     except Exception as e:
         logger.error(f"Failed to clear handover for {wa_id}: {e}")
 

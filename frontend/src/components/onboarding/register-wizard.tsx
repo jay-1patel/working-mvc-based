@@ -22,6 +22,7 @@ import {
   draftToSnapshot,
   EMAIL_RE,
   emptyDraft,
+  isValidBrochureUrl,
   isValidPhone,
   isValidPhoneInput,
   slugify,
@@ -1196,8 +1197,8 @@ function validationError(
         return 'The sales / enquiries email does not look valid.'
       if (draft.notificationsSupportEmail.trim() && !EMAIL_RE.test(draft.notificationsSupportEmail.trim()))
         return 'The notifications support email does not look valid.'
-      if (draft.brochureUrl.trim() && !URL_RE.test(draft.brochureUrl.trim()))
-        return 'The brochure URL does not look like a valid URL.'
+      if (draft.brochureUrl.trim() && !isValidBrochureUrl(draft.brochureUrl))
+        return 'The brochure URL does not look like a valid URL (use https://…, http://IP/…, or /uploaded_files/…).'
       for (const channel of draft.channels) {
         if (!channel.to.trim()) continue
         if (channel.type === 'email' && !EMAIL_RE.test(channel.to.trim()))

@@ -1,8 +1,7 @@
 """
 B2C business logic.
 
-All database access goes through the existing shared ``get_db_context()``
-context manager. No new connection pools or API clients are created here.
+Database access uses shared ``database`` / ``db.mongo`` helpers (MongoDB-only).
 """
 
 import json
@@ -10,11 +9,6 @@ import logging
 from datetime import datetime
 
 logger = logging.getLogger("b2c_tools")
-
-
-def _db():
-    from database import get_db_context
-    return get_db_context()
 
 
 def list_products() -> list:
@@ -114,12 +108,16 @@ def register_b2c_complaint(wa_id: str, type_: str, desc: str) -> str:
         str: The generated ticket id.
     """
     ticket_id = f"TCK-{datetime.now().strftime('%Y%m%d%H%M%S')}-{abs(hash(wa_id)) % 10000}"
-    with _db() as conn:
-        conn.execute(
-            "INSERT INTO complaints (ticket_id, wa_id, complaint_type, description, status) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (ticket_id, wa_id, type_ or "Other", desc or "", "open"),
-        )
+    from db.mongo import Repository
+
+    Repository("complaints").insert({
+        "ticket_id": ticket_id,
+        "wa_id": wa_id,
+        "complaint_type": type_ or "Other",
+        "description": desc or "",
+        "status": "open",
+        "created_at": datetime.utcnow().isoformat(),
+    })
     logger.info(f"register_b2c_complaint | wa_id={wa_id} | ticket={ticket_id} | type={type_}")
     return ticket_id
 

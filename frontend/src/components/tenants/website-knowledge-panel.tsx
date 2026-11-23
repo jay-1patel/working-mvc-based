@@ -80,7 +80,14 @@ function stagedStatusMeta(status: string): { label: string; tone: PillTone } {
 
 type KnowledgeTab = 'kb' | 'faqs' | 'products' | 'pages' | 'images'
 
-export function WebsiteKnowledgePanel({ tenantId }: { tenantId: string }) {
+export function WebsiteKnowledgePanel({
+  tenantId,
+  embedded = false,
+}: {
+  tenantId: string
+  /** Hide the page header when nested inside Website crawler. */
+  embedded?: boolean
+}) {
   const { isSuperAdmin } = usePermissions()
   const toast = useToast()
   const action = useAction()
@@ -123,10 +130,12 @@ export function WebsiteKnowledgePanel({ tenantId }: { tenantId: string }) {
 
   return (
     <div>
-      <PageHeader
-        title="Website Knowledge"
-        description="Your PDF sets the menu, brand and hours. Your website fills the bot's knowledge — articles, FAQs and product details. Crawl it, review what was found, then publish."
-      />
+      {!embedded && (
+        <PageHeader
+          title="Website Knowledge"
+          description="Your PDF sets the menu, brand and hours. Your website fills the bot's knowledge — articles, FAQs and product details. Crawl it, review what was found, then publish."
+        />
+      )}
 
       <div className="space-y-5">
         <Panel title="Website crawl">

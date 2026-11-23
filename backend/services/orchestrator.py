@@ -16,7 +16,7 @@ import json
 import logging
 import re
 
-from database import get_db_context
+from database import get_db_context, get_user_state, set_user_state
 from services.whatsapp_sender import begin_capture, drain_captured, end_capture
 
 logger = logging.getLogger("orchestrator")
@@ -47,10 +47,11 @@ async def process_incoming_message(
 
 
 def _is_distributor(wa_id: str) -> bool:
-    with get_db_context() as conn:
-        return bool(
-            conn.execute("SELECT 1 FROM distributors WHERE wa_id=?", (wa_id,)).fetchone()
-        )
+    try:
+        from db.distributors_ops import distributor_exists_globally
+    except ImportError:
+        from backend.db.distributors_ops import distributor_exists_globally
+    return distributor_exists_globally(wa_id)
 
 
 async def _send_b2b_menu(wa_id: str):
@@ -96,11 +97,12 @@ async def _send_b2c_menu(wa_id: str, tenant_id: str = None):
 async def _process_captured_message(wa_id: str, message: str, tenant_id: str = None) -> dict:
     # 1. Human handover must run before tenant routing. Otherwise a missing
     # tenant short-circuits with "ignored" and typing *hi* never resumes the bot.
-    with get_db_context() as conn:
-        user_state = conn.execute(
-            "SELECT state, context_json, human_handover FROM user_states WHERE wa_id=?",
-            (wa_id,),
-        ).fetchone()
+    st = get_user_state(wa_id)
+    user_state = (
+        st.get("state"),
+        json.dumps(st.get("context_json") or {}),
+        st.get("human_handover") or 0,
+    )
 
     if user_state and user_state[2] == 1:  # human_handover is True
         try:
@@ -205,9 +207,9 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
     # so it reappears in the live inbox instead of staying hidden forever.
     try:
         from database import reopen_conversation_on_inbound
-        reopen_conversation_on_inbound(wa_id)
+        reopen_conversation_on_inbound(wa_id, effective_tenant)
     except Exception as exc:
-        logger.debug(f"Could not reopen conversation for {wa_id}: {exc}")
+        logger.warning("Could not reopen conversation for %s: %s", wa_id, exc)
 
     # 1b. Check Tenant Profile Intents, Flows, and Services
     try:
@@ -240,11 +242,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
 
         if is_menu_cmd or is_cancel_cmd:
             flow_runner.clear_flow(wa_id)
-            with get_db_context() as conn:
-                conn.execute(
-                    "UPDATE user_states SET state = ?, context_json = '{}', updated_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
-                    (menu_state, wa_id),
-                )
+            set_user_state(wa_id, menu_state, {}, tenant_id=tenant_id)
             if is_cancel_cmd:
                 await send_text_message(
                     wa_id,
@@ -274,11 +272,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
         # If user clicked a menu or action button, clear any stale flow & state first
         if message and (message.startswith(("menu_", "b2c_", "flow:", "flow_")) or clean_btn.startswith("menu_")):
             flow_runner.clear_flow(wa_id)
-            with get_db_context() as conn:
-                conn.execute(
-                    "UPDATE user_states SET state = ?, context_json = '{}', updated_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
-                    (menu_state, wa_id),
-                )
+            set_user_state(wa_id, menu_state, {}, tenant_id=tenant_id)
             user_state = (menu_state, "{}")
 
         # 1. If user is currently running a flow, advance the flow with their reply
@@ -305,11 +299,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
             # here we only clear leftover flow state.
             if outcome and not outcome.get("handled"):
                 flow_runner.clear_flow(wa_id)
-                with get_db_context() as conn:
-                    conn.execute(
-                        "UPDATE user_states SET state = 'B2C_MAIN_MENU', context_json = '{}', updated_at = CURRENT_TIMESTAMP WHERE wa_id = ?",
-                        (wa_id,),
-                    )
+                set_user_state(wa_id, "B2C_MAIN_MENU", {}, tenant_id=tenant_id)
                 user_state = ("B2C_MAIN_MENU", "{}")
                 if outcome.get("greeting_reset"):
                     await _send_b2c_menu(wa_id, tenant_id=tenant_id)
@@ -415,7 +405,14 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
             or flow_runner.flow_for_text(wa_id, message, tenant_id=tenant_id)
         )
         if flow_name:
-            outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
+            seed = (
+                {"_trigger_text": message}
+                if flow_name in ("book_callback", "callback_request")
+                else None
+            )
+            outcome = flow_runner.start_flow(
+                wa_id, flow_name, tenant_id=tenant_id, seed=seed,
+            )
             if outcome.get("handled") and outcome.get("messages"):
                 from services.whatsapp_sender import send_button_message
                 for msg in outcome["messages"]:
@@ -536,18 +533,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                 tid = resolve_tenant_for_user(wa_id) or "default"
             except Exception:
                 tid = "default"
-        with get_db_context() as conn:
-            conn.execute(
-                """
-                INSERT INTO user_states (tenant_id, wa_id, state, context_json, lang, updated_at)
-                VALUES (?, ?, ?, ?, 'en', CURRENT_TIMESTAMP)
-                ON CONFLICT(tenant_id, wa_id) DO UPDATE SET
-                    state = excluded.state,
-                    context_json = excluded.context_json,
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (tid, wa_id, new_state, ctx_json),
-            )
+        set_user_state(wa_id, new_state, updated_context, lang="en", tenant_id=tid)
 
     messages = drain_captured()
 

@@ -24,7 +24,6 @@ from routes import tenants
 class TenantAuditTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "tenant-audit.sqlite3")
         self.tenant_db_patch = patch.object(tenants.tenancy_store._db(), "DB_PATH", self.db_path)
         self.tenant_db_patch.start()
         conn = self._connect()
@@ -85,7 +84,6 @@ class TenantAuditTests(unittest.TestCase):
         database._init_admin_audit_tables(conn)
         conn.commit()
         conn.close()
-        self.db_patch = patch.object(database, "get_db_context", self._db_context)
         self.db_patch.start()
         self.admin = {"id": 1, "username": "root", "role": "super_admin", "tenant_id": None}
 

@@ -25,7 +25,6 @@ from routes import api_onboarding
 class ApiOnboardingTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "onboarding.sqlite3")
         conn = self._connect()
         conn.executescript(
             """
@@ -77,7 +76,6 @@ class ApiOnboardingTests(unittest.TestCase):
         database._init_admin_audit_tables(conn)
         conn.commit()
         conn.close()
-        self.db_patch = patch.object(api_onboarding, "get_db", side_effect=self._connect)
         self.context_patch = patch.object(api_onboarding, "get_db_context", self._db_context)
         self.db_patch.start()
         self.context_patch.start()

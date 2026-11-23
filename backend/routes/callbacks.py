@@ -31,6 +31,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel, ConfigDict, Field
 
 from database import get_db_context, record_admin_audit_event
+from db.callbacks_ops import (
+    callback_stats,
+    ensure_callback_tables,
+    get_callback_summary as fetch_callback_summary,
+    list_agent_availability,
+    list_time_slots_rows,
+    list_upcoming_callbacks as query_upcoming_callbacks,
+    save_agent_availability,
+    save_callback_summary,
+)
+from db.core import use_mongodb
 from routes.auth import get_current_admin, has_permission, require_tenant_access
 from services.callback_service import (
     CallbackRequest,
@@ -47,6 +58,14 @@ from shared.tenancy.schemas import is_valid_phone_input
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tenants", tags=["callbacks"])
+
+
+def _record_audit(**kwargs):
+    if use_mongodb():
+        record_admin_audit_event(None, **kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **kwargs)
 
 
 # ── Pydantic Models ──────────────────────────────────────────────────
@@ -142,6 +161,11 @@ class RescheduleCallbackRequest(BaseModel):
 
 def _save_callback_to_db(conn, callback_request: CallbackRequest) -> bool:
     """Save callback request to database."""
+    if use_mongodb():
+        return callback_service.save_callback_to_db(callback_request)
+    if conn is None:
+        with get_db_context() as scoped:
+            return _save_callback_to_db(scoped, callback_request)
     try:
         # Convert callback to dict for JSON storage
         callback_data = json.dumps(callback_request.to_dict())
@@ -197,6 +221,11 @@ def _save_callback_to_db(conn, callback_request: CallbackRequest) -> bool:
 
 def _get_callback_from_db(conn, callback_id: str) -> Optional[CallbackRequest]:
     """Retrieve callback request from database."""
+    if use_mongodb():
+        return callback_service.get_callback_by_id(callback_id)
+    if conn is None:
+        with get_db_context() as scoped:
+            return _get_callback_from_db(scoped, callback_id)
     try:
         row = conn.execute(
             "SELECT data FROM callbacks WHERE id = ?",
@@ -221,6 +250,10 @@ def _list_callbacks_from_db(
     offset: int = 0
 ) -> List[CallbackRequest]:
     """List callback requests from database."""
+    if use_mongodb():
+        return callback_service.list_callbacks(
+            tenant_id, status=status, wa_id=wa_id, limit=limit, offset=offset,
+        )
     try:
         query = """
             SELECT data FROM callbacks 
@@ -255,6 +288,8 @@ def _list_callbacks_from_db(
 
 def _init_callback_tables(conn):
     """Initialize callback-related database tables."""
+    if use_mongodb():
+        return ensure_callback_tables(conn)
     try:
         # Main callbacks table
         conn.execute("""
@@ -499,27 +534,26 @@ async def create_callback(
             callback_request.metadata["calendar_add_url"] = meet_result.get("calendar_add_url", "")
             callback_request.metadata["display_time"] = display_str
 
-    # Save to database
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        if _save_callback_to_db(conn, callback_request):
-            record_admin_audit_event(
-                conn,
-                action="callback_created",
-                actor=current_admin,
-                resource_type="callback",
-                resource_id=callback_request.id,
-                tenant_id=tenant_id,
-                details={
-                    "wa_id": callback_request.wa_id,
-                    "customer_name": callback_request.customer_name,
-                    "callback_type": callback_request.callback_type,
-                    "priority": callback_request.priority,
-                    "status": callback_request.status,
-                    "preferred_date": callback_request.preferred_date,
-                    "preferred_time": callback_request.preferred_time,
-                },
-            )
+    if not use_mongodb():
+        with get_db_context() as conn:
+            ensure_callback_tables(conn)
+    if callback_service.save_callback_to_db(callback_request):
+        _record_audit(
+            action="callback_created",
+            actor=current_admin,
+            resource_type="callback",
+            resource_id=callback_request.id,
+            tenant_id=tenant_id,
+            details={
+                "wa_id": callback_request.wa_id,
+                "customer_name": callback_request.customer_name,
+                "callback_type": callback_request.callback_type,
+                "priority": callback_request.priority,
+                "status": callback_request.status,
+                "preferred_date": callback_request.preferred_date,
+                "preferred_time": callback_request.preferred_time,
+            },
+        )
     
     # Send confirmation notifications in background
     if callback_request.status == CallbackStatus.CONFIRMED.value:
@@ -552,56 +586,21 @@ async def list_callbacks(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """List all callback requests for a tenant with filters."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        
-        # Get callbacks from DB
-        callbacks = _list_callbacks_from_db(conn, tenant_id, status, wa_id, limit, offset)
-        
-        # Apply additional filters (agent_id, date_from, date_to)
-        if agent_id:
-            callbacks = [cb for cb in callbacks if cb.assigned_agent_id == agent_id]
-        
-        if date_from:
-            try:
-                from dateutil.parser import parse
-                from_parts = date_from.split("T")
-                from_date = from_parts[0] if len(from_parts) > 0 else date_from
-                
-                if len(from_parts) > 1:
-                    from_time = from_parts[1].split(".")[0] if "." in from_parts[1] else from_parts[1]
-                    cut_off = parse(f"{from_date}T{from_time}")
-                else:
-                    cut_off = parse(f"{from_date}T00:00:00")
-                
-                callbacks = [
-                    cb for cb in callbacks 
-                    if parse(cb.created_at).replace(tzinfo=None) >= cut_off.replace(tzinfo=None)
-                ]
-            except Exception as e:
-                logger.warning(f"Invalid date_from filter: {e}")
-        
-        if date_to:
-            try:
-                from dateutil.parser import parse
-                to_parts = date_to.split("T")
-                to_date = to_parts[0] if len(to_parts) > 0 else date_to
-                
-                if len(to_parts) > 1:
-                    to_time = to_parts[1].split(".")[0] if "." in to_parts[1] else to_parts[1]
-                    cut_off = parse(f"{to_date}T{to_time}")
-                else:
-                    cut_off = parse(f"{to_date}T23:59:59")
-                
-                callbacks = [
-                    cb for cb in callbacks 
-                    if parse(cb.created_at).replace(tzinfo=None) <= cut_off.replace(tzinfo=None)
-                ]
-            except Exception as e:
-                logger.warning(f"Invalid date_to filter: {e}")
-        
-        # Sort by creation date (newest first)
-        callbacks.sort(key=lambda cb: cb.created_at, reverse=True)
+    if not use_mongodb():
+        with get_db_context() as conn:
+            ensure_callback_tables(conn)
+    callbacks = callback_service.list_callbacks(
+        tenant_id,
+        status=status,
+        wa_id=wa_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+    if agent_id:
+        callbacks = [cb for cb in callbacks if cb.assigned_agent_id == agent_id]
+    callbacks.sort(key=lambda cb: cb.created_at, reverse=True)
     
     return {
         "ok": True,
@@ -620,18 +619,17 @@ async def get_callback(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get detailed information about a specific callback request."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        callback_request = _get_callback_from_db(conn, callback_id)
-        
-        if not callback_request:
-            raise HTTPException(status_code=404, detail="Callback not found")
-        
-        if callback_request.tenant_id != tenant_id:
-            raise HTTPException(
-                status_code=403, 
-                detail="Callback does not belong to the specified tenant"
-            )
+    if not use_mongodb():
+        with get_db_context() as conn:
+            ensure_callback_tables(conn)
+    callback_request = callback_service.get_callback_by_id(callback_id)
+    if not callback_request:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    if callback_request.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Callback does not belong to the specified tenant",
+        )
     
     return {
         "ok": True,
@@ -647,70 +645,62 @@ async def update_callback(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Update a callback request."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        callback_request = _get_callback_from_db(conn, callback_id)
-        
-        if not callback_request:
-            raise HTTPException(status_code=404, detail="Callback not found")
-        
-        if callback_request.tenant_id != tenant_id:
+    if not use_mongodb():
+        with get_db_context() as conn:
+            ensure_callback_tables(conn)
+    callback_request = callback_service.get_callback_by_id(callback_id)
+    if not callback_request:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    if callback_request.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Callback does not belong to the specified tenant",
+        )
+    if body.customer_name:
+        callback_request.customer_name = body.customer_name
+    if body.customer_email:
+        callback_request.customer_email = body.customer_email
+    if body.customer_phone:
+        if not is_valid_phone_input(body.customer_phone, wanted=10):
             raise HTTPException(
-                status_code=403, 
-                detail="Callback does not belong to the specified tenant"
+                status_code=400,
+                detail="Invalid customer_phone. Phone number must be 10 digits (or country code followed by 10 digits).",
             )
-        
-        # Apply updates
-        if body.customer_name:
-            callback_request.customer_name = body.customer_name
-        if body.customer_email:
-            callback_request.customer_email = body.customer_email
-        if body.customer_phone:
-            if not is_valid_phone_input(body.customer_phone, wanted=10):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid customer_phone. Phone number must be 10 digits (or country code followed by 10 digits)."
-                )
-            callback_request.customer_phone = body.customer_phone
-        if body.callback_type:
-            callback_request.callback_type = body.callback_type
-        if body.purpose:
-            callback_request.purpose = body.purpose
-        if body.priority:
-            callback_request.priority = body.priority
-        if body.preferred_date:
-            callback_request.preferred_date = body.preferred_date
-        if body.preferred_time:
-            callback_request.preferred_time = body.preferred_time
-        if body.additional_info:
-            callback_request.additional_info = body.additional_info
-        if body.assigned_agent_id:
-            callback_request.assigned_agent_id = body.assigned_agent_id
-        if body.assigned_agent_name:
-            callback_request.assigned_agent_name = body.assigned_agent_name
-        if body.status:
-            callback_request.status = body.status
-        if body.metadata:
-            callback_request.metadata = body.metadata
-            
-        callback_request.updated_at = datetime.now(timezone.utc).isoformat()
-        
-        # Save updated callback
-        if _save_callback_to_db(conn, callback_request):
-            record_admin_audit_event(
-                conn,
-                action="callback_updated",
-                actor=current_admin,
-                resource_type="callback",
-                resource_id=callback_id,
-                tenant_id=tenant_id,
-                details={
-                    "status": callback_request.status,
-                    "assigned_agent_id": callback_request.assigned_agent_id,
-                    "changes": {k: v for k, v in body.model_dump().items() if v is not None}
-                },
-            )
-    
+        callback_request.customer_phone = body.customer_phone
+    if body.callback_type:
+        callback_request.callback_type = body.callback_type
+    if body.purpose:
+        callback_request.purpose = body.purpose
+    if body.priority:
+        callback_request.priority = body.priority
+    if body.preferred_date:
+        callback_request.preferred_date = body.preferred_date
+    if body.preferred_time:
+        callback_request.preferred_time = body.preferred_time
+    if body.additional_info:
+        callback_request.additional_info = body.additional_info
+    if body.assigned_agent_id:
+        callback_request.assigned_agent_id = body.assigned_agent_id
+    if body.assigned_agent_name:
+        callback_request.assigned_agent_name = body.assigned_agent_name
+    if body.status:
+        callback_request.status = body.status
+    if body.metadata:
+        callback_request.metadata = body.metadata
+    callback_request.updated_at = datetime.now(timezone.utc).isoformat()
+    if _save_callback_to_db(None, callback_request):
+        _record_audit(
+            action="callback_updated",
+            actor=current_admin,
+            resource_type="callback",
+            resource_id=callback_id,
+            tenant_id=tenant_id,
+            details={
+                "status": callback_request.status,
+                "assigned_agent_id": callback_request.assigned_agent_id,
+                "changes": {k: v for k, v in body.model_dump().items() if v is not None},
+            },
+        )
     logger.info(f"Callback updated: {callback_id}")
     
     return {
@@ -736,18 +726,17 @@ async def schedule_callback(
     2. Updates callback with event details
     3. Sends notifications to all parties
     """
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        callback_request = _get_callback_from_db(conn, callback_id)
-        
-        if not callback_request:
-            raise HTTPException(status_code=404, detail="Callback not found")
-        
-        if callback_request.tenant_id != tenant_id:
-            raise HTTPException(
-                status_code=403, 
-                detail="Callback does not belong to the specified tenant"
-            )
+    if not use_mongodb():
+        with get_db_context() as conn:
+            ensure_callback_tables(conn)
+    callback_request = callback_service.get_callback_by_id(callback_id)
+    if not callback_request:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    if callback_request.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Callback does not belong to the specified tenant",
+        )
         
         if callback_request.status in [CallbackStatus.SCHEDULED.value, CallbackStatus.COMPLETED.value]:
             raise HTTPException(
@@ -798,25 +787,22 @@ async def schedule_callback(
     if meet_result.get("calendar_add_url"):
         callback_request.metadata["calendar_add_url"] = meet_result["calendar_add_url"]
     
-    # Save updated callback
-    with get_db_context() as conn:
-        if _save_callback_to_db(conn, callback_request):
-            record_admin_audit_event(
-                conn,
-                action="callback_scheduled",
-                actor=current_admin,
-                resource_type="callback",
-                resource_id=callback_id,
-                tenant_id=tenant_id,
-                details={
-                    "meet_link": callback_request.meet_link,
-                    "calendar_event_id": callback_request.calendar_event_id,
-                    "agent_id": body.agent_id,
-                    "agent_name": body.agent_name,
-                    "start_time": body.start_time,
-                    "end_time": body.end_time
-                },
-            )
+    if _save_callback_to_db(None, callback_request):
+        _record_audit(
+            action="callback_scheduled",
+            actor=current_admin,
+            resource_type="callback",
+            resource_id=callback_id,
+            tenant_id=tenant_id,
+            details={
+                "meet_link": callback_request.meet_link,
+                "calendar_event_id": callback_request.calendar_event_id,
+                "agent_id": body.agent_id,
+                "agent_name": body.agent_name,
+                "start_time": body.start_time,
+                "end_time": body.end_time,
+            },
+        )
     
     # Send notifications in background
     if body.send_notifications:
@@ -853,40 +839,33 @@ async def cancel_callback(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Cancel a callback request."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        callback_request = _get_callback_from_db(conn, callback_id)
-        
-        if not callback_request:
-            raise HTTPException(status_code=404, detail="Callback not found")
-        
-        if callback_request.tenant_id != tenant_id:
-            raise HTTPException(
-                status_code=403, 
-                detail="Callback does not belong to the specified tenant"
-            )
-        
-        if callback_request.status in [CallbackStatus.CANCELLED.value, CallbackStatus.COMPLETED.value]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot cancel a callback that is already {callback_request.status}"
-            )
-        
-        # Update callback status
-        callback_request.status = CallbackStatus.CANCELLED.value
-        callback_request.updated_at = datetime.now(timezone.utc).isoformat()
-        
-        if _save_callback_to_db(conn, callback_request):
-            record_admin_audit_event(
-                conn,
-                action="callback_cancelled",
-                actor=current_admin,
-                resource_type="callback",
-                resource_id=callback_id,
-                tenant_id=tenant_id,
-                details={"reason": body.reason, "notes": body.cancellation_notes},
-            )
-    
+    if not use_mongodb():
+        with get_db_context() as conn:
+            ensure_callback_tables(conn)
+    callback_request = callback_service.get_callback_by_id(callback_id)
+    if not callback_request:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    if callback_request.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Callback does not belong to the specified tenant",
+        )
+    if callback_request.status in [CallbackStatus.CANCELLED.value, CallbackStatus.COMPLETED.value]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel a callback that is already {callback_request.status}",
+        )
+    callback_request.status = CallbackStatus.CANCELLED.value
+    callback_request.updated_at = datetime.now(timezone.utc).isoformat()
+    if _save_callback_to_db(None, callback_request):
+        _record_audit(
+            action="callback_cancelled",
+            actor=current_admin,
+            resource_type="callback",
+            resource_id=callback_id,
+            tenant_id=tenant_id,
+            details={"reason": body.reason, "notes": body.cancellation_notes},
+        )
     # Send cancellation notifications in background
     if body.notify_customer or body.notify_agent:
         background_tasks.add_task(
@@ -925,59 +904,46 @@ async def complete_callback(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Mark a callback as completed and save summary."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        callback_request = _get_callback_from_db(conn, callback_id)
-        
-        if not callback_request:
-            raise HTTPException(status_code=404, detail="Callback not found")
-        
-        if callback_request.tenant_id != tenant_id:
-            raise HTTPException(
-                status_code=403, 
-                detail="Callback does not belong to the specified tenant"
-            )
-        
-        if callback_request.status == CallbackStatus.COMPLETED.value:
-            raise HTTPException(
-                status_code=400,
-                detail="Callback is already completed"
-            )
-        
-        # Mark as completed
-        callback_request.status = CallbackStatus.COMPLETED.value
-        callback_request.updated_at = datetime.now(timezone.utc).isoformat()
-        
-        if _save_callback_to_db(conn, callback_request):
-            # Save meeting summary
-            conn.execute(
-                """INSERT INTO callback_summaries 
-                   (id, callback_id, tenant_id, meeting_notes, outcome, follow_up_required, follow_up_notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    secrets.token_hex(12),
-                    callback_id,
-                    tenant_id,
-                    body.meeting_notes,
-                    body.outcome,
-                    1 if body.follow_up_required else 0,
-                    body.follow_up_notes
-                )
-            )
-            
-            record_admin_audit_event(
-                conn,
-                action="callback_completed",
-                actor=current_admin,
-                resource_type="callback",
-                resource_id=callback_id,
-                tenant_id=tenant_id,
-                details={
-                    "outcome": body.outcome,
-                    "follow_up_required": body.follow_up_required,
-                    "meeting_notes_length": len(body.meeting_notes or "")
-                },
-            )
+    if not use_mongodb():
+        with get_db_context() as conn:
+            ensure_callback_tables(conn)
+    callback_request = callback_service.get_callback_by_id(callback_id)
+    if not callback_request:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    if callback_request.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Callback does not belong to the specified tenant",
+        )
+    if callback_request.status == CallbackStatus.COMPLETED.value:
+        raise HTTPException(status_code=400, detail="Callback is already completed")
+
+    callback_request.status = CallbackStatus.COMPLETED.value
+    callback_request.updated_at = datetime.now(timezone.utc).isoformat()
+    if _save_callback_to_db(None, callback_request):
+        save_callback_summary(
+            secrets.token_hex(12),
+            {
+                "callback_id": callback_id,
+                "tenant_id": tenant_id,
+                "meeting_notes": body.meeting_notes,
+                "outcome": body.outcome,
+                "follow_up_required": body.follow_up_required,
+                "follow_up_notes": body.follow_up_notes,
+            },
+        )
+        _record_audit(
+            action="callback_completed",
+            actor=current_admin,
+            resource_type="callback",
+            resource_id=callback_id,
+            tenant_id=tenant_id,
+            details={
+                "outcome": body.outcome,
+                "follow_up_required": body.follow_up_required,
+                "meeting_notes_length": len(body.meeting_notes or ""),
+            },
+        )
     
     logger.info(f"Callback completed: {callback_id}")
     
@@ -1002,45 +968,26 @@ async def get_callback_summary(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get summary of a completed callback meeting."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        
-        # Get callback
-        callback_request = _get_callback_from_db(conn, callback_id)
-        if not callback_request:
-            raise HTTPException(status_code=404, detail="Callback not found")
-        
-        if callback_request.tenant_id != tenant_id:
-            raise HTTPException(
-                status_code=403, 
-                detail="Callback does not belong to the specified tenant"
-            )
-        
-        # Get summary
-        summary_row = conn.execute(
-            """SELECT * FROM callback_summaries 
-               WHERE callback_id = ? ORDER BY created_at DESC LIMIT 1""",
-            (callback_id,)
-        ).fetchone()
-        
-        callback_summary = None
-        if summary_row:
-            callback_summary = dict(summary_row)
-        
-        # Create comprehensive summary
-        summary = callback_service.create_meeting_summary(
-            callback_request=callback_request,
-            meeting_notes=callback_summary.get("meeting_notes", "") if callback_summary else ""
+    callback_request = _get_callback_from_db(None, callback_id)
+    if not callback_request:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    if callback_request.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Callback does not belong to the specified tenant",
         )
-        
-        if callback_summary:
-            summary.update({
-                "outcome": callback_summary.get("outcome"),
-                "follow_up_required": bool(callback_summary.get("follow_up_required")),
-                "follow_up_notes": callback_summary.get("follow_up_notes"),
-                "summary_created_at": callback_summary.get("created_at")
-            })
-    
+    callback_summary = fetch_callback_summary(callback_id)
+    summary = callback_service.create_meeting_summary(
+        callback_request=callback_request,
+        meeting_notes=callback_summary.get("meeting_notes", "") if callback_summary else "",
+    )
+    if callback_summary:
+        summary.update({
+            "outcome": callback_summary.get("outcome"),
+            "follow_up_required": bool(callback_summary.get("follow_up_required")),
+            "follow_up_notes": callback_summary.get("follow_up_notes"),
+            "summary_created_at": callback_summary.get("created_at"),
+        })
     return {
         "ok": True,
         "callback_id": callback_id,
@@ -1110,93 +1057,80 @@ async def reschedule_callback(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Reschedule an existing callback."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        callback_request = _get_callback_from_db(conn, callback_id)
-        
-        if not callback_request:
-            raise HTTPException(status_code=404, detail="Callback not found")
-        
-        if callback_request.tenant_id != tenant_id:
-            raise HTTPException(
-                status_code=403, 
-                detail="Callback does not belong to the specified tenant"
-            )
-        
-        if callback_request.status in [CallbackStatus.CANCELLED.value, CallbackStatus.COMPLETED.value]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot reschedule a callback that is {callback_request.status}"
-            )
-        
-        # Delete old calendar event if it exists
-        if callback_request.calendar_event_id:
-            try:
-                await google_meet_service.delete_event(
-                    calendar_id="primary",
-                    event_id=callback_request.calendar_event_id
-                )
-            except Exception as e:
-                logger.warning(f"Failed to delete old calendar event: {e}")
-        
-        # Create new Google Meet event
-        meet_result = await google_meet_service.create_meeting(
-            calendar_id="primary",
-            title=f"Callback (Rescheduled): {callback_request.customer_name} - {callback_request.callback_type}",
-            description=f"""
-            Rescheduled Callback (Original: {callback_request.scheduled_start_time or 'N/A'})
-            Customer: {callback_request.customer_name}
-            WhatsApp ID: {callback_request.wa_id}
-            Purpose: {callback_request.purpose or 'Not specified'}
-            Type: {callback_request.callback_type}
-            Priority: {callback_request.priority}
-            Additional Info: {callback_request.additional_info or 'None'}
-            Reschedule Reason: {body.reason or 'Not specified'}
-            """,
-            start_time=body.new_start_time,
-            end_time=body.new_end_time,
-            attendees=[
-                {"email": callback_request.customer_email, "displayName": callback_request.customer_name}
-            ] if callback_request.customer_email else [],
-            timezone=callback_request.timezone
+    if not use_mongodb():
+        with get_db_context() as conn:
+            ensure_callback_tables(conn)
+    callback_request = callback_service.get_callback_by_id(callback_id)
+    if not callback_request:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    if callback_request.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Callback does not belong to the specified tenant",
         )
-        
-        if not meet_result.get("ok"):
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to create Google Meet for rescheduled callback: {meet_result.get('error', 'Unknown error')}"
-            )
-        
-        # Update callback with new meeting details
-        callback_request = callback_service.schedule_callback_with_meet(
-            callback_request=callback_request,
-            agent_id=callback_request.assigned_agent_id or "",
-            agent_name=callback_request.assigned_agent_name or "",
-            start_time=body.new_start_time,
-            end_time=body.new_end_time,
-            calendar_event_id=meet_result.get("event_id", ""),
-            meet_link=meet_result.get("meet_link", "")
+    if callback_request.status in [CallbackStatus.CANCELLED.value, CallbackStatus.COMPLETED.value]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot reschedule a callback that is {callback_request.status}",
         )
-        
-        # Save updated callback
-        if _save_callback_to_db(conn, callback_request):
-            record_admin_audit_event(
-                conn,
-                action="callback_rescheduled",
-                actor=current_admin,
-                resource_type="callback",
-                resource_id=callback_id,
-                tenant_id=tenant_id,
-                details={
-                    "old_start_time": callback_request.scheduled_start_time,
-                    "old_end_time": callback_request.scheduled_end_time,
-                    "new_start_time": body.new_start_time,
-                    "new_end_time": body.new_end_time,
-                    "new_meet_link": callback_request.meet_link,
-                    "reason": body.reason
-                },
+    if callback_request.calendar_event_id:
+        try:
+            await google_meet_service.delete_event(
+                calendar_id="primary",
+                event_id=callback_request.calendar_event_id,
             )
-    
+        except Exception as e:
+            logger.warning(f"Failed to delete old calendar event: {e}")
+    meet_result = await google_meet_service.create_meeting(
+        calendar_id="primary",
+        title=f"Callback (Rescheduled): {callback_request.customer_name} - {callback_request.callback_type}",
+        description=f"""
+        Rescheduled Callback (Original: {callback_request.scheduled_start_time or 'N/A'})
+        Customer: {callback_request.customer_name}
+        WhatsApp ID: {callback_request.wa_id}
+        Purpose: {callback_request.purpose or 'Not specified'}
+        Type: {callback_request.callback_type}
+        Priority: {callback_request.priority}
+        Additional Info: {callback_request.additional_info or 'None'}
+        Reschedule Reason: {body.reason or 'Not specified'}
+        """,
+        start_time=body.new_start_time,
+        end_time=body.new_end_time,
+        attendees=[
+            {"email": callback_request.customer_email, "displayName": callback_request.customer_name}
+        ] if callback_request.customer_email else [],
+        timezone=callback_request.timezone,
+    )
+    if not meet_result.get("ok"):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create Google Meet for rescheduled callback: {meet_result.get('error', 'Unknown error')}",
+        )
+    callback_request = callback_service.schedule_callback_with_meet(
+        callback_request=callback_request,
+        agent_id=callback_request.assigned_agent_id or "",
+        agent_name=callback_request.assigned_agent_name or "",
+        start_time=body.new_start_time,
+        end_time=body.new_end_time,
+        calendar_event_id=meet_result.get("event_id", ""),
+        meet_link=meet_result.get("meet_link", ""),
+    )
+    if _save_callback_to_db(None, callback_request):
+        _record_audit(
+            action="callback_rescheduled",
+            actor=current_admin,
+            resource_type="callback",
+            resource_id=callback_id,
+            tenant_id=tenant_id,
+            details={
+                "old_start_time": callback_request.scheduled_start_time,
+                "old_end_time": callback_request.scheduled_end_time,
+                "new_start_time": body.new_start_time,
+                "new_end_time": body.new_end_time,
+                "new_meet_link": callback_request.meet_link,
+                "reason": body.reason,
+            },
+        )
     # Send new notifications in background
     if body.notify_participants:
         background_tasks.add_task(
@@ -1226,37 +1160,19 @@ async def list_upcoming_callbacks(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """List upcoming callbacks that need reminders or attention."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        
-        from dateutil.parser import parse
-        cutoff_date = (datetime.now(timezone.utc) + timedelta(days=days_ahead)).isoformat()
-        
-        rows = conn.execute(
-            """SELECT data FROM callbacks 
-               WHERE tenant_id = ? 
-               AND status IN ('pending', 'confirmed', 'scheduled')
-               AND scheduled_start_time <= ?
-               ORDER BY scheduled_start_time ASC LIMIT ?""",
-            (tenant_id, cutoff_date, limit)
-        ).fetchall()
-        
-        upcoming = []
-        for row in rows:
-            if row and row["data"]:
-                data = json.loads(row["data"])
-                callback_request = CallbackRequest(**data)
-                
-                if callback_request.scheduled_start_time:
-                    start_time = parse(callback_request.scheduled_start_time)
-                    now = datetime.now(timezone.utc)
-                    
-                    # Convert to same timezone for comparison
-                    if start_time.tzinfo:
-                        now = now.replace(tzinfo=start_time.tzinfo)
-                    
-                    if start_time > now:
-                        upcoming.append(callback_request)
+    from dateutil.parser import parse
+
+    cutoff_date = (datetime.now(timezone.utc) + timedelta(days=days_ahead)).isoformat()
+    upcoming_requests = query_upcoming_callbacks(tenant_id, cutoff_date, limit)
+    upcoming = []
+    for callback_request in upcoming_requests:
+        if callback_request.scheduled_start_time:
+            start_time = parse(callback_request.scheduled_start_time)
+            now = datetime.now(timezone.utc)
+            if start_time.tzinfo:
+                now = now.replace(tzinfo=start_time.tzinfo)
+            if start_time > now:
+                upcoming.append(callback_request)
     
     # Sort by scheduled start time
     upcoming.sort(key=lambda cb: cb.scheduled_start_time or "")
@@ -1325,43 +1241,28 @@ async def save_agent_availability(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date or time format")
     
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        
-        agent_name = ""  # Could be retrieved from agent table in real implementation
-        
-        conn.execute(
-            """INSERT INTO agent_availability 
-               (tenant_id, agent_id, agent_name, date, start_time, end_time, is_available)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(tenant_id, agent_id, date, start_time, end_time) DO UPDATE SET
-                 is_available = excluded.is_available,
-                 agent_name = excluded.agent_name""",
-            (
-                tenant_id,
-                agent_id,
-                agent_name,
-                date,
-                start_time,
-                end_time,
-                1 if is_available else 0
-            )
-        )
-        
-        record_admin_audit_event(
-            conn,
-            action="agent_availability_saved",
-            actor=current_admin,
-            resource_type="agent_availability",
-            resource_id=f"{agent_id}/{date}",
-            tenant_id=tenant_id,
-            details={
-                "agent_id": agent_id,
-                "date": date,
-                "time_range": f"{start_time}-{end_time}",
-                "is_available": is_available
-            },
-        )
+    save_agent_availability(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        agent_name="",
+        date=date,
+        start_time=start_time,
+        end_time=end_time,
+        is_available=is_available,
+    )
+    _record_audit(
+        action="agent_availability_saved",
+        actor=current_admin,
+        resource_type="agent_availability",
+        resource_id=f"{agent_id}/{date}",
+        tenant_id=tenant_id,
+        details={
+            "agent_id": agent_id,
+            "date": date,
+            "time_range": f"{start_time}-{end_time}",
+            "is_available": is_available,
+        },
+    )
     
     return {
         "ok": True,
@@ -1387,27 +1288,7 @@ async def get_agent_availability(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format")
     
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        
-        rows = conn.execute(
-            """SELECT * FROM agent_availability 
-               WHERE tenant_id = ? AND agent_id = ? AND date = ?
-               ORDER BY start_time ASC""",
-            (tenant_id, agent_id, date)
-        ).fetchall()
-        
-        availability = []
-        for row in rows:
-            availability.append({
-                "id": row["id"],
-                "agent_id": row["agent_id"],
-                "agent_name": row["agent_name"],
-                "date": row["date"],
-                "start_time": row["start_time"],
-                "end_time": row["end_time"],
-                "is_available": bool(row["is_available"])
-            })
+    availability = list_agent_availability(tenant_id, agent_id, date)
     
     return {
         "ok": True,
@@ -1426,70 +1307,19 @@ async def get_callback_stats(
     current_admin: dict = Depends(require_tenant_access()),
 ):
     """Get callback statistics for a tenant."""
-    with get_db_context() as conn:
-        _init_callback_tables(conn)
-        
-        from dateutil.parser import parse
-        
-        end_date = datetime.now(timezone.utc)
-        start_date = end_date - timedelta(days=days)
-        
-        # Get counts by status
-        status_counts = {}
-        all_statuses = [s.value for s in CallbackStatus]
-        
-        for status in all_statuses:
-            row = conn.execute(
-                """SELECT COUNT(*) as count FROM callbacks 
-                   WHERE tenant_id = ? AND status = ? 
-                   AND created_at >= ?""",
-                (tenant_id, status, start_date.isoformat())
-            ).fetchone()
-            
-            status_counts[status] = row["count"] if row else 0
-        
-        # Get callback types distribution
-        type_counts = {}
-        valid_types = [t.value for t in CallbackType]
-        
-        for cb_type in valid_types:
-            row = conn.execute(
-                """SELECT COUNT(*) as count FROM callbacks 
-                   WHERE tenant_id = ? AND data LIKE ?""",
-                (tenant_id, f'%"callback_type":"{cb_type}"%')
-            ).fetchone()
-            
-            type_counts[cb_type] = row["count"] if row else 0
-        
-        # Get daily callback counts
-        daily_counts = []
-        current_date = start_date
-        while current_date <= end_date:
-            date_str = current_date.strftime("%Y-%m-%d")
-            row = conn.execute(
-                """SELECT COUNT(*) as count FROM callbacks 
-                   WHERE tenant_id = ? AND date(created_at) = ?""",
-                (tenant_id, date_str)
-            ).fetchone()
-            
-            daily_counts.append({
-                "date": date_str,
-                "count": row["count"] if row else 0
-            })
-            
-            current_date += timedelta(days=1)
-        
-        # Get average resolution time
-        avg_resolution = None
-        row = conn.execute(
-            """SELECT AVG(julianday(updated_at) - julianday(created_at)) as days
-               FROM callbacks 
-               WHERE tenant_id = ? AND status = ? AND scheduled_start_time IS NOT NULL""",
-            (tenant_id, CallbackStatus.COMPLETED.value)
-        ).fetchone()
-        
-        if row and row["days"]:
-            avg_resolution = float(row["days"])
+    stats = callback_stats(
+        tenant_id,
+        days,
+        [s.value for s in CallbackStatus],
+        [t.value for t in CallbackType],
+        CallbackStatus.COMPLETED.value,
+    )
+    status_counts = stats["status_counts"]
+    type_counts = stats["type_counts"]
+    daily_counts = stats["daily_counts"]
+    avg_resolution = stats["avg_resolution"]
+    start_date = stats["start_date"]
+    end_date = stats["end_date"]
     
     return {
         "ok": True,

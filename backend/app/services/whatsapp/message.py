@@ -297,20 +297,12 @@ def build_catalog_summary(user_text: str) -> dict | None:
     media_url = None
     media_type = None
     try:
-        from backend.database import get_db_context, _resolve_tenant_ids
-        t_ids = _resolve_tenant_ids(None)
-        placeholders = ", ".join(["?"] * len(t_ids))
-        with get_db_context() as conn:
-            row = conn.execute(
-                f"SELECT media_url, media_type FROM products "
-                f"WHERE tenant_id IN ({placeholders}) "
-                f"AND category = 'catalogue' AND media_url IS NOT NULL AND is_active = 1 "
-                f"ORDER BY sort_order ASC LIMIT 1",
-                list(t_ids),
-            ).fetchone()
-        if row:
-            media_url = row[0]
-            media_type = row[1]
+        from backend.database import list_products
+        for p in list_products(category="catalogue", active_only=True, limit=50):
+            if p.get("media_url"):
+                media_url = p.get("media_url")
+                media_type = p.get("media_type")
+                break
     except Exception as e:
         logger.debug(f"catalogue PDF lookup failed: {e}")
 
@@ -377,12 +369,8 @@ def _is_distributor(wa_id) -> bool:
     if not wa_id:
         return False
     try:
-        from backend.database import get_db_context
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM distributors WHERE wa_id = ?", (str(wa_id),)
-            ).fetchone()
-            return row is not None
+        from db.distributors_ops import distributor_exists_globally
+        return distributor_exists_globally(str(wa_id))
     except Exception as e:
         logger.warning(f"distributor check failed for {wa_id}: {e}")
         return False
@@ -752,7 +740,14 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             or flow_runner.flow_for_text(wa_id or "", user_text, tenant_id=tenant_id)
         )
         if flow_name:
-            outcome = flow_runner.start_flow(wa_id or "", flow_name, tenant_id=tenant_id)
+            seed = (
+                {"_trigger_text": user_text or interactive_id or ""}
+                if flow_name in ("book_callback", "callback_request")
+                else None
+            )
+            outcome = flow_runner.start_flow(
+                wa_id or "", flow_name, tenant_id=tenant_id, seed=seed,
+            )
             if outcome.get("handled") and outcome.get("messages"):
                 result["answer"] = flow_runner.messages_text(outcome["messages"])
                 result["query_type"] = "flow"
@@ -949,13 +944,13 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
                         elif isinstance(m, dict) and (m.get("text") or "").strip():
                             parts.append(m["text"].strip())
                     answer = "\n\n".join(parts) if parts else (
-                        "Sure — leave your details and we'll schedule a callback "
-                        "with a Google Meeting.Type exit to exit the flow"
+                        "Sure — I'll arrange a callback on this WhatsApp number. "
+                        "A couple of quick questions (type *exit* to cancel)."
                     )
                 except Exception:
                     answer = (
-                        "Sure — leave your details and we'll schedule a callback "
-                        "with a Google Meeting.Type exit to exit the flow"
+                        "Sure — I'll arrange a callback on this WhatsApp number. "
+                        "A couple of quick questions (type *exit* to cancel)."
                     )
             else:
                 answer = _support_details_text(wa_id or "", tenant_id)

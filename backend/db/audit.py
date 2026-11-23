@@ -1,25 +1,18 @@
 """Admin/audit event logging data access — extracted from backend/database.py."""
-import os
 import json
 import re
-import sqlite3
-import logging
-import hashlib
 from datetime import datetime, timedelta, timezone
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
 
 from .core import (
-    DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
-    _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-    get_request_tenant
+    logger, get_db_context, use_mongodb, _ensure_columns,
+    _audit_request_context, _facade_ref,
 )
-
-from .core import _audit_request_context, trusted_client_ip, _facade_ref
 
 
 def _init_admin_audit_tables(conn):
     """Create the durable, append-only admin audit log retained for one year."""
+    if conn is None or use_mongodb():
+        return
     conn.execute(
         """CREATE TABLE IF NOT EXISTS admin_audit_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,27 +99,67 @@ def record_admin_audit_event(
     actor_kind: str | None = None,
     actor_label: str | None = None,
 ) -> int:
-    """Record an audit event using the caller's transaction."""
+    """Record an audit event using the caller's transaction (or Mongo Repository)."""
     if outcome not in {"success", "failure"}:
         raise ValueError("Audit outcome must be success or failure")
     actor = actor or {}
     context = _audit_request_context.get() or {}
     tenant_id = tenant_id or actor.get("tenant_id")
+    mongo_mode = use_mongodb() or conn is None
+
     if tenant_id and (tenant_name is None or tenant_slug is None):
         try:
-            tenant = conn.execute(
-                "SELECT display_name, slug FROM tenants WHERE id = ?",
-                (str(tenant_id),),
-            ).fetchone()
-            if tenant:
-                tenant_name = tenant_name or tenant["display_name"] or None
-                tenant_slug = tenant_slug or tenant["slug"] or None
+            if mongo_mode:
+                from .mongo import Repository
+                tenant = Repository("tenants").find_one({"id": str(tenant_id)})
+                if tenant:
+                    tenant_name = tenant_name or tenant.get("display_name") or None
+                    tenant_slug = tenant_slug or tenant.get("slug") or None
+            else:
+                tenant = conn.execute(
+                    "SELECT display_name, slug FROM tenants WHERE id = ?",
+                    (str(tenant_id),),
+                ).fetchone()
+                if tenant:
+                    tenant_name = tenant_name or tenant["display_name"] or None
+                    tenant_slug = tenant_slug or tenant["slug"] or None
         except Exception:
             # Compatibility with audit tests/older database fixtures without
             # the tenant registry table.
             logger.debug("AUDIT_TENANT_LOOKUP_SKIPPED | tenant=%s", tenant_id, exc_info=True)
     actor_kind = actor_kind or actor.get("type") or ("tenant_token" if actor.get("token_id") else "admin")
     actor_label = actor_label or actor.get("label") or actor.get("username")
+    details_payload = _facade_ref("safe_audit_details", safe_audit_details)(details or {})
+    created_at = datetime.now(timezone.utc)
+
+    if mongo_mode:
+        from .mongo import Repository
+        try:
+            cutoff = created_at - timedelta(days=365)
+            Repository("admin_audit_events").delete_many({"created_at": {"$lt": cutoff}})
+        except Exception:
+            logger.debug("AUDIT_RETENTION_CLEANUP_SKIPPED", exc_info=True)
+        row = Repository("admin_audit_events").insert({
+            "created_at": created_at,
+            "actor_id": actor.get("id"),
+            "actor_username": actor.get("username"),
+            "actor_role": actor.get("role"),
+            "action": action,
+            "outcome": outcome,
+            "resource_type": resource_type,
+            "resource_id": "" if resource_id is None else str(resource_id),
+            "target_username": target_username,
+            "tenant_id": tenant_id,
+            "details_json": details_payload,
+            "ip_address": ip_address or context.get("ip_address"),
+            "user_agent": (user_agent or context.get("user_agent") or "")[:512] or None,
+            "tenant_name": tenant_name,
+            "tenant_slug": tenant_slug,
+            "actor_kind": actor_kind,
+            "actor_label": actor_label,
+        })
+        return int(row["id"])
+
     try:
         _init_admin_audit_tables(conn)
         conn.execute("DELETE FROM admin_audit_events WHERE datetime(created_at) < datetime('now', '-365 days')")
@@ -142,14 +175,11 @@ def record_admin_audit_event(
             ip_address, user_agent, tenant_name, tenant_slug, actor_kind, actor_label)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            datetime.now(timezone.utc).isoformat(), actor.get("id"), actor.get("username"),
+            created_at.isoformat(), actor.get("id"), actor.get("username"),
             actor.get("role"), action, outcome, resource_type,
             "" if resource_id is None else str(resource_id), target_username,
             tenant_id,
-            # Late-bound via the facade so tests can patch
-            # `database.safe_audit_details` and have it take effect here.
-            json.dumps(_facade_ref("safe_audit_details", safe_audit_details)(
-                details or {}), ensure_ascii=False),
+            json.dumps(details_payload, ensure_ascii=False),
             ip_address or context.get("ip_address"),
             (user_agent or context.get("user_agent") or "")[:512] or None,
             tenant_name, tenant_slug, actor_kind, actor_label,
@@ -160,6 +190,8 @@ def record_admin_audit_event(
 
 def _init_audit_logs_table(conn):
     """Initialize the dedicated audit_logs table for Healthy Earth theme."""
+    if conn is None or use_mongodb():
+        return
     conn.execute(
         """CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,7 +226,19 @@ def record_audit_log_event(
     if status not in ("success", "failed", "pending"):
         raise ValueError("Status must be success, failed, or pending")
     
-    import json
+    if use_mongodb() or conn is None:
+        from .mongo import Repository
+        row = Repository("audit_logs").insert({
+            "created_at": datetime.now(timezone.utc),
+            "actor": actor,
+            "action": action,
+            "category": category,
+            "status": status,
+            "description": description,
+            "metadata": metadata or {},
+        })
+        return int(row.get("id") or 0)
+
     conn.execute(
         """INSERT INTO audit_logs 
            (created_at, actor, action, category, status, description, metadata)

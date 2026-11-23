@@ -230,16 +230,15 @@ def _get_brand_name(wa_id: str = "") -> str:
 def _b2b_menu_body(wa_id: str) -> str:
     """Body text for the B2B distributor main menu (used by menu-preview / tester)."""
     try:
-        from database import get_db_context
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT name, tier, outstanding_payments FROM distributors WHERE wa_id = ?",
-                (wa_id,),
-            ).fetchone()
+        try:
+            from db.distributors_ops import get_distributor_by_wa_id
+        except ImportError:
+            from backend.db.distributors_ops import get_distributor_by_wa_id
+        row = get_distributor_by_wa_id(wa_id)
         if row:
-            tier = (row["tier"] or "Bronze").strip()
-            outstanding = float(row["outstanding_payments"] or 0)
-            name = (row["name"] or "Distributor").strip()
+            tier = (row.get("tier") or "Bronze").strip()
+            outstanding = float(row.get("outstanding_payments") or 0)
+            name = (row.get("name") or "Distributor").strip()
             if outstanding > 0:
                 return (
                     f"{name} · {tier} tier. Outstanding: ₹{outstanding:,.0f}. "
@@ -264,14 +263,13 @@ def personalize_header(wa_id: str, user_type: str = "b2c") -> str:
 
     if user_type == "b2b" and wa_id:
         try:
-            from database import get_db_context
-            with get_db_context() as conn:
-                row = conn.execute(
-                    "SELECT name, tier FROM distributors WHERE wa_id = ?",
-                    (wa_id,),
-                ).fetchone()
-            if row and row["name"]:
-                tier = (row["tier"] or "Bronze").strip()
+            try:
+                from db.distributors_ops import get_distributor_by_wa_id
+            except ImportError:
+                from backend.db.distributors_ops import get_distributor_by_wa_id
+            row = get_distributor_by_wa_id(wa_id)
+            if row and row.get("name"):
+                tier = (row.get("tier") or "Bronze").strip()
                 return f"Welcome back, {row['name']}! 🏆 {tier} Tier"
         except Exception as e:
             logger.debug("Could not personalize B2B header: %s", e)

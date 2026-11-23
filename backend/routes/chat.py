@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional
 
-from database import get_db, get_db_context, save_chat
+from database import list_chat_thread, save_chat, touch_handover_activity
 from routes.auth import get_current_admin, scoped_tenant_id
 from routing.config import (
     SEND2_USERNAME,
@@ -16,15 +16,10 @@ from routing.config import (
     SEND2_NUMBER,
     SEND2_SESSION_SEND_URL,
     SEND_MEDIA,
-    IMGHIPPO_API_KEY,
 )
 
 logger = logging.getLogger("chat")
 router = APIRouter(prefix="/api/chat")
-
-CATBOX_API_URL = "https://catbox.moe/user/api.php"
-IMGHIPPO_API_URL = "https://api.imghippo.com/v1/upload"
-
 
 class SendMessageRequest(BaseModel):
     wa_id: str
@@ -40,63 +35,42 @@ def get_chat_history_for_user(wa_id: str, current_admin: dict = Depends(get_curr
     # A tenant admin only sees this WhatsApp id's thread inside their own tenant.
     # The same phone can talk to several brands; wa_id alone is not a scope.
     scope = scoped_tenant_id(current_admin)
-    where = "wa_id = ?"
-    params: list = [wa_id]
-    if scope:
-        where += " AND tenant_id = ?"
-        params.append(scope)
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""
-            SELECT id, wa_id, sender_name, message, response, route, created_at
-            FROM chat_history
-            WHERE {where}
-            ORDER BY id ASC
-            LIMIT 200
-            """,
-            params,
-        ).fetchall()
+    rows = list_chat_thread(wa_id, tenant_id=scope, limit=200)
 
-        messages = []
-        for row in rows:
-            if row["message"]:
-                messages.append({
-                    "id": row["id"],
-                    "role": "user",
-                    "sender": row["sender_name"] or row["wa_id"],
-                    "text": row["message"],
-                    "created_at": row["created_at"],
-                })
-            if row["response"]:
-                messages.append({
-                    "id": row["id"],
-                    "role": "bot",
-                    "sender": "bot",
-                    "text": row["response"],
-                    "created_at": row["created_at"],
-                })
+    messages = []
+    for row in rows:
+        if row["message"]:
+            messages.append({
+                "id": row["id"],
+                "role": "user",
+                "sender": row["sender_name"] or row["wa_id"],
+                "text": row["message"],
+                "created_at": row["created_at"],
+            })
+        if row["response"]:
+            messages.append({
+                "id": row["id"],
+                "role": "bot",
+                "sender": "bot",
+                "text": row["response"],
+                "created_at": row["created_at"],
+            })
 
-        return {"messages": messages}
-    finally:
-        conn.close()
+    return {"messages": messages}
 
 
 # ── Upload helpers ─────────────────────────────────────────────────────────
 
 def _upload_to_catbox(content: bytes, filename: str) -> str | None:
-    """Upload file to catbox.moe, returns public URL."""
+    """Legacy helper name: store the document on this backend."""
     try:
-        resp = httpx.post(
-            CATBOX_API_URL,
-            data={"reqtype": "fileupload"},
-            files={"fileToUpload": (filename, content, "application/octet-stream")},
-            timeout=30,
-        )
-        if resp.is_success and not resp.text.startswith("error"):
-            return resp.text.strip()
+        from services.media_host import upload_public_media
+    except ImportError:
+        from backend.services.media_host import upload_public_media
+    try:
+        return upload_public_media(content, filename, subdir="brochures")
     except Exception as e:
-        logger.error(f"Catbox upload failed: {e}")
+        logger.error(f"Local document hosting failed: {e}")
     return None
 
 
@@ -202,8 +176,7 @@ async def send_message(
         filename = uploaded_file.filename or "file"
         file_ct = getattr(uploaded_file, "content_type", "") or ""
 
-        # Host publicly so Meta/send2 can fetch the file.
-        # Images → img402/BasePic (free); PDFs → Cloudflare PUBLIC_BASE_URL.
+        # Store on this backend so the configured client can fetch the file.
         media_type = _guess_media_type(filename, file_ct)
         subdir = "chat_attachments" if media_type != "image" else "product_images"
         try:
@@ -217,8 +190,7 @@ async def send_message(
             raise HTTPException(
                 status_code=500,
                 detail=(
-                    "File upload failed. For PDFs set a live PUBLIC_BASE_URL "
-                    "(Cloudflare tunnel). For images, img402/BasePic must be reachable."
+                    "File upload failed. Set PUBLIC_BASE_URL and verify UPLOAD_DIR."
                 ),
             )
 
@@ -243,16 +215,4 @@ async def send_message(
 def _touch_handover_activity(wa_id: str) -> None:
     """Refresh user_states.updated_at so the 1h auto-revert timeout is measured
     from the last human-agent reply rather than from the handoff start."""
-    try:
-        from database import get_db_context
-        with get_db_context() as conn:
-            conn.execute(
-                """
-                UPDATE user_states
-                SET updated_at = CURRENT_TIMESTAMP
-                WHERE wa_id = ? AND human_handover = 1
-                """,
-                (wa_id,),
-            )
-    except Exception as e:
-        logger.warning(f"Failed to touch handover activity for {wa_id}: {e}")
+    touch_handover_activity(wa_id)

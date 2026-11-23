@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 for _path in (BACKEND_DIR, PROJECT_ROOT):
@@ -49,11 +51,7 @@ def _app() -> FastAPI:
 
 class QaAuditFixTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "qa.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
-        self.core_patch = patch.object(db_core, "DB_PATH", self.db_path)
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         self.core_patch.start()
         self.secret_patch = patch.object(auth, "ADMIN_SECRET_KEY", SECRET)
         self.secret_patch.start()
@@ -77,10 +75,9 @@ class QaAuditFixTests(unittest.TestCase):
         self.client = TestClient(_app())
 
     def tearDown(self):
+        self.mongo.stop()
         self.secret_patch.stop()
         self.core_patch.stop()
-        self.db_patch.stop()
-        self.temp.cleanup()
 
     def _tenant(self, tid, mobile):
         from shared.tenancy import store

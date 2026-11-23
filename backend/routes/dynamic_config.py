@@ -25,6 +25,7 @@ from database import (
     get_published_products,
     get_products_by_category,
 )
+from db.core import use_mongodb
 from routes.auth import get_current_admin, require_permission
 
 logger = logging.getLogger("dynamic_config")
@@ -121,30 +122,39 @@ def save_config(
         tid = _require_tenant(scope, tenant_id)
         from shared.tenancy import store as tenancy_store
 
-        with get_db_context() as conn:
-            tenancy_store.save_draft(tid, snapshot, updated_by=username, conn=conn)
-            record_admin_audit_event(
-                conn,
-                action="tenant_profile_draft_saved",
-                actor=current_admin,
-                resource_type="tenant_profile",
-                resource_id=tid,
-                tenant_id=tid,
-                details={"changed_sections": sorted(snapshot.keys())},
-            )
+        audit = dict(
+            action="tenant_profile_draft_saved",
+            actor=current_admin,
+            resource_type="tenant_profile",
+            resource_id=tid,
+            tenant_id=tid,
+            details={"changed_sections": sorted(snapshot.keys())},
+        )
+        if use_mongodb():
+            tenancy_store.save_draft(tid, snapshot, updated_by=username, conn=None)
+            record_admin_audit_event(None, **audit)
+        else:
+            with get_db_context() as conn:
+                tenancy_store.save_draft(tid, snapshot, updated_by=username, conn=conn)
+                record_admin_audit_event(conn, **audit)
         logger.info(f"TENANT_PROFILE_DRAFT_SAVED | tenant={tid} | by={username}")
         return {"ok": True, "scope": scope, "tenant_id": tid, "has_draft": True}
-    with get_db_context() as conn:
-        ok = save_draft_config(scope, snapshot, updated_by=username, conn=conn)
+    audit = dict(
+        action="config_draft_saved",
+        actor=current_admin,
+        resource_type="configuration",
+        resource_id=scope,
+        details={"scope": scope},
+    )
+    if use_mongodb():
+        ok = save_draft_config(scope, snapshot, updated_by=username, conn=None)
         if ok:
-            record_admin_audit_event(
-                conn,
-                action="config_draft_saved",
-                actor=current_admin,
-                resource_type="configuration",
-                resource_id=scope,
-                details={"scope": scope},
-            )
+            record_admin_audit_event(None, **audit)
+    else:
+        with get_db_context() as conn:
+            ok = save_draft_config(scope, snapshot, updated_by=username, conn=conn)
+            if ok:
+                record_admin_audit_event(conn, **audit)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to save draft")
     logger.info(f"DRAFT_SAVED | scope={scope} | by={username}")
@@ -166,17 +176,22 @@ def build_draft(
         )
     snapshot = build_products_snapshot()
     username = current_admin.get("username", "")
-    with get_db_context() as conn:
-        ok = save_draft_config(scope, snapshot, updated_by=username, conn=conn)
+    audit = dict(
+        action="config_draft_built",
+        actor=current_admin,
+        resource_type="configuration",
+        resource_id=scope,
+        details={"scope": scope},
+    )
+    if use_mongodb():
+        ok = save_draft_config(scope, snapshot, updated_by=username, conn=None)
         if ok:
-            record_admin_audit_event(
-                conn,
-                action="config_draft_built",
-                actor=current_admin,
-                resource_type="configuration",
-                resource_id=scope,
-                details={"scope": scope},
-            )
+            record_admin_audit_event(None, **audit)
+    else:
+        with get_db_context() as conn:
+            ok = save_draft_config(scope, snapshot, updated_by=username, conn=conn)
+            if ok:
+                record_admin_audit_event(conn, **audit)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to save draft")
     logger.info(f"DRAFT_BUILT | scope={scope} | by={username}")
@@ -200,20 +215,27 @@ def publish(
     if scope == "products":
         snapshot = build_products_snapshot()
 
-    with get_db_context() as conn:
+    audit = dict(
+        action="config_published",
+        actor=current_admin,
+        resource_type="configuration",
+        resource_id=scope,
+        tenant_id=tenant_id,
+        details={"scope": scope},
+    )
+    if use_mongodb():
         if scope == "products":
-            save_draft_config(scope, snapshot, updated_by=username, conn=conn)
-        ok = publish_config(scope, published_by=username, conn=conn)
+            save_draft_config(scope, snapshot, updated_by=username, conn=None)
+        ok = publish_config(scope, published_by=username, conn=None)
         if ok:
-            record_admin_audit_event(
-                conn,
-                action="config_published",
-                actor=current_admin,
-                resource_type="configuration",
-                resource_id=scope,
-                tenant_id=tenant_id,
-                details={"scope": scope},
-            )
+            record_admin_audit_event(None, **audit)
+    else:
+        with get_db_context() as conn:
+            if scope == "products":
+                save_draft_config(scope, snapshot, updated_by=username, conn=conn)
+            ok = publish_config(scope, published_by=username, conn=conn)
+            if ok:
+                record_admin_audit_event(conn, **audit)
     if not ok:
         raise HTTPException(
             status_code=400,
@@ -250,18 +272,25 @@ def _publish_tenant_profile(scope: str, tenant_id: Optional[str], username: str,
             detail=f"Profile failed validation, nothing published: {exc}",
         )
 
-    with get_db_context() as conn:
-        version = tenancy_store.publish_version(tid, draft, published_by=username, conn=conn)
+    audit = dict(
+        action="tenant_profile_published",
+        actor=actor,
+        resource_type="tenant_profile",
+        resource_id=tid,
+        tenant_id=tid,
+        details={},
+    )
+    if use_mongodb():
+        version = tenancy_store.publish_version(tid, draft, published_by=username, conn=None)
         if actor:
-            record_admin_audit_event(
-                conn,
-                action="tenant_profile_published",
-                actor=actor,
-                resource_type="tenant_profile",
-                resource_id=tid,
-                tenant_id=tid,
-                details={"version": version},
-            )
+            audit["details"] = {"version": version}
+            record_admin_audit_event(None, **audit)
+    else:
+        with get_db_context() as conn:
+            version = tenancy_store.publish_version(tid, draft, published_by=username, conn=conn)
+            if actor:
+                audit["details"] = {"version": version}
+                record_admin_audit_event(conn, **audit)
     tenancy_cache.purge(tid)
     logger.info(f"TENANT_PROFILE_PUBLISHED | tenant={tid} | version={version} | by={username}")
     return {

@@ -25,6 +25,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mongo_test_support import MongomockSession
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if BACKEND_DIR not in sys.path:
@@ -316,18 +318,14 @@ class MenuSmartSwitchRenderTests(unittest.TestCase):
 
 class SimulatorEndpointTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db_path = os.path.join(self.temp.name, "replica.sqlite3")
-        self.db_patch = patch.object(database, "DB_PATH", self.db_path)
-        self.db_patch.start()
+        self.mongo = MongomockSession().start()
         database.init_db()
         tenancy_store.ensure_tenant(TENANT, vertical="ecommerce", display_name="Replica Store")
         tenancy_cache.purge(TENANT)
 
     def tearDown(self):
+        self.mongo.stop()
         tenancy_cache.purge(TENANT)
-        self.db_patch.stop()
-        self.temp.cleanup()
 
     async def _webhook_path(self, wa_id: str, message: str) -> dict:
         """The production entry: exactly the call incoming_listener makes."""

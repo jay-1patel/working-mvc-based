@@ -3,7 +3,6 @@ import json
 import base64
 import logging
 import uuid
-import aiohttp
 import asyncio
 from typing import List
 from pathlib import Path
@@ -16,7 +15,22 @@ from database import (
     get_menu_items, upsert_menu_item, reset_menu, get_menu_settings, set_menu_settings,
     record_admin_audit_event, update_admin_file_status,
     save_product, update_product, delete_product,
+    list_webhook_logs, clear_webhook_logs,
 )
+from db.admin_ops import (
+    admin_chat_history,
+    admin_list_customers,
+    analytics_frequent_questions,
+    analytics_overview,
+    analytics_response_time,
+    analytics_top_questions,
+    analytics_unanswered,
+    convert_unanswered_to_faq,
+    dashboard_stats as load_dashboard_stats,
+    delete_admin_file_row,
+    get_admin_file_row,
+)
+from db.core import use_mongodb
 from services.menu_catalog import (
     invalidate_menu_cache, get_menu_editor_items, get_effective_item,
 )
@@ -26,6 +40,14 @@ from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger("chiki_webhook")
 router = APIRouter(prefix="/api/admin")
+
+
+def _record_audit(**kwargs):
+    if use_mongodb():
+        record_admin_audit_event(None, **kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **kwargs)
 
 
 def _tenant_clause(admin: dict, column: str, params: list) -> str:
@@ -72,74 +94,122 @@ def _guess_media_type(filename: str) -> str:
 
 # ── Dashboard stats (available to every authenticated admin) ─────────────
 
-@router.get("/dashboard/stats")
-def dashboard_stats(current_admin: dict = Depends(get_current_admin)):
-    """Overview stats for the dashboard. Requires only a valid admin token."""
-    files = list_admin_files()
+def _mongo_network_error(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    text = str(exc).lower()
+    return name in {
+        "NetworkTimeout",
+        "ServerSelectionTimeoutError",
+        "AutoReconnect",
+        "ConnectionFailure",
+        "NetworkTimeoutError",
+    } or "timed out" in text or "10054" in text or "forcibly closed" in text
+
+
+def _reset_mongo_client() -> None:
+    try:
+        from db.mongo import close_client
+        close_client()
+    except Exception:
+        logger.debug("mongo client reset skipped", exc_info=True)
+
+
+@router.post("/dashboard/overview")
+def dashboard_overview(
+    days: int = Query(7, ge=1, le=90),
+    limit: int = Query(8, ge=1, le=100),
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Return every dashboard metric in one tenant-scoped response.
+
+    Mongo network blips must not 500 the whole Today page — each section is
+    isolated and missing pieces degrade to empty defaults.
+    """
+    tenant_id = scoped_tenant_id(current_admin)
+
+    def _safe(label: str, fn, default):
+        try:
+            return fn()
+        except Exception as exc:
+            if _mongo_network_error(exc):
+                _reset_mongo_client()
+            logger.warning("DASHBOARD_SECTION_FAILED | section=%s | err=%s", label, exc)
+            return default
+
+    files = _safe(
+        "files",
+        lambda: list_admin_files(tenant_id=tenant_id) if tenant_id else list_admin_files(),
+        [],
+    )
     kb_count = len([f for f in files if f.get("module") == "kb"])
     faq_count = len([f for f in files if f.get("module") == "faq"])
 
-    try:
-        product_count = len(list_products(limit=10000))
-    except Exception:
-        logger.exception("Failed to count products for dashboard")
-        product_count = 0
-
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            """SELECT message, COUNT(*) as count
-               FROM chat_history
-               WHERE created_at >= DATE('now', '-7 days')
-               GROUP BY LOWER(message)
-               ORDER BY count DESC
-               LIMIT 7""",
-        ).fetchall()
-        questions = [{"query": r["message"], "count": r["count"]} for r in rows]
-
-        total_customers = (
-            conn.execute(
-                """SELECT COUNT(*) AS c FROM (
-                       SELECT wa_id FROM orders WHERE wa_id IS NOT NULL
-                       UNION
-                       SELECT wa_id FROM complaints WHERE wa_id IS NOT NULL
-                       UNION
-                       SELECT wa_id FROM user_states WHERE wa_id IS NOT NULL
-                   )"""
+    def _product_count() -> int:
+        if tenant_id:
+            if use_mongodb():
+                from db.mongo import Repository
+                return Repository("products").count(
+                    {"tenant_id": tenant_id, "is_active": 1}
+                )
+            return len(list_products(limit=10000, tenant_id=tenant_id))
+        if use_mongodb():
+            from db.mongo import Repository
+            return Repository("products").count({"is_active": 1})
+        with get_db_context() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) AS c FROM products WHERE is_active = 1"
             ).fetchone()["c"]
-            or 0
-        )
 
-        total_orders = (
-            conn.execute("SELECT COUNT(*) AS c FROM orders").fetchone()["c"] or 0
-        )
-        orders_solved = (
-            conn.execute(
-                "SELECT COUNT(*) AS c FROM orders WHERE status IN ('delivered','completed')"
-            ).fetchone()["c"] or 0
-        )
+    product_count = _safe("products", _product_count, 0)
 
-        total_complaints = (
-            conn.execute("SELECT COUNT(*) AS c FROM complaints").fetchone()["c"] or 0
-        )
-        complaints_solved = (
-            conn.execute(
-                "SELECT COUNT(*) AS c FROM complaints WHERE status = 'resolved'"
-            ).fetchone()["c"] or 0
-        )
-    finally:
-        conn.close()
-
-    return {
+    empty_stats = {
         "kb_files": kb_count,
         "faq_files": faq_count,
         "products": product_count,
-        "top_questions": questions,
-        "total_customers": total_customers,
-        "total_orders": total_orders,
-        "orders_solved": orders_solved,
-        "total_complaints": total_complaints,
-        "complaints_solved": complaints_solved,
+        "top_questions": [],
+        "total_customers": 0,
+        "total_orders": 0,
+        "orders_solved": 0,
+        "total_complaints": 0,
+        "complaints_solved": 0,
+    }
+    stats = _safe(
+        "stats",
+        lambda: load_dashboard_stats(
+            kb_count=kb_count,
+            faq_count=faq_count,
+            product_count=product_count,
+            tenant_id=tenant_id,
+        ),
+        empty_stats,
+    )
+    overview = _safe(
+        "overview",
+        lambda: analytics_overview(days=days, tenant_id=tenant_id),
+        {
+            "days": days,
+            "total_messages": 0,
+            "unique_users": 0,
+            "avg_response_ms": 0,
+            "route_breakdown": [],
+        },
+    )
+    response_time = _safe(
+        "response_time",
+        lambda: analytics_response_time(days=days, tenant_id=tenant_id),
+        {"days": days, "data": []},
+    )
+    questions = _safe(
+        "frequent_questions",
+        lambda: analytics_frequent_questions(days=days, limit=limit, tenant_id=tenant_id),
+        {"days": days, "total_unique": 0, "questions": []},
+    )
+    return {
+        **stats,
+        **overview,
+        "response_time": response_time["data"],
+        "frequent_questions": questions["questions"],
+        "total_unique_questions": questions["total_unique"],
     }
 
 
@@ -157,94 +227,7 @@ def list_customers(
     returns their best-known name/mobile, order and complaint totals, total
     spend, and last activity timestamp.
     """
-    conn = get_db()
-    try:
-        customer_rows = conn.execute(
-            """SELECT wa_id FROM (
-                   SELECT wa_id FROM orders WHERE wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM complaints WHERE wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM chat_history WHERE wa_id IS NOT NULL AND wa_id != ''
-                   UNION
-                   SELECT wa_id FROM user_states WHERE wa_id IS NOT NULL AND wa_id != ''
-               )""",
-        ).fetchall()
-        wa_ids = [r["wa_id"] for r in customer_rows]
-
-        if q.strip():
-            needle = q.strip()
-            wa_ids = [
-                wid for wid in wa_ids
-                if needle.lower() in wid.lower()
-            ]
-
-        customers = []
-        for wid in wa_ids[:limit]:
-            name_row = conn.execute(
-                """SELECT customer_name FROM orders
-                   WHERE wa_id=? AND customer_name IS NOT NULL AND customer_name != ''
-                   ORDER BY id DESC LIMIT 1""",
-                (wid,),
-            ).fetchone()
-            sender_row = conn.execute(
-                """SELECT sender_name FROM chat_history
-                   WHERE wa_id=? AND sender_name IS NOT NULL AND sender_name != ''
-                   ORDER BY id DESC LIMIT 1""",
-                (wid,),
-            ).fetchone()
-            mobile_row = conn.execute(
-                """SELECT customer_mobile FROM orders
-                   WHERE wa_id=? AND customer_mobile IS NOT NULL AND customer_mobile != ''
-                   ORDER BY id DESC LIMIT 1""",
-                (wid,),
-            ).fetchone()
-
-            order_count = conn.execute(
-                "SELECT COUNT(*) AS c FROM orders WHERE wa_id=?", (wid,)
-            ).fetchone()["c"] or 0
-            complaint_count = conn.execute(
-                "SELECT COUNT(*) AS c FROM complaints WHERE wa_id=?", (wid,)
-            ).fetchone()["c"] or 0
-            open_complaints = conn.execute(
-                "SELECT COUNT(*) AS c FROM complaints WHERE wa_id=? AND status NOT IN ('resolved','closed')",
-                (wid,),
-            ).fetchone()["c"] or 0
-            spent = conn.execute(
-                """SELECT COALESCE(SUM(total_amount), 0) AS v FROM orders
-                   WHERE wa_id=? AND status NOT IN ('cancelled','returned')""",
-                (wid,),
-            ).fetchone()["v"] or 0
-            last_active = conn.execute(
-                """SELECT MAX(last_seen) AS l FROM (
-                       SELECT MAX(created_at) AS last_seen FROM chat_history WHERE wa_id=?
-                       UNION ALL
-                       SELECT MAX(created_at) AS last_seen FROM orders WHERE wa_id=?
-                       UNION ALL
-                       SELECT MAX(created_at) AS last_seen FROM complaints WHERE wa_id=?
-                       UNION ALL
-                       SELECT MAX(updated_at) AS last_seen FROM user_states WHERE wa_id=?
-                   )""",
-                (wid, wid, wid, wid),
-            ).fetchone()["l"]
-
-            customers.append({
-                "wa_id": wid,
-                "name": (name_row["customer_name"] if name_row else None)
-                        or (sender_row["sender_name"] if sender_row else None)
-                        or wid,
-                "mobile": mobile_row["customer_mobile"] if mobile_row else None,
-                "total_orders": order_count,
-                "total_complaints": complaint_count,
-                "open_complaints": open_complaints,
-                "total_spent": round(float(spent), 2),
-                "last_active": last_active,
-            })
-
-        customers.sort(key=lambda c: c["last_active"] or "", reverse=True)
-        return {"customers": customers, "count": len(customers)}
-    finally:
-        conn.close()
+    return admin_list_customers(q=q, limit=limit)
 
 
 @router.get("/logs")
@@ -253,27 +236,12 @@ def get_logs(
     limit: int = Query(100, ge=1, le=500),
     current_admin: dict = Depends(require_super_admin),
 ):
-    conn = get_db()
-    try:
-        if direction:
-            rows = conn.execute(
-                "SELECT * FROM webhook_logs WHERE direction = ? ORDER BY created_at DESC LIMIT ?",
-                (direction, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM webhook_logs ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+    return list_webhook_logs(limit=limit, direction=direction)
 
 
 @router.delete("/logs")
 def clear_logs(current_admin: dict = Depends(require_super_admin)):
-    with get_db_context() as conn:
-        conn.execute("DELETE FROM webhook_logs")
+    clear_webhook_logs()
     return {"status": "ok", "message": "Logs cleared"}
 
 
@@ -357,129 +325,6 @@ async def rebuild_index(background_tasks: bool = Query(False), payload: dict | N
 
 # ── Analytics endpoints ───────────────────────────────────────────────────
 
-@router.get("/analytics/response-time")
-def get_response_time_analytics(
-    days: int = Query(7, ge=1, le=90),
-    current_admin: dict = Depends(get_current_admin),
-):
-    params: list = [f"-{days} days"]
-    tenant_sql = _tenant_clause(current_admin, "tenant_id", params)
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""SELECT DATE(created_at) as date, AVG(response_time_ms) as avg_ms, COUNT(*) as count
-               FROM webhook_logs
-               WHERE direction = 'outgoing' AND response_time_ms IS NOT NULL
-                 AND created_at >= DATE('now', ?)
-                 {tenant_sql}
-               GROUP BY DATE(created_at)
-               ORDER BY date ASC""",
-            params,
-        ).fetchall()
-        return {
-            "days": days,
-            "data": [
-                {
-                    "date": r["date"],
-                    "avg_ms": round(r["avg_ms"], 1) if r["avg_ms"] else 0,
-                    "count": r["count"],
-                }
-                for r in rows
-            ],
-        }
-    finally:
-        conn.close()
-
-
-@router.get("/analytics/frequent-questions")
-def get_frequent_questions(
-    days: int = Query(7, ge=1, le=90),
-    limit: int = Query(20, ge=1, le=100),
-    current_admin: dict = Depends(get_current_admin),
-):
-    params: list = [f"-{days} days"]
-    tenant_sql = _tenant_clause(current_admin, "tenant_id", params)
-    params.append(limit)
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""SELECT message, COUNT(*) as count, MAX(created_at) as last_asked
-               FROM chat_history
-               WHERE created_at >= DATE('now', ?)
-                 {tenant_sql}
-               GROUP BY LOWER(message)
-               ORDER BY count DESC, last_asked DESC
-               LIMIT ?""",
-            params,
-        ).fetchall()
-        return {
-            "days": days,
-            "total_unique": len(rows),
-            "questions": [
-                {
-                    "query": r["message"],
-                    "count": r["count"],
-                    "last_asked": r["last_asked"],
-                }
-                for r in rows
-            ],
-        }
-    finally:
-        conn.close()
-
-
-@router.get("/analytics/overview")
-def get_analytics_overview(
-    days: int = Query(7, ge=1, le=90),
-    current_admin: dict = Depends(get_current_admin),
-):
-    chat_params: list = [f"-{days} days"]
-    chat_tenant = _tenant_clause(current_admin, "tenant_id", chat_params)
-    log_params: list = [f"-{days} days"]
-    log_tenant = _tenant_clause(current_admin, "tenant_id", log_params)
-    conn = get_db()
-    try:
-        total_messages = conn.execute(
-            f"""SELECT COUNT(*) as cnt FROM chat_history
-               WHERE created_at >= DATE('now', ?) {chat_tenant}""",
-            chat_params,
-        ).fetchone()["cnt"]
-
-        user_params: list = [f"-{days} days"]
-        user_tenant = _tenant_clause(current_admin, "tenant_id", user_params)
-        unique_users = conn.execute(
-            f"""SELECT COUNT(DISTINCT wa_id) as cnt FROM chat_history
-               WHERE created_at >= DATE('now', ?) {user_tenant}""",
-            user_params,
-        ).fetchone()["cnt"]
-
-        avg_response = conn.execute(
-            f"""SELECT AVG(response_time_ms) as avg_ms FROM webhook_logs
-               WHERE direction = 'outgoing' AND response_time_ms IS NOT NULL
-                 AND created_at >= DATE('now', ?) {log_tenant}""",
-            log_params,
-        ).fetchone()["avg_ms"]
-
-        route_params: list = [f"-{days} days"]
-        route_tenant = _tenant_clause(current_admin, "tenant_id", route_params)
-        route_breakdown = conn.execute(
-            f"""SELECT route, COUNT(*) as count FROM chat_history
-               WHERE created_at >= DATE('now', ?) {route_tenant}
-               GROUP BY route""",
-            route_params,
-        ).fetchall()
-
-        return {
-            "days": days,
-            "total_messages": total_messages,
-            "unique_users": unique_users,
-            "avg_response_ms": round(avg_response, 1) if avg_response else 0,
-            "route_breakdown": [dict(r) for r in route_breakdown],
-        }
-    finally:
-        conn.close()
-
-
 # ── Top questions ─────────────────────────────────────────────────────────
 
 @router.get("/analytics/top-questions")
@@ -488,32 +333,9 @@ def get_top_questions(
     limit: int = Query(10, ge=1, le=50),
     current_admin: dict = Depends(get_current_admin),
 ):
-    params: list = [f"-{days} days"]
-    tenant_sql = _tenant_clause(current_admin, "tenant_id", params)
-    params.append(limit)
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            f"""SELECT message, COUNT(*) as count
-               FROM chat_history
-               WHERE created_at >= DATE('now', ?)
-                 {tenant_sql}
-               GROUP BY LOWER(message)
-               ORDER BY count DESC
-               LIMIT ?""",
-            params,
-        ).fetchall()
-        total = sum(r["count"] for r in rows)
-        return {
-            "days": days,
-            "total": total,
-            "questions": [
-                {"query": r["message"], "count": r["count"]}
-                for r in rows
-            ],
-        }
-    finally:
-        conn.close()
+    return analytics_top_questions(
+        days=days, limit=limit, tenant_id=scoped_tenant_id(current_admin),
+    )
 
 
 class UnansweredToFAQ(BaseModel):
@@ -543,19 +365,13 @@ def convert_unanswered_to_faq(
     if scope and target_tenant != scope:
         raise HTTPException(status_code=403, detail=f"Admin is scoped to tenant '{scope}'")
 
-    content = f"Q: {query}\nA: {answer}"
-    conn = get_db()
-    try:
-        cur = conn.execute(
-            "INSERT INTO faq_dataset (source_file, content_type, content, page_number, module, tenant_id) "
-            "VALUES (?, ?, ?, 1, ?, ?)",
-            (f"admin_unanswered_{current_admin.get('username', 'admin')}", "text",
-             content, body.module.strip() or "faq", body.tenant_id.strip() or "default"),
-        )
-        conn.commit()
-        row_id = cur.lastrowid
-    finally:
-        conn.close()
+    row_id = convert_unanswered_to_faq(
+        query=query,
+        answer=answer,
+        module=body.module.strip() or "faq",
+        tenant_id=target_tenant,
+        source_file=f"admin_unanswered_{current_admin.get('username', 'admin')}",
+    )
     logger.info(
         "UNANSWERED_CONVERTED_TO_FAQ | admin=%s | tenant=%s | faq_id=%s",
         current_admin.get("username"), body.tenant_id, row_id)
@@ -575,38 +391,9 @@ def get_unanswered_queries(
     limit: int = Query(20, ge=1, le=100),
     current_admin: dict = Depends(get_current_admin),
 ):
-    conn = get_db()
-    try:
-        keywords = ("i don't know", "i do not know", "sorry", "unable to find", "couldn't find", "no answer", "not available", "don't have that information")
-        params: list = [f"-{days} days"]
-        tenant_sql = _tenant_clause(current_admin, "tenant_id", params)
-        params.extend([f"%{keywords[0]}%", limit])
-        rows = conn.execute(
-            f"""SELECT message, response, COUNT(*) as count, MAX(created_at) as last_asked
-               FROM chat_history
-               WHERE created_at >= DATE('now', ?)
-                 {tenant_sql}
-                 AND LOWER(response) LIKE ?
-               GROUP BY LOWER(message)
-               ORDER BY count DESC, last_asked DESC
-               LIMIT ?""",
-            params,
-        ).fetchall()
-        return {
-            "days": days,
-            "total": len(rows),
-            "queries": [
-                {
-                    "query": r["message"],
-                    "response": r["response"],
-                    "count": r["count"],
-                    "last_asked": r["last_asked"],
-                }
-                for r in rows
-            ],
-        }
-    finally:
-        conn.close()
+    return analytics_unanswered(
+        days=days, limit=limit, tenant_id=scoped_tenant_id(current_admin),
+    )
 
 
 # ── File management ───────────────────────────────────────────────────────
@@ -955,7 +742,25 @@ async def run_upload(
     if "application/json" in content_type:
         body = await request.json()
         filename = body.get("filename", "")
-        content = base64.b64decode(body.get("content", ""))
+        raw_b64 = body.get("content", "") or ""
+        if isinstance(raw_b64, str) and raw_b64.startswith("data:") and "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            content = base64.b64decode(raw_b64, validate=False)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid Base64 in 'content'. Encode the real file bytes "
+                    "(not the placeholder BASE64_FILE_CONTENT). "
+                    f"Decoder said: {exc}"
+                ),
+            ) from exc
+        if not content:
+            raise HTTPException(
+                status_code=400,
+                detail="Decoded file content is empty — check the Base64 payload.",
+            )
         if not url:
             url = body.get("url")
         if not media_type:
@@ -985,7 +790,7 @@ async def run_upload(
     ext = Path(filename).suffix.lower()
     image_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
     if ext in image_exts or is_image:
-        # Free hosts (img402/BasePic) + ImgHippo if it still has credits.
+        # Store images on this backend and return its configured public URL.
         try:
             from services.media_host import upload_public_image
         except ImportError:
@@ -997,8 +802,7 @@ async def run_upload(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Image upload failed. Free hosts (img402/BasePic) were unreachable "
-                    "and ImgHippo has no credits. Check network or PUBLIC_BASE_URL."
+                    "Image upload failed. Configure PUBLIC_BASE_URL and verify UPLOAD_DIR."
                 ),
             )
         effective_media_type = media_type or ext.lstrip(".")
@@ -1023,9 +827,7 @@ async def run_upload(
     if ext not in SUPPORTED:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
-    # Store on disk first. For PDFs prefer PUBLIC_BASE_URL (Cloudflare tunnel)
-    # so Meta/WhatsApp can fetch the file. Catbox often uploads OK but Meta
-    # cannot retrieve files.catbox.moe. Catalogue PDF text is intentionally
+    # Store on disk and expose PDFs through PUBLIC_BASE_URL. Catalogue PDF text is intentionally
     # NOT imported into products — "catalogue" requests send the PDF.
     module_dir = os.path.join(UPLOAD_DIR, module)
     os.makedirs(module_dir, exist_ok=True)
@@ -1036,23 +838,14 @@ async def run_upload(
 
     local_rel = f"/uploaded_files/{module}/{filename}"
     tunnel_url = None
-    if ext == ".pdf" and module in ("faq", "catalogue", "new_arrival", "kb") and not url:
+    if not url:
         try:
-            from routing.config import PUBLIC_BASE_URL
-            base = (PUBLIC_BASE_URL or "").strip().rstrip("/")
-            if base:
-                tunnel_url = f"{base}{local_rel}"
-                logger.info(f"PDF_PUBLIC_BASE | {filename} -> {tunnel_url}")
-        except Exception as e:
-            logger.warning(f"PUBLIC_BASE_URL resolve failed for {filename}: {e}")
-            tunnel_url = None
-        if not tunnel_url:
-            try:
-                tunnel_url = await _upload_to_catbox(filename, content, media_type or "application/pdf")
-                logger.info(f"CATBOX_UPLOAD | {filename} -> {tunnel_url}")
-            except Exception as e:
-                logger.error(f"Catbox upload failed for {filename}: {e}")
-                tunnel_url = None
+            from services.media_host import absolutize_upload_url
+        except ImportError:
+            from backend.services.media_host import absolutize_upload_url
+        tunnel_url = absolutize_upload_url(local_rel)
+        if tunnel_url and tunnel_url != local_rel:
+            logger.info(f"PDF_PUBLIC_BASE | {filename} -> {tunnel_url}")
 
     effective_url = url or tunnel_url or local_rel
     effective_media_type = media_type or ext.lstrip(".")
@@ -1118,27 +911,13 @@ def get_chat_history_api(
     search: str = Query(None),
     current_admin: dict = Depends(require_permission("chat_history")),
 ):
-    conn = get_db()
-    try:
-        if from_date and to_date:
-            query = """SELECT ch.*
-                       FROM chat_history ch
-                       WHERE ch.created_at >= ? AND ch.created_at <= ?"""
-            params = [from_date, to_date + " 23:59:59"]
-        else:
-            query = """SELECT ch.*
-                       FROM chat_history ch
-                       WHERE ch.created_at >= DATE('now', ?)"""
-            params = [f"-{days} days"]
-        query += _tenant_clause(current_admin, "ch.tenant_id", params)
-        if search:
-            query += " AND (ch.wa_id LIKE ? OR ch.sender_name LIKE ? OR ch.message LIKE ? OR ch.response LIKE ?)"
-            params.extend([f"%{search}%"] * 4)
-        query += " ORDER BY ch.created_at DESC LIMIT 500"
-        rows = conn.execute(query, params).fetchall()
-        return {"history": [dict(r) for r in rows]}
-    finally:
-        conn.close()
+    return admin_chat_history(
+        days=days,
+        from_date=from_date,
+        to_date=to_date,
+        search=search,
+        tenant_id=scoped_tenant_id(current_admin),
+    )
 
 
 # ── Products / Catalogue ──────────────────────────────────────────────────
@@ -1219,49 +998,43 @@ def delete_product_api(
     return {"status": "ok"}
 
 
-from routing.config import IMGHIPPO_API_KEY
-CATBOX_API_URL = "https://catbox.moe/user/api.php"
-
-
 async def _upload_to_catbox(filename: str, content: bytes, content_type: str = "application/octet-stream") -> str:
-    """Upload raw bytes to catbox.moe and return the permanent public URL."""
-    payload = aiohttp.FormData()
-    payload.add_field("reqtype", "fileupload")
-    payload.add_field("fileToUpload", content, filename=filename, content_type=content_type)
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(CATBOX_API_URL, data=payload) as resp:
-            text = (await resp.text()).strip()
-            if not resp.ok or text.lower().startswith("error"):
-                raise HTTPException(status_code=400, detail=f"Catbox upload failed: {text}")
-            return text
+    """Legacy helper name: store bytes on this backend, never on Catbox."""
+    try:
+        from services.media_host import upload_public_media
+    except ImportError:
+        from backend.services.media_host import upload_public_media
+    subdir = "product_images" if content_type.startswith("image/") else "brochures"
+    url = await run_in_threadpool(upload_public_media, content, filename, content_type, subdir=subdir)
+    if not url:
+        raise HTTPException(status_code=503, detail="Local media hosting is not configured")
+    return url
 
 
 @router.post("/upload/image")
-async def upload_image_to_imghippo(
+async def upload_public_image_file(
     file: UploadFile = File(...),
     current_admin: dict = Depends(get_current_admin),
 ):
-    if not IMGHIPPO_API_KEY:
-        raise HTTPException(status_code=503, detail="Image hosting is not configured")
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Only image files are allowed")
 
     contents = await file.read()
-    payload = aiohttp.FormData()
-    payload.add_field("file", contents, filename=file.filename or "image", content_type=file.content_type or "application/octet-stream")
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://api.imghippo.com/v1/upload",
-            data=payload,
-            headers={"X-API-Key": IMGHIPPO_API_KEY},
-        ) as resp:
-            data = await resp.json()
-            if not resp.ok or not data.get("success"):
-                raise HTTPException(status_code=400, detail=data.get("message", "Imghippo upload failed"))
-            url = data["data"]["url"]
-            return {"url": url, "media_type": file.content_type}
+    if not contents:
+        raise HTTPException(status_code=400, detail="The file is empty")
+    try:
+        from services.media_host import upload_public_image
+    except ImportError:
+        from backend.services.media_host import upload_public_image
+    url = await run_in_threadpool(
+        upload_public_image,
+        contents,
+        file.filename or "image.png",
+        file.content_type,
+    )
+    if not url:
+        raise HTTPException(status_code=503, detail="Public image hosting is not configured")
+    return {"url": url, "media_type": file.content_type}
 
 
 LOGOS_DIR = os.path.join(UPLOAD_DIR, "logos")
@@ -1293,6 +1066,7 @@ async def upload_logo(file: UploadFile = File(...)):
 
 @router.post("/upload/catbox")
 async def upload_to_catbox(file: UploadFile = File(...)):
+    """Backward-compatible endpoint that now stores files on this backend."""
     contents = await file.read()
     url = await _upload_to_catbox(
         file.filename or "file",
@@ -1335,9 +1109,7 @@ def decode_attachment_body(data: dict) -> tuple[str, bytes, str | None]:
 async def store_chat_attachment(filename: str, content: bytes, media_type: str | None = None) -> dict:
     """Save a chat/inbox attachment and return a public WhatsApp-ready URL.
 
-    Always keeps a local copy under ``chat_attachments``. Images are hosted on
-    Imghippo; other files (PDFs, docs) on catbox.moe so Meta/send2 can fetch
-    them. Falls back to the local ``/api/uploads/chat/...`` path if hosting fails.
+    Images and documents are always served directly from this backend.
     """
     ext = Path(filename).suffix.lower()
     is_image = (media_type or "").startswith("image/") or ext in _IMAGE_EXTS
@@ -1348,36 +1120,11 @@ async def store_chat_attachment(filename: str, content: bytes, media_type: str |
         handle.write(content)
 
     local_url = f"/api/uploads/chat/{stored}"
-    public_url = local_url
-    try:
-        if is_image and IMGHIPPO_API_KEY:
-            payload = aiohttp.FormData()
-            payload.add_field(
-                "file",
-                content,
-                filename=filename or stored,
-                content_type=media_type or "application/octet-stream",
-            )
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.imghippo.com/v1/upload",
-                    data=payload,
-                    headers={"X-API-Key": IMGHIPPO_API_KEY},
-                ) as resp:
-                    data = await resp.json()
-                    if resp.ok and data.get("success") and data.get("data", {}).get("url"):
-                        public_url = data["data"]["url"]
-                        logger.info(f"CHAT_ATTACH_IMGHIPPO | {filename} -> {public_url}")
-        if public_url == local_url:
-            public_url = await _upload_to_catbox(
-                filename or stored,
-                content,
-                media_type or "application/octet-stream",
-            )
-            logger.info(f"CHAT_ATTACH_CATBOX | {filename} -> {public_url}")
-    except Exception as e:
-        logger.error(f"Chat attachment public host failed for {filename}: {e}")
-        public_url = local_url
+    from routing.config import PUBLIC_BASE_URL
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    public_url = f"{base}{local_url}" if base else local_url
+
+    logger.info("CHAT_ATTACH_LOCAL | %s -> %s", filename, public_url)
 
     return {
         "url": public_url,
@@ -1402,7 +1149,7 @@ async def store_chat_attachment(filename: str, content: bytes, media_type: str |
 KNOWN_MENU_KEYS = ["kb_main"]
 
 
-@router.get("/menus")
+@router.post("/menus")
 def list_menus_api(current_admin: dict = Depends(get_current_admin)):
     """All menu keys with their full merged item lists (defaults + overrides)."""
     return {
@@ -1413,32 +1160,17 @@ def list_menus_api(current_admin: dict = Depends(get_current_admin)):
     }
 
 
-@router.get("/menus/{menu_key}")
-def get_menu_api(menu_key: str, current_admin: dict = Depends(get_current_admin)):
-    if menu_key not in KNOWN_MENU_KEYS:
-        raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
-
-    # BUG FIX: this used to return ONLY the raw DB rows once a single edit
-    # existed, which made every other menu item vanish from the editor after
-    # the first save/toggle. get_menu_editor_items() always merges the code
-    # defaults with the DB overrides so the editor sees the complete menu.
-    return {
-        "menu_key": menu_key,
-        "items": get_menu_editor_items(menu_key),
-        "settings": get_menu_settings(menu_key),
-    }
-
-
-@router.get("/menus/{menu_key}/settings")
+# NOTE: nested settings / items / reorder / reset / update / delete routes
+# are declared before the bare POST /menus/{menu_key} so path segments like
+# "settings" are never captured as a menu_key or item_id.
+@router.post("/menus/{menu_key}/settings")
 def get_menu_settings_api(menu_key: str, current_admin: dict = Depends(get_current_admin)):
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
     return {"menu_key": menu_key, "settings": get_menu_settings(menu_key)}
 
 
-# NOTE: settings routes are declared BEFORE the /{item_id} route so that
-# "settings" is never captured as an item_id path parameter.
-@router.put("/menus/{menu_key}/settings")
+@router.post("/menus/{menu_key}/settings/update")
 def set_menu_settings_api(
     menu_key: str,
     data: dict,
@@ -1459,13 +1191,12 @@ def set_menu_settings_api(
         raise HTTPException(status_code=400, detail="No valid settings fields supplied")
     after = get_menu_settings(menu_key)
     changed = {key: {"before": before.get(key), "after": after.get(key)} for key in data if before.get(key) != after.get(key)}
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_settings_updated", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"changed_fields": sorted(changed), "changes": changed})
+    _record_audit(action="menu_settings_updated", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"changed_fields": sorted(changed), "changes": changed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "settings": after}
 
 
-@router.put("/menus/{menu_key}/{item_id}")
+@router.post("/menus/{menu_key}/{item_id}/update")
 def update_menu_item_api(
     menu_key: str,
     item_id: str,
@@ -1534,8 +1265,7 @@ def update_menu_item_api(
         if effective["is_default"]:
             upsert_menu_item(menu_key, item_id, is_active=False)
         upsert_menu_item(menu_key, new_item_id, **merged)
-        with get_db_context() as conn:
-            record_admin_audit_event(conn, action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{new_item_id}", details={"menu_key": menu_key, "item_id": new_item_id, "renamed_from": item_id, "changed_fields": ["item_id", "title", "description", "section", "icon", "sort_order", "is_active"]})
+        _record_audit(action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{new_item_id}", details={"menu_key": menu_key, "item_id": new_item_id, "renamed_from": item_id, "changed_fields": ["item_id", "title", "description", "section", "icon", "sort_order", "is_active"]})
         invalidate_menu_cache()
         return {"ok": True, "menu_key": menu_key, "item_id": new_item_id, "renamed_from": item_id}
 
@@ -1550,8 +1280,7 @@ def update_menu_item_api(
     changed = {key: {"before": effective.get(key), "after": value} for key, value in fields.items() if effective.get(key) != value}
     upsert_menu_item(menu_key, item_id, **fields)
     if changed:
-        with get_db_context() as conn:
-            record_admin_audit_event(conn, action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "changed_fields": sorted(changed), "changes": changed})
+        _record_audit(action="menu_item_updated", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "changed_fields": sorted(changed), "changes": changed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "item_id": item_id}
 
@@ -1594,8 +1323,7 @@ def create_menu_item_api(
     )
     if not ok:
         raise HTTPException(status_code=400, detail="Could not create menu item")
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_item_created", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": title[:120], "section": str(data.get("section", "General"))[:80]})
+    _record_audit(action="menu_item_created", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": title[:120], "section": str(data.get("section", "General"))[:80]})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "item_id": item_id}
 
@@ -1631,13 +1359,12 @@ def reorder_menu_items_api(
     for idx, iid in enumerate(item_ids):
         if upsert_menu_item(menu_key, str(iid).strip(), sort_order=idx):
             applied += 1
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_reordered", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "item_count": applied, "item_ids": [str(i)[:80] for i in item_ids[:100]]})
+    _record_audit(action="menu_reordered", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "item_count": applied, "item_ids": [str(i)[:80] for i in item_ids[:100]]})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "reordered": applied}
 
 
-@router.delete("/menus/{menu_key}/{item_id}")
+@router.post("/menus/{menu_key}/{item_id}/delete")
 def delete_menu_item_api(
     menu_key: str,
     item_id: str,
@@ -1666,8 +1393,7 @@ def delete_menu_item_api(
 
     if effective["is_default"]:
         upsert_menu_item(menu_key, item_id, is_active=False)
-        with get_db_context() as conn:
-            record_admin_audit_event(conn, action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": True})
+        _record_audit(action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": True})
         invalidate_menu_cache()
         return {"ok": True, "menu_key": menu_key, "item_id": item_id, "hidden": True}
 
@@ -1685,8 +1411,7 @@ def delete_menu_item_api(
     invalidate_menu_cache()
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": False})
+    _record_audit(action="menu_item_deleted", actor=current_admin, resource_type="menu_item", resource_id=f"{menu_key}/{item_id}", details={"menu_key": menu_key, "item_id": item_id, "title": str(effective.get("title", ""))[:120], "hidden": False})
     return {"ok": True, "menu_key": menu_key, "item_id": item_id, "hidden": False}
 
 
@@ -1703,10 +1428,25 @@ def reset_menu_api(menu_key: str, request: Request, current_admin: dict = Depend
     if menu_key not in KNOWN_MENU_KEYS:
         raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
     removed = reset_menu(menu_key)
-    with get_db_context() as conn:
-        record_admin_audit_event(conn, action="menu_reset", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "removed_count": removed})
+    _record_audit(action="menu_reset", actor=current_admin, resource_type="menu", resource_id=menu_key, details={"menu_key": menu_key, "removed_count": removed})
     invalidate_menu_cache()
     return {"ok": True, "menu_key": menu_key, "removed": removed}
+
+
+@router.post("/menus/{menu_key}")
+def get_menu_api(menu_key: str, current_admin: dict = Depends(get_current_admin)):
+    if menu_key not in KNOWN_MENU_KEYS:
+        raise HTTPException(status_code=404, detail=f"Unknown menu_key: {menu_key}")
+
+    # BUG FIX: this used to return ONLY the raw DB rows once a single edit
+    # existed, which made every other menu item vanish from the editor after
+    # the first save/toggle. get_menu_editor_items() always merges the code
+    # defaults with the DB overrides so the editor sees the complete menu.
+    return {
+        "menu_key": menu_key,
+        "items": get_menu_editor_items(menu_key),
+        "settings": get_menu_settings(menu_key),
+    }
 
 
 # ============================================================================
@@ -1755,12 +1495,8 @@ async def get_brochure(brochure_id: int):
     service = BrochureService()
     
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT * FROM admin_files WHERE id = ?", (brochure_id,)
-            ).fetchone()
-            
-            if row:
+        row = get_admin_file_row(brochure_id)
+        if row:
                 brochure = service.Brochure(
                     file_id=row["id"],
                     tenant_id=row["tenant_id"] or "",
@@ -1799,27 +1535,23 @@ async def get_brochure(brochure_id: int):
 async def delete_brochure(brochure_id: int, current_admin: dict = Depends(get_current_admin)):
     """Delete a specific brochure."""
     try:
-        with get_db_context() as conn:
-            # Get brochure info first for audit
-            row = conn.execute(
-                "SELECT * FROM admin_files WHERE id = ?", (brochure_id,)
-            ).fetchone()
-            
-            if not row:
-                return {"ok": False, "error": f"Brochure {brochure_id} not found"}
-            
-            # Delete the brochure
-            conn.execute("DELETE FROM admin_files WHERE id = ?", (brochure_id,))
-            
-            # Record audit event
-            record_admin_audit_event(
-                conn, 
-                action="brochure_delete", 
-                actor=current_admin, 
-                resource_type="brochure", 
-                resource_id=brochure_id,
-                details={"filename": row.get("name", "Unknown"), "module": row.get("module", "unknown")}
-            )
+        row = get_admin_file_row(brochure_id)
+        if not row:
+            return {"ok": False, "error": f"Brochure {brochure_id} not found"}
+        if not delete_admin_file_row(brochure_id):
+            return {"ok": False, "error": f"Brochure {brochure_id} not found"}
+        audit = dict(
+            action="brochure_delete",
+            actor=current_admin,
+            resource_type="brochure",
+            resource_id=brochure_id,
+            details={"filename": row.get("name", "Unknown"), "module": row.get("module", "unknown")},
+        )
+        if use_mongodb():
+            record_admin_audit_event(None, **audit)
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(conn, **audit)
         
         return {"ok": True, "deleted": brochure_id}
         
@@ -1908,20 +1640,18 @@ async def upload_brochure(
         )
         
         # Record audit event
-        with get_db_context() as conn:
-            record_admin_audit_event(
-                conn,
-                action="brochure_upload",
-                actor=current_admin,
-                resource_type="brochure",
-                resource_id=filename,
-                details={
-                    "filename": filename,
-                    "module": module,
-                    "size": len(content),
-                    "metadata": metadata
-                }
-            )
+        _record_audit(
+            action="brochure_upload",
+            actor=current_admin,
+            resource_type="brochure",
+            resource_id=filename,
+            details={
+                "filename": filename,
+                "module": module,
+                "size": len(content),
+                "metadata": metadata,
+            },
+        )
         
         return {
             "ok": True,

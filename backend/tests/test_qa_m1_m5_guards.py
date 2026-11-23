@@ -1,6 +1,14 @@
 """Tests for new brand-protection and junk-offering guards (M1 + M5)."""
 
+import os
+import sys
+import unittest
+
 import pytest
+
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
 from services.bifurcation_guards import (
     is_junk_offering_name,
     is_placeholder_brand_value,

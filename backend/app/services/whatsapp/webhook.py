@@ -1,11 +1,13 @@
 import json
+import hashlib
+import hmac
 import logging
 import os
 import time
 from fastapi import APIRouter, Request, HTTPException, Query, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 import routing.config as config
-from routing.database import get_db_context, log_webhook, save_chat, set_request_tenant
+from routing.database import log_webhook, save_chat, set_request_tenant
 from routing.whatsapp import (
     send_whatsapp_message,
     send_whatsapp_interactive,
@@ -80,35 +82,18 @@ def _handle_campaign_opt_out(user_text: str, wa_id: str, sender_name: str, tenan
 
     tid = tenant_id or "default"
     try:
-        with get_db_context() as conn:
-            # Safe on a routing-only deployment where the backend schema has
-            # not been created yet.
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS campaign_opt_outs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tenant_id TEXT NOT NULL,
-                    wa_id TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )"""
-            )
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_campaign_opt_outs "
-                "ON campaign_opt_outs(tenant_id, wa_id)"
-            )
-            if text in OPT_OUT_PHRASES:
-                conn.execute(
-                    "INSERT OR IGNORE INTO campaign_opt_outs (tenant_id, wa_id) VALUES (?, ?)",
-                    (tid, wa_id),
-                )
-                reply = OPT_OUT_CONFIRMATION
-                event = "stop"
-            else:
-                conn.execute(
-                    "DELETE FROM campaign_opt_outs WHERE tenant_id = ? AND wa_id = ?",
-                    (tid, wa_id),
-                )
-                reply = OPT_IN_CONFIRMATION
-                event = "start"
+        from db.mongo import Repository
+
+        repo = Repository("campaign_opt_outs")
+        if text in OPT_OUT_PHRASES:
+            if repo.find_one({"tenant_id": tid, "wa_id": wa_id}) is None:
+                repo.insert({"tenant_id": tid, "wa_id": wa_id})
+            reply = OPT_OUT_CONFIRMATION
+            event = "stop"
+        else:
+            repo.delete_many({"tenant_id": tid, "wa_id": wa_id})
+            reply = OPT_IN_CONFIRMATION
+            event = "start"
     except Exception as exc:
         logger.error(f"Campaign opt-out handling failed for {wa_id}: {exc}")
         return False
@@ -148,17 +133,9 @@ def _set_human_handover(wa_id: str, enabled: bool = True) -> None:
 
 def _is_handover_active(wa_id: str) -> bool:
     """Check if human_handover is currently active for a user."""
-    import sqlite3
-    db_path = config.DB_PATH if hasattr(config, 'DB_PATH') else None
-    if not db_path:
-        return False
     try:
-        conn = sqlite3.connect(db_path)
-        row = conn.execute(
-            "SELECT human_handover FROM user_states WHERE wa_id = ?", (wa_id,)
-        ).fetchone()
-        conn.close()
-        return row is not None and row[0] == 1
+        from db.state import get_user_state
+        return int(get_user_state(wa_id).get("human_handover") or 0) == 1
     except Exception:
         return False
 
@@ -329,9 +306,7 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
     # Active Test Tenant from the admin console wins for single-number testing.
     try:
         from shared.tenancy.resolver import resolve_effective_tenant_id
-        tenant_id = resolve_effective_tenant_id(
-            wa_id, tenant_id, allow_test_override=True
-        )
+        tenant_id = resolve_effective_tenant_id(wa_id, tenant_id, allow_test_override=True)
     except Exception as exc:
         logger.error("Could not resolve active tenant for %s; dropping message: %s", wa_id, exc)
         return
@@ -348,6 +323,16 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         sm.set_tenant(wa_id, tenant_id)
     except Exception as exc:
         logger.debug(f"Could not stamp tenant {tenant_id} on {wa_id}: {exc}")
+    # Live Chats inbox hides rows with handover_resolved_at. Reopen here so
+    # greeting / intent / flow paths (which never hit the B2B orchestrator)
+    # still put the conversation back in the queue after a resolve.
+    try:
+        from database import reopen_conversation_on_inbound
+        reopen_conversation_on_inbound(wa_id, tenant_id)
+        from services.inbox_events import publish_inbox_event
+        publish_inbox_event(tenant_id, wa_id, "inbound")
+    except Exception as exc:
+        logger.warning("Could not reopen conversation for %s: %s", wa_id, exc)
     # Customer directory: everyone who messages gets a record — the first
     # message creates it, every later message refreshes it (never duplicates).
     try:
@@ -518,7 +503,14 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 from backend.services import flow_runner
                 flow_name = flow_runner.flow_for_button(wa_id, pressed_id, tenant_id=tenant_id)
                 if flow_name:
-                    outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
+                    seed = (
+                        {"_trigger_text": pressed_id or user_text}
+                        if flow_name in ("book_callback", "callback_request")
+                        else None
+                    )
+                    outcome = flow_runner.start_flow(
+                        wa_id, flow_name, tenant_id=tenant_id, seed=seed,
+                    )
                     if outcome.get("handled") and outcome.get("messages"):
                         for msg in outcome["messages"]:
                             if config.SEND2_USERNAME and config.SEND2_PASSWORD:
@@ -617,7 +609,14 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 or flow_runner.flow_for_text(wa_id, user_text, tenant_id=tenant_id)
             )
             if flow_name:
-                outcome = flow_runner.start_flow(wa_id, flow_name, tenant_id=tenant_id)
+                seed = (
+                    {"_trigger_text": user_text or pressed_id or button_id or ""}
+                    if flow_name in ("book_callback", "callback_request")
+                    else None
+                )
+                outcome = flow_runner.start_flow(
+                    wa_id, flow_name, tenant_id=tenant_id, seed=seed,
+                )
                 if outcome.get("handled") and outcome.get("messages"):
                     for msg in outcome["messages"]:
                         if config.SEND2_USERNAME and config.SEND2_PASSWORD:
@@ -762,7 +761,7 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                         send_status = "sent_list_text_fallback"
                         logger.info(f"Fallback after list fail: numbered text to {wa_id}")
             elif media_url and media_type:
-                # Deliver attached FAQ/KB media when present (public Imghippo/catbox URLs).
+                # Deliver attached FAQ/KB media when present (backend PUBLIC_BASE_URL).
                 media_url = _resolve_public(media_url) or _resolve_media_url(media_url)
                 media_type = _normalize_msg_type(media_type)
                 send_whatsapp_message(wa_id, response_text)
@@ -782,6 +781,15 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         logger.error(f"Webhook processing error: {e}", exc_info=True)
         response_time_ms = int((time.time() - start_time) * 1000)
         log_webhook("incoming", "/webhook", json.dumps({"message_id": msg_id, "error": str(e)}), 500, f"Error: {e}", response_time_ms=response_time_ms, wa_id=wa_id, tenant_id=tenant_id, message_id=msg_id)
+    finally:
+        # A second notification is emitted after bot/flow processing has
+        # completed, so the selected transcript also refreshes after the
+        # outbound response is persisted.
+        try:
+            from services.inbox_events import publish_inbox_event
+            publish_inbox_event(tenant_id, wa_id, "inbound_processed")
+        except Exception as exc:
+            logger.debug("Could not publish processed inbox event for %s: %s", wa_id, exc)
 
 
 @router.get("")
@@ -809,8 +817,19 @@ async def verify_webhook(
 async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
     raw_payload = body.decode("utf-8", errors="replace")
-    logger.info(f"Incoming webhook payload ({len(raw_payload)} bytes)")
-    log_webhook("incoming", "/webhook", raw_payload[:5000], None, "Raw payload")
+    app_secret = os.getenv("META_APP_SECRET") or os.getenv("WHATSAPP_APP_SECRET")
+    signature = request.headers.get("x-hub-signature-256", "")
+    if app_secret:
+        expected = "sha256=" + hmac.new(app_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        if not signature or not hmac.compare_digest(expected, signature):
+            logger.warning("Rejected WhatsApp webhook with invalid signature")
+            raise HTTPException(status_code=403, detail="Invalid webhook signature")
+    elif os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower() in {"prod", "production"}:
+        logger.error("META_APP_SECRET is required in production")
+        raise HTTPException(status_code=503, detail="Webhook signature verification is not configured")
+    else:
+        logger.warning("META_APP_SECRET is not configured; webhook signature verification is disabled")
+    logger.info("Incoming webhook payload (%s bytes)", len(raw_payload))
 
     try:
         payload = json.loads(body)

@@ -1,0 +1,42 @@
+[
+  {
+    "path": "/api/admin/files/upload",
+    "status": 401,
+    "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"
+  },
+  {
+    "path": "/files/upload",
+    "status": 404,
+    "body": "{\"detail\":\"Not Found\",\"error\":\"Not Found\",\"request_id\":\"req_ec7b5743\",\"api\":\"POST /files/upload\"}"
+  },
+  {
+    "path": "/files/image",
+    "status": 404,
+    "body": "{\"detail\":\"Not Found\",\"error\":\"Not Found\",\"request_id\":\"req_4619320e\",\"api\":\"POST /files/image\"}"
+  },
+  {
+    "path": "/api/tenants/1/kb/upload",
+    "status": 401,
+    "body": "{\"detail\":\"Not authenticated \u2014 send username and session_id (header or JSON body)\"}"
+  },
+  {
+    "path": "/offerings/upload-pdf",
+    "status": 404,
+    "body": "{\"detail\":\"Not Found\",\"error\":\"Not Found\",\"request_id\":\"req_4afa7270\",\"api\":\"POST /offerings/upload-pdf\"}"
+  },
+  {
+    "path": "/brochures/upload",
+    "status": 404,
+    "body": "{\"detail\":\"Not Found\",\"error\":\"Not Found\",\"request_id\":\"req_ac3b4fe9\",\"api\":\"POST /brochures/upload\"}"
+  },
+  {
+    "path": "/upload/image",
+    "status": 404,
+    "body": "{\"detail\":\"Not Found\",\"error\":\"Not Found\",\"request_id\":\"req_4d81b621\",\"api\":\"POST /upload/image\"}"
+  },
+  {
+    "path": "/upload/logo",
+    "status": 404,
+    "body": "{\"detail\":\"Not Found\",\"error\":\"Not Found\",\"request_id\":\"req_aea23a3a\",\"api\":\"POST /upload/logo\"}"
+  }
+]

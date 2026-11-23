@@ -1,7 +1,7 @@
-"""SQLite access for tenants + tenant_profile_versions.
+"""Tenant registry + tenant_profile_versions — SQLite or MongoDB (DATABASE_BACKEND).
 
-All JSON lives in TEXT columns (decision D2) — no jsonb. Postgres is a future
-migration, not now.
+All JSON lives in TEXT columns in SQLite (decision D2). Mongo stores matching
+fields per mongo_schema.json.
 
 Publish model:
   * the *working copy* an admin edits lives in the existing ``draft_config``
@@ -19,6 +19,7 @@ import logging
 import re
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .paths import BACKEND_DIR
@@ -28,6 +29,8 @@ logger = logging.getLogger("tenancy.store")
 
 if str(BACKEND_DIR) not in _sys.path:
     _sys.path.insert(0, str(BACKEND_DIR))
+
+from db.core import use_mongodb
 
 PROFILE_SCOPE_PREFIX = "tenant_profile:"
 VERSION_TTL_SECONDS = 60.0
@@ -41,13 +44,29 @@ def _db():
     return database
 
 
+def _mongo_repo(table: str):
+    from db.mongo import Repository
+    return Repository(table)
+
+
+def _parse_json_payload(value: Any) -> Optional[dict]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, dict):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def profile_scope(tenant_id: str) -> str:
     return f"{PROFILE_SCOPE_PREFIX}{tenant_id}"
 
 
 def tenant_id_from_scope(scope: str) -> Optional[str]:
     if scope and scope.startswith(PROFILE_SCOPE_PREFIX):
-        return scope[len(PROFILE_SCOPE_PREFIX):]
+        return scope[len(PROFILE_SCOPE_PREFIX) :]
     return None
 
 
@@ -63,11 +82,56 @@ def ensure_tenant(tenant_id: str, *, slug: str = "", vertical: str = "generic",
     waba_phone_id excludes it. ``mobile_number`` is the required business mobile
     (digits); blanks are not written on update.
     """
+    slug_v = slug or tenant_id
+
+    if use_mongodb():
+        tenants = _mongo_repo("tenants")
+        row = (
+            tenants.find_one({"id": tenant_id})
+            or tenants.find_one({"slug": slug_v})
+            or _first_row(
+                tenants.find(
+                    {"slug": {"$regex": f"^{re.escape(slug_v)}$", "$options": "i"}},
+                    limit=1,
+                )
+            )
+        )
+        now = datetime.now(timezone.utc)
+        if row:
+            changes: Dict[str, Any] = {
+                "vertical": vertical,
+                "status": status,
+                "updated_at": now,
+            }
+            if slug_v:
+                changes["slug"] = slug_v
+            if waba_phone_id:
+                changes["waba_phone_id"] = waba_phone_id
+            if mobile_number:
+                changes["mobile_number"] = mobile_number
+            if display_name:
+                changes["display_name"] = display_name
+            tenants.update({"id": row["id"]}, changes)
+        else:
+            doc: Dict[str, Any] = {
+                "id": str(tenant_id),
+                "slug": slug_v,
+                "vertical": vertical,
+                "status": status,
+                "display_name": display_name or "",
+            }
+            if waba_phone_id:
+                doc["waba_phone_id"] = waba_phone_id
+            if mobile_number:
+                doc["mobile_number"] = mobile_number
+            tenants.insert(doc)
+        invalidate(tenant_id)
+        return True
+
     def _write(connection):
-        # Look for existing tenant by ID, slug, or normalized slug
         row = connection.execute(
             "SELECT id FROM tenants WHERE id = ? OR slug = ? OR lower(slug) = lower(?)",
-            (tenant_id, slug or tenant_id, (slug or tenant_id).lower()),
+            (tenant_id, slug_v, slug_v.lower()),
         ).fetchone()
 
         if row:
@@ -82,7 +146,7 @@ def ensure_tenant(tenant_id: str, *, slug: str = "", vertical: str = "generic",
                        updated_at = CURRENT_TIMESTAMP
                    WHERE id = ?""",
                 (
-                    slug or tenant_id, slug or tenant_id,
+                    slug_v, slug_v,
                     waba_phone_id or '', waba_phone_id or None,
                     mobile_number or '', mobile_number or None,
                     vertical, status,
@@ -91,29 +155,26 @@ def ensure_tenant(tenant_id: str, *, slug: str = "", vertical: str = "generic",
                 ),
             )
         else:
-            # Check if id column is INTEGER autoincrement
             col_type = "TEXT"
             try:
                 for c in connection.execute("PRAGMA table_info(tenants)").fetchall():
                     if (c["name"] if hasattr(c, "keys") else c[1]) == "id":
                         col_type = (c["type"] if hasattr(c, "keys") else c[2] or "").upper()
             except Exception:
-                # deliberate: the id-type probe is best-effort — TEXT is the
-                # safe default.
                 logger.debug("TENANT_ID_TYPE_PROBE_SKIPPED | defaulting to TEXT", exc_info=True)
 
             if "INT" in col_type and not str(tenant_id).isdigit():
                 connection.execute(
                     """INSERT INTO tenants (company_name, slug, waba_phone_id, mobile_number, vertical, status, display_name)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (display_name or slug or tenant_id, slug or tenant_id, waba_phone_id or None,
+                    (display_name or slug_v, slug_v, waba_phone_id or None,
                      mobile_number or None, vertical, status, display_name),
                 )
             else:
                 connection.execute(
                     """INSERT INTO tenants (id, slug, waba_phone_id, mobile_number, vertical, status, display_name)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (tenant_id, slug or tenant_id, waba_phone_id or None,
+                    (tenant_id, slug_v, waba_phone_id or None,
                      mobile_number or None, vertical, status, display_name),
                 )
 
@@ -126,9 +187,23 @@ def ensure_tenant(tenant_id: str, *, slug: str = "", vertical: str = "generic",
     return True
 
 
+def _first_row(rows: List[dict]) -> Optional[dict]:
+    return rows[0] if rows else None
+
+
 def _normalize_tenant_key(value: str) -> str:
     """Collapse id/slug punctuation so ``leeway-softech`` == ``leewaysoftech``."""
     return str(value or "").replace("-", "").replace("_", "").replace(" ", "").lower()
+
+
+def _tenant_matches_registry_norms(row: dict, norms: set) -> bool:
+    for key in ("id", "slug"):
+        val = row.get(key)
+        if val is not None and _normalize_tenant_key(str(val)) in norms:
+            return True
+        if val is not None and str(val).strip().lower() in {n for n in norms}:
+            return True
+    return False
 
 
 def find_registry_conflict(tenant_id: str, slug: str = "") -> Optional[dict]:
@@ -149,6 +224,39 @@ def find_registry_conflict(tenant_id: str, slug: str = "") -> Optional[dict]:
     norms.discard("")
     if not norms:
         return None
+
+    if use_mongodb():
+        tenants = _mongo_repo("tenants")
+        try:
+            direct = (
+                tenants.find_one({"id": tid})
+                or tenants.find_one({"id": slug_v})
+                or tenants.find_one({"slug": tid})
+                or tenants.find_one({"slug": slug_v})
+                or _first_row(
+                    tenants.find(
+                        {
+                            "$or": [
+                                {"slug": {"$regex": f"^{re.escape(tid)}$", "$options": "i"}},
+                                {"slug": {"$regex": f"^{re.escape(slug_v)}$", "$options": "i"}},
+                            ]
+                        },
+                        limit=1,
+                    )
+                )
+            )
+            if direct:
+                return direct
+            for row in tenants.find_all():
+                if _tenant_matches_registry_norms(row, norms):
+                    return row
+        except Exception as exc:
+            logger.warning(
+                "Could not check tenant registry conflict for %s: %s", tenant_id, exc
+            )
+            return None
+        return None
+
     placeholders = ", ".join("?" for _ in norms)
     norm_params = tuple(norms)
     with _db().get_db_context() as conn:
@@ -173,17 +281,46 @@ def find_registry_conflict(tenant_id: str, slug: str = "") -> Optional[dict]:
     return dict(row) if row else None
 
 
+def _resolve_tenant_row_mongo(tenant_id: str) -> Optional[dict]:
+    tid_str = str(tenant_id or "").strip()
+    if not tid_str:
+        return None
+    norm = _normalize_tenant_key(tid_str)
+    tenants = _mongo_repo("tenants")
+    try:
+        for filt in (
+            {"id": tid_str},
+            {"slug": tid_str},
+        ):
+            row = tenants.find_one(filt)
+            if row:
+                return row
+        rows = tenants.find_all()
+        for row in rows:
+            if _normalize_tenant_key(str(row.get("slug") or "")) == norm:
+                return row
+            if _normalize_tenant_key(str(row.get("id") or "")) == norm:
+                return row
+            if str(row.get("slug") or "").lower() == tid_str.lower():
+                return row
+            for alias_key in ("company_name", "display_name"):
+                if _normalize_tenant_key(str(row.get(alias_key) or "")) == norm:
+                    return row
+    except Exception as exc:
+        logger.warning("Could not read tenant %s (schema not migrated?): %s", tenant_id, exc)
+        return None
+    return None
+
+
 def get_tenant(tenant_id: str) -> Optional[dict]:
+    if use_mongodb():
+        return _resolve_tenant_row_mongo(tenant_id)
+
     with _db().get_db_context() as conn:
         try:
             tid_str = str(tenant_id or "").strip()
             norm = _normalize_tenant_key(tid_str)
             cols = {c[1] for c in conn.execute("PRAGMA table_info(tenants)").fetchall()}
-            # Resolve by id/slug (exact + normalized). Also accept display_name /
-            # company_name aliases for inbound routing — e.g. a user types the
-            # brand name. Prefix LIKE ("l%" → leeway-softech / ltfinance) is
-            # intentionally avoided; it caused cross-tenant profile loads.
-            # Create/register must NOT use this helper — see find_registry_conflict.
             where_clauses = [
                 "id = ?",
                 "slug = ?",
@@ -207,14 +344,17 @@ def get_tenant(tenant_id: str) -> Optional[dict]:
                 tuple(params),
             ).fetchone()
         except Exception as exc:
-            # Tolerate a database that has not been migrated yet — the loader
-            # falls back to file + vertical defaults rather than hard-failing.
             logger.warning("Could not read tenant %s (schema not migrated?): %s", tenant_id, exc)
             return None
     return dict(row) if row else None
 
 
 def list_tenants(status: Optional[str] = None) -> List[dict]:
+    if use_mongodb():
+        tenants = _mongo_repo("tenants")
+        filters = {"status": status} if status else None
+        return tenants.find_all(filters, sort=[("id", 1)])
+
     with _db().get_db_context() as conn:
         if status:
             rows = conn.execute(
@@ -263,6 +403,11 @@ def find_tenant_by_mobile(mobile_number: str) -> Optional[str]:
         digits = re.sub(r"\D", "", str(mobile_number or ""))
     if not digits:
         return None
+
+    if use_mongodb():
+        row = _mongo_repo("tenants").find_one({"mobile_number": digits})
+        return row["id"] if row else None
+
     with _db().get_db_context() as conn:
         try:
             row = conn.execute(
@@ -293,13 +438,26 @@ def find_tenant_by_display_name(
     if not needle:
         return None
     exclude = str(exclude_tenant_id or "").strip()
+
+    if use_mongodb():
+        try:
+            rows = _mongo_repo("tenants").find_all()
+        except Exception as exc:
+            logger.warning("Could not check display_name conflict for %r: %s", display_name, exc)
+            return None
+        for row in rows:
+            if exclude and str(row.get("id") or "") == exclude:
+                continue
+            candidates = [row.get("display_name"), row.get("company_name")]
+            if any(_normalize_display_name(c) == needle for c in candidates if c):
+                return row
+        return None
+
     with _db().get_db_context() as conn:
         try:
             cols = {c[1] for c in conn.execute("PRAGMA table_info(tenants)").fetchall()}
             if "display_name" not in cols and "company_name" not in cols:
                 return None
-            # Small registry — normalize in Python (SQLite has no portable
-            # whitespace-collapse for "Honda  Cars" vs "honda cars").
             rows = conn.execute("SELECT * FROM tenants").fetchall()
         except Exception as exc:
             logger.warning("Could not check display_name conflict for %r: %s", display_name, exc)
@@ -317,6 +475,22 @@ def find_tenant_by_display_name(
 def set_mobile_number(tenant_id: str, mobile_number: str, conn=None) -> bool:
     """Set the tenant's required business mobile. Refuses duplicates."""
     digits = normalize_mobile_number(mobile_number)
+
+    if use_mongodb():
+        tenants = _mongo_repo("tenants")
+        clash = tenants.find_one({"mobile_number": digits, "id": {"$ne": str(tenant_id)}})
+        if clash:
+            logger.warning(
+                "mobile_number %s already bound to tenant %s; refusing %s",
+                digits, clash.get("id"), tenant_id,
+            )
+            return False
+        tenants.update(
+            {"id": str(tenant_id)},
+            {"mobile_number": digits, "updated_at": datetime.now(timezone.utc)},
+        )
+        invalidate(tenant_id)
+        return True
 
     def _bind(connection):
         clash = connection.execute(
@@ -350,6 +524,23 @@ def set_waba_phone_id(tenant_id: str, phone_id: str, conn=None) -> bool:
     phone_id = str(phone_id or "").strip()
     if not phone_id:
         return False
+
+    if use_mongodb():
+        tenants = _mongo_repo("tenants")
+        clash = tenants.find_one({"waba_phone_id": phone_id, "id": {"$ne": str(tenant_id)}})
+        if clash:
+            logger.warning(
+                "waba_phone_id %s already bound to tenant %s; refusing to rebind to %s",
+                phone_id, clash.get("id"), tenant_id,
+            )
+            return False
+        tenants.update(
+            {"id": str(tenant_id)},
+            {"waba_phone_id": phone_id, "updated_at": datetime.now(timezone.utc)},
+        )
+        invalidate(tenant_id)
+        return True
+
     def _bind(connection):
         clash = connection.execute(
             "SELECT id FROM tenants WHERE waba_phone_id = ? AND id != ?", (phone_id, tenant_id)
@@ -380,6 +571,11 @@ def find_tenant_by_phone_id(phone_id: str) -> Optional[str]:
     phone_id = str(phone_id or "").strip()
     if not phone_id:
         return None
+
+    if use_mongodb():
+        row = _mongo_repo("tenants").find_one({"waba_phone_id": phone_id})
+        return row["id"] if row else None
+
     with _db().get_db_context() as conn:
         row = conn.execute(
             "SELECT id FROM tenants WHERE waba_phone_id = ?", (phone_id,)
@@ -396,6 +592,14 @@ def tenant_id_for_user(wa_id: str) -> Optional[str]:
     wa_id = str(wa_id or "").strip()
     if not wa_id:
         return None
+
+    if use_mongodb():
+        row = _mongo_repo("user_states").find_one({"wa_id": wa_id})
+        if not row or row.get("tenant_id") is None:
+            return None
+        tid = str(row["tenant_id"]).strip()
+        return tid or None
+
     with _db().get_db_context() as conn:
         row = conn.execute(
             "SELECT tenant_id FROM user_states WHERE wa_id = ?", (wa_id,)
@@ -406,11 +610,13 @@ def tenant_id_for_user(wa_id: str) -> Optional[str]:
     return tid or None
 
 
-# Tables that keep rows after a tenant is wiped (compliance / ops history).
+# Tables / collections that keep rows after a tenant is wiped (compliance / ops history).
 _PURGE_SKIP_TABLES = frozenset({
     "admin_audit_events",
     "sqlite_sequence",
     "sqlite_stat1",
+    "_counters",
+    "_app_meta",
 })
 
 
@@ -429,6 +635,18 @@ def _tables_with_column(connection, column: str) -> List[str]:
         ]
         if column in cols:
             out.append(str(name))
+    return sorted(out)
+
+
+def _mongo_collections_with_tenant_id() -> List[str]:
+    from db.mongo import REGISTRY
+
+    out: List[str] = []
+    for name, definition in REGISTRY["tables"].items():
+        if name in _PURGE_SKIP_TABLES:
+            continue
+        if any(col["name"] == "tenant_id" for col in definition["columns"]):
+            out.append(name)
     return sorted(out)
 
 
@@ -461,6 +679,67 @@ def _purge_tenant_disk(tenant_id: str, slug: str = "") -> List[str]:
     return removed
 
 
+def _purge_tenant_mongo(tid: str, slug: str, summary: Dict[str, Any]) -> None:
+    scope = profile_scope(tid)
+
+    try:
+        reqs = _mongo_repo("api_onboarding_requests").find_all({"tenant_id": tid})
+        req_ids = [r["id"] for r in reqs if r.get("id") is not None]
+        if req_ids:
+            summary["tables"]["api_onboarding_request_events"] = _mongo_repo(
+                "api_onboarding_request_events"
+            ).delete_many({"request_id": {"$in": req_ids}})
+    except Exception:
+        logger.debug(
+            "TENANT_PURGE_TABLE_SKIPPED | table=api_onboarding_request_events tid=%s",
+            tid,
+            exc_info=True,
+        )
+
+    try:
+        reqs = _mongo_repo("tenant_change_requests").find_all({"tenant_id": tid})
+        req_ids = [r["id"] for r in reqs if r.get("id") is not None]
+        if req_ids:
+            summary["tables"]["tenant_change_request_events"] = _mongo_repo(
+                "tenant_change_request_events"
+            ).delete_many({"request_id": {"$in": req_ids}})
+    except Exception:
+        logger.debug(
+            "TENANT_PURGE_TABLE_SKIPPED | table=tenant_change_request_events tid=%s",
+            tid,
+            exc_info=True,
+        )
+
+    for table, filt in (
+        ("draft_config", {"scope": scope}),
+        ("published_config", {"scope": scope}),
+        ("publish_history", {"scope": scope}),
+    ):
+        try:
+            summary["tables"][table] = _mongo_repo(table).delete_many(filt)
+        except Exception as exc:
+            logger.warning("TENANT_PURGE_TABLE_FAILED | table=%s | %s", table, exc)
+
+    for table in _mongo_collections_with_tenant_id():
+        if table == "tenants":
+            continue
+        try:
+            summary["tables"][table] = _mongo_repo(table).delete_many({"tenant_id": tid})
+        except Exception as exc:
+            logger.warning("TENANT_PURGE_TABLE_FAILED | table=%s | %s", table, exc)
+
+    try:
+        row = _mongo_repo("app_settings").find_one({"key": "active_test_tenant"})
+        active = str((row or {}).get("value") or "").strip()
+        if active and active in {tid, str(slug or "").strip()}:
+            _mongo_repo("app_settings").delete_one({"key": "active_test_tenant"})
+            summary["tables"]["app_settings.active_test_tenant"] = 1
+    except Exception:
+        logger.debug("TENANT_PURGE_TABLE_SKIPPED | table=app_settings tid=%s", tid, exc_info=True)
+
+    summary["tables"]["tenants"] = _mongo_repo("tenants").delete_one({"id": tid})
+
+
 def purge_tenant_data(tenant_id: str, conn=None, *, slug: str = "") -> Dict[str, Any]:
     """Permanently delete all DB rows and client-pack files for a tenant.
 
@@ -472,81 +751,86 @@ def purge_tenant_data(tenant_id: str, conn=None, *, slug: str = "") -> Dict[str,
 
     summary: Dict[str, Any] = {"tenant_id": tid, "tables": {}, "disk": []}
 
-    def _purge(connection):
-        # Child event tables keyed by request id (no tenant_id column).
-        try:
-            connection.execute(
-                """DELETE FROM api_onboarding_request_events WHERE request_id IN (
-                     SELECT id FROM api_onboarding_requests WHERE tenant_id = ?
-                   )""",
-                (tid,),
-            )
-        except Exception:
-            # deliberate: purge is per-table best-effort — a missing child
-            # table must not stop the tenant purge.
-            logger.debug("TENANT_PURGE_TABLE_SKIPPED | table=api_onboarding_request_events tid=%s", tid, exc_info=True)
-        try:
-            connection.execute(
-                """DELETE FROM tenant_change_request_events WHERE request_id IN (
-                     SELECT id FROM tenant_change_requests WHERE tenant_id = ?
-                   )""",
-                (tid,),
-            )
-        except Exception:
-            # deliberate: purge is per-table best-effort — a missing child
-            # table must not stop the tenant purge.
-            logger.debug("TENANT_PURGE_TABLE_SKIPPED | table=tenant_change_request_events tid=%s", tid, exc_info=True)
-
-        scope = profile_scope(tid)
-        for table, sql, params in (
-            ("draft_config", "DELETE FROM draft_config WHERE scope = ?", (scope,)),
-            ("published_config", "DELETE FROM published_config WHERE scope = ?", (scope,)),
-            ("publish_history", "DELETE FROM publish_history WHERE scope = ?", (scope,)),
-        ):
-            try:
-                cur = connection.execute(sql, params)
-                summary["tables"][table] = int(cur.rowcount or 0)
-            except Exception as exc:
-                logger.warning("TENANT_PURGE_TABLE_FAILED | table=%s | %s", table, exc)
-
-        for table in _tables_with_column(connection, "tenant_id"):
-            if table == "tenants":
-                continue
-            try:
-                cur = connection.execute(
-                    f"DELETE FROM {table} WHERE tenant_id = ?", (tid,)
-                )
-                summary["tables"][table] = int(cur.rowcount or 0)
-            except Exception as exc:
-                logger.warning("TENANT_PURGE_TABLE_FAILED | table=%s | %s", table, exc)
-
-        # Clear WhatsApp test override if it pointed at this tenant.
-        try:
-            row = connection.execute(
-                "SELECT value FROM app_settings WHERE key = ?",
-                ("active_test_tenant",),
-            ).fetchone()
-            active = ""
-            if row:
-                active = str(row["value"] if hasattr(row, "keys") else row[0] or "").strip()
-            if active and active in {tid, str(slug or "").strip()}:
-                connection.execute(
-                    "DELETE FROM app_settings WHERE key = ?",
-                    ("active_test_tenant",),
-                )
-                summary["tables"]["app_settings.active_test_tenant"] = 1
-        except Exception:
-            # deliberate: purge is per-table best-effort.
-            logger.debug("TENANT_PURGE_TABLE_SKIPPED | table=app_settings tid=%s", tid, exc_info=True)
-
-        cur = connection.execute("DELETE FROM tenants WHERE id = ?", (tid,))
-        summary["tables"]["tenants"] = int(cur.rowcount or 0)
-
-    if conn is None:
-        with _db().get_db_context() as own_conn:
-            _purge(own_conn)
+    if use_mongodb():
+        _purge_tenant_mongo(tid, slug, summary)
     else:
-        _purge(conn)
+
+        def _purge(connection):
+            try:
+                connection.execute(
+                    """DELETE FROM api_onboarding_request_events WHERE request_id IN (
+                         SELECT id FROM api_onboarding_requests WHERE tenant_id = ?
+                       )""",
+                    (tid,),
+                )
+            except Exception:
+                logger.debug(
+                    "TENANT_PURGE_TABLE_SKIPPED | table=api_onboarding_request_events tid=%s",
+                    tid,
+                    exc_info=True,
+                )
+            try:
+                connection.execute(
+                    """DELETE FROM tenant_change_request_events WHERE request_id IN (
+                         SELECT id FROM tenant_change_requests WHERE tenant_id = ?
+                       )""",
+                    (tid,),
+                )
+            except Exception:
+                logger.debug(
+                    "TENANT_PURGE_TABLE_SKIPPED | table=tenant_change_request_events tid=%s",
+                    tid,
+                    exc_info=True,
+                )
+
+            scope = profile_scope(tid)
+            for table, sql, params in (
+                ("draft_config", "DELETE FROM draft_config WHERE scope = ?", (scope,)),
+                ("published_config", "DELETE FROM published_config WHERE scope = ?", (scope,)),
+                ("publish_history", "DELETE FROM publish_history WHERE scope = ?", (scope,)),
+            ):
+                try:
+                    cur = connection.execute(sql, params)
+                    summary["tables"][table] = int(cur.rowcount or 0)
+                except Exception as exc:
+                    logger.warning("TENANT_PURGE_TABLE_FAILED | table=%s | %s", table, exc)
+
+            for table in _tables_with_column(connection, "tenant_id"):
+                if table == "tenants":
+                    continue
+                try:
+                    cur = connection.execute(
+                        f"DELETE FROM {table} WHERE tenant_id = ?", (tid,)
+                    )
+                    summary["tables"][table] = int(cur.rowcount or 0)
+                except Exception as exc:
+                    logger.warning("TENANT_PURGE_TABLE_FAILED | table=%s | %s", table, exc)
+
+            try:
+                row = connection.execute(
+                    "SELECT value FROM app_settings WHERE key = ?",
+                    ("active_test_tenant",),
+                ).fetchone()
+                active = ""
+                if row:
+                    active = str(row["value"] if hasattr(row, "keys") else row[0] or "").strip()
+                if active and active in {tid, str(slug or "").strip()}:
+                    connection.execute(
+                        "DELETE FROM app_settings WHERE key = ?",
+                        ("active_test_tenant",),
+                    )
+                    summary["tables"]["app_settings.active_test_tenant"] = 1
+            except Exception:
+                logger.debug("TENANT_PURGE_TABLE_SKIPPED | table=app_settings tid=%s", tid, exc_info=True)
+
+            cur = connection.execute("DELETE FROM tenants WHERE id = ?", (tid,))
+            summary["tables"]["tenants"] = int(cur.rowcount or 0)
+
+        if conn is None:
+            with _db().get_db_context() as own_conn:
+                _purge(own_conn)
+        else:
+            _purge(conn)
 
     summary["disk"] = _purge_tenant_disk(tid, slug=slug)
     invalidate(tid)
@@ -581,13 +865,23 @@ def current_version(tenant_id: str) -> int:
         hit = _version_cache.get(tid)
         if hit and hit[0] >= now:
             return hit[1]
-    with _db().get_db_context() as conn:
-        row = conn.execute(
-            "SELECT version FROM tenant_profile_versions "
-            "WHERE tenant_id = ? AND is_current = 1 ORDER BY version DESC LIMIT 1",
-            (tid,),
-        ).fetchone()
-    version = int(row["version"]) if row else 0
+
+    if use_mongodb():
+        rows = _mongo_repo("tenant_profile_versions").find(
+            {"tenant_id": tid, "is_current": 1},
+            sort=[("version", -1)],
+            limit=1,
+        )
+        version = int(rows[0]["version"]) if rows else 0
+    else:
+        with _db().get_db_context() as conn:
+            row = conn.execute(
+                "SELECT version FROM tenant_profile_versions "
+                "WHERE tenant_id = ? AND is_current = 1 ORDER BY version DESC LIMIT 1",
+                (tid,),
+            ).fetchone()
+        version = int(row["version"]) if row else 0
+
     with _version_lock:
         _version_cache[tid] = (now + VERSION_TTL_SECONDS, version)
     return version
@@ -605,6 +899,20 @@ def invalidate_all() -> None:
 
 def get_current_payload(tenant_id: str) -> Optional[dict]:
     """The DB override layer: the current published version's payload."""
+    if use_mongodb():
+        rows = _mongo_repo("tenant_profile_versions").find(
+            {"tenant_id": str(tenant_id), "is_current": 1},
+            sort=[("version", -1)],
+            limit=1,
+        )
+        if not rows:
+            return None
+        parsed = _parse_json_payload(rows[0].get("payload"))
+        if parsed is None:
+            logger.error("tenant %s has unparseable current payload", tenant_id)
+            return None
+        return parsed
+
     with _db().get_db_context() as conn:
         row = conn.execute(
             "SELECT payload FROM tenant_profile_versions "
@@ -621,6 +929,17 @@ def get_current_payload(tenant_id: str) -> Optional[dict]:
 
 
 def get_version(tenant_id: str, version: int) -> Optional[dict]:
+    if use_mongodb():
+        row = _mongo_repo("tenant_profile_versions").find_one(
+            {"tenant_id": str(tenant_id), "version": int(version)}
+        )
+        if not row:
+            return None
+        out = dict(row)
+        out["payload"] = _parse_json_payload(out.get("payload")) or {}
+        out["is_current"] = bool(out.get("is_current"))
+        return out
+
     with _db().get_db_context() as conn:
         row = conn.execute(
             "SELECT * FROM tenant_profile_versions WHERE tenant_id = ? AND version = ?",
@@ -638,6 +957,13 @@ def get_version(tenant_id: str, version: int) -> Optional[dict]:
 
 
 def list_versions(tenant_id: str, limit: int = 50) -> List[dict]:
+    if use_mongodb():
+        return _mongo_repo("tenant_profile_versions").find(
+            {"tenant_id": str(tenant_id)},
+            sort=[("version", -1)],
+            limit=int(limit),
+        )
+
     with _db().get_db_context() as conn:
         rows = conn.execute(
             """SELECT id, tenant_id, version, published_by, created_at, is_current
@@ -660,6 +986,41 @@ def _set_current(conn, tenant_id: str, version: int) -> None:
     )
 
 
+def _set_current_mongo(tenant_id: str, version: int) -> None:
+    versions = _mongo_repo("tenant_profile_versions")
+    versions.update_many(
+        {"tenant_id": str(tenant_id), "is_current": 1},
+        {"is_current": 0},
+    )
+    versions.update(
+        {"tenant_id": str(tenant_id), "version": int(version)},
+        {"is_current": 1},
+    )
+
+
+def _mirror_published_config_mongo(tenant_id: str, snapshot: Any, published_by: str) -> None:
+    scope = profile_scope(tenant_id)
+    now = datetime.now(timezone.utc)
+    snap = snapshot if isinstance(snapshot, dict) else _parse_json_payload(snapshot) or {}
+    _mongo_repo("published_config").upsert(
+        {"scope": scope},
+        {
+            "scope": scope,
+            "snapshot_json": snap,
+            "published_by": published_by or "",
+            "published_at": now,
+        },
+    )
+    _mongo_repo("publish_history").insert(
+        {
+            "scope": scope,
+            "snapshot_json": snap,
+            "published_by": published_by or "",
+            "published_at": now,
+        }
+    )
+
+
 def publish_version(tenant_id: str, payload: dict, published_by: str = "", conn=None, validate: bool = True) -> int:
     """Append a new version and make it current. Returns the new version number.
 
@@ -675,16 +1036,31 @@ def publish_version(tenant_id: str, payload: dict, published_by: str = "", conn=
         from shared.tenancy import loader as _loader  # lazy: loader imports store
         _loader.validate_merged_profile(tid, payload)
     body = json.dumps(payload, ensure_ascii=False)
+
+    if use_mongodb():
+        versions = _mongo_repo("tenant_profile_versions")
+        rows = versions.find({"tenant_id": tid}, sort=[("version", -1)], limit=1)
+        next_version = int(rows[0]["version"]) + 1 if rows else 1
+        versions.insert(
+            {
+                "tenant_id": tid,
+                "version": next_version,
+                "payload": body,
+                "published_by": published_by or "",
+                "is_current": 0,
+            }
+        )
+        _set_current_mongo(tid, next_version)
+        _mirror_published_config_mongo(tid, payload, published_by or "")
+        invalidate(tid)
+        return next_version
+
     def _publish(connection):
         row = connection.execute(
             "SELECT COALESCE(MAX(version), 0) AS v FROM tenant_profile_versions WHERE tenant_id = ?",
             (tid,),
         ).fetchone()
         next_version = int(row["v"]) + 1
-        # Insert with is_current = 0: the partial unique index
-        # ux_tenant_profile_current only allows ONE current row per tenant, so
-        # _set_current must clear the previous one first. Inserting as current
-        # straight away violates the index on every publish after the first.
         connection.execute(
             """INSERT INTO tenant_profile_versions
                    (tenant_id, version, payload, published_by, created_at, is_current)
@@ -692,7 +1068,6 @@ def publish_version(tenant_id: str, payload: dict, published_by: str = "", conn=
             (tid, next_version, body, published_by or ""),
         )
         _set_current(connection, tid, next_version)
-        # Mirror into published_config so the generic config surfaces stay consistent.
         connection.execute(
             """INSERT INTO published_config (scope, snapshot_json, published_by, published_at)
                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -721,6 +1096,18 @@ def publish_version(tenant_id: str, payload: dict, published_by: str = "", conn=
 def rollback(tenant_id: str, version: int, conn=None) -> bool:
     """Re-point is_current at an earlier version. Nothing is deleted."""
     tid = str(tenant_id)
+
+    if use_mongodb():
+        row = _mongo_repo("tenant_profile_versions").find_one(
+            {"tenant_id": tid, "version": int(version)}
+        )
+        if not row:
+            return False
+        _set_current_mongo(tid, int(version))
+        _mirror_published_config_mongo(tid, row.get("payload"), "rollback")
+        invalidate(tid)
+        return True
+
     def _rollback(connection):
         row = connection.execute(
             "SELECT payload FROM tenant_profile_versions WHERE tenant_id = ? AND version = ?",
@@ -779,6 +1166,12 @@ def get_published_mirror(tenant_id: str) -> Optional[dict]:
 # ── tokens ────────────────────────────────────────────────────────────────
 
 def list_tenant_tokens(tenant_id: str) -> List[dict]:
+    if use_mongodb():
+        return _mongo_repo("tenant_tokens").find_all(
+            {"tenant_id": str(tenant_id)},
+            sort=[("id", -1)],
+        )
+
     with _db().get_db_context() as conn:
         rows = conn.execute(
             "SELECT id, tenant_id, label, created_by, created_at, revoked_at "
@@ -789,6 +1182,12 @@ def list_tenant_tokens(tenant_id: str) -> List[dict]:
 
 
 def get_tenant_token(token_hash: str) -> Optional[dict]:
+    if use_mongodb():
+        row = _mongo_repo("tenant_tokens").find_one(
+            {"token_hash": str(token_hash), "revoked_at": None}
+        )
+        return row
+
     with _db().get_db_context() as conn:
         row = conn.execute(
             "SELECT * FROM tenant_tokens WHERE token_hash = ? AND revoked_at IS NULL",
@@ -798,6 +1197,17 @@ def get_tenant_token(token_hash: str) -> Optional[dict]:
 
 
 def create_tenant_token(tenant_id: str, token_hash: str, label: str = "", created_by: str = "", conn=None) -> int:
+    if use_mongodb():
+        row = _mongo_repo("tenant_tokens").insert(
+            {
+                "tenant_id": str(tenant_id),
+                "token_hash": token_hash,
+                "label": label,
+                "created_by": created_by,
+            }
+        )
+        return int(row["id"])
+
     def _create(connection):
         cur = connection.execute(
             "INSERT INTO tenant_tokens (tenant_id, token_hash, label, created_by) VALUES (?, ?, ?, ?)",
@@ -812,6 +1222,15 @@ def create_tenant_token(tenant_id: str, token_hash: str, label: str = "", create
 
 
 def revoke_tenant_token(token_id: int, conn=None) -> bool:
+    if use_mongodb():
+        return (
+            _mongo_repo("tenant_tokens").update(
+                {"id": int(token_id), "revoked_at": None},
+                {"revoked_at": datetime.now(timezone.utc)},
+            )
+            > 0
+        )
+
     def _revoke(connection):
         cur = connection.execute(
             "UPDATE tenant_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL",
@@ -832,12 +1251,18 @@ def get_tenant_webhook_secret(tenant_id: str) -> str:
     rather than code. Returns "" when neither is set — the caller must then skip
     signing and log a warning.
     """
-    with _db().get_db_context() as conn:
-        row = conn.execute(
-            "SELECT webhook_secret FROM tenants WHERE id = ?", (str(tenant_id),)
-        ).fetchone()
-    if row and row["webhook_secret"]:
-        return row["webhook_secret"]
+    if use_mongodb():
+        row = _mongo_repo("tenants").find_one({"id": str(tenant_id)})
+        if row and row.get("webhook_secret"):
+            return str(row["webhook_secret"])
+    else:
+        with _db().get_db_context() as conn:
+            row = conn.execute(
+                "SELECT webhook_secret FROM tenants WHERE id = ?", (str(tenant_id),)
+            ).fetchone()
+        if row and row["webhook_secret"]:
+            return row["webhook_secret"]
+
     payload = get_current_payload(tenant_id) or {}
     channels = (payload.get("notifications") or {}).get("channels") or []
     for ch in channels:

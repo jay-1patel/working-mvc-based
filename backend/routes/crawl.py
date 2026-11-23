@@ -12,7 +12,8 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
 from database import (
@@ -27,7 +28,7 @@ from database import (
     record_admin_audit_event,
     get_db_context,
 )
-from routes.auth import require_tenant_access
+from routes.auth import authorize_tenant_access, require_tenant_access, security, session_tenant_id
 
 logger = logging.getLogger("crawl")
 router = APIRouter(prefix="/api/admin/tenants", tags=["crawl"])
@@ -35,11 +36,31 @@ router = APIRouter(prefix="/api/admin/tenants", tags=["crawl"])
 
 class CrawlStartRequest(BaseModel):
     url: str = Field(..., min_length=1)
-    # No page-count limit (product decision 2026-11-11): omitted/None/0 =
-    # unlimited. An explicit positive value is still honoured for backward
-    # compatibility with callers that pass one.
+    # Legacy optional fields are accepted for old clients but full crawls
+    # intentionally ignore these caps in the pipeline.
     max_pages: Optional[int] = Field(default=None, ge=1)
-    max_depth: int = Field(default=4, ge=0, le=10)
+    max_depth: Optional[int] = Field(default=None, ge=0, le=100)
+
+
+class CrawlRunsRequest(BaseModel):
+    limit: int = 20
+
+
+class CrawlStagedRequest(BaseModel):
+    run_id: int
+
+
+class CrawlExportRequest(BaseModel):
+    run_id: int
+    format: str = "json"
+
+
+class CrawlApproveRequest(BaseModel):
+    run_id: int
+
+
+class CrawlRejectRequest(BaseModel):
+    run_id: int
 
 
 def _bg_run_crawl(
@@ -47,7 +68,7 @@ def _bg_run_crawl(
     url: str,
     run_id: int,
     max_pages: Optional[int],
-    max_depth: int,
+    max_depth: Optional[int],
     actor: dict,
 ) -> None:
     try:
@@ -65,13 +86,15 @@ def _bg_run_crawl(
         logger.error("Background crawl failed run=%s: %s", run_id, exc, exc_info=True)
 
 
-@router.post("/{tenant_id}/crawl", status_code=202)
+@router.post("/crawl", status_code=202)
 def start_crawl(
-    tenant_id: str,
     body: CrawlStartRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
-    principal: dict = Depends(require_tenant_access()),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     url = (body.url or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="Website URL is required")
@@ -105,9 +128,11 @@ def start_crawl(
     )
 
     try:
-        with get_db_context() as conn:
+        from db.core import use_mongodb
+
+        if use_mongodb():
             record_admin_audit_event(
-                conn,
+                None,
                 action="crawl_run_queued",
                 actor=principal,
                 resource_type="crawl_run",
@@ -115,6 +140,17 @@ def start_crawl(
                 tenant_id=tenant_id,
                 details={"url": url[:200], "max_pages": body.max_pages},
             )
+        else:
+            with get_db_context() as conn:
+                record_admin_audit_event(
+                    conn,
+                    action="crawl_run_queued",
+                    actor=principal,
+                    resource_type="crawl_run",
+                    resource_id=str(run["id"]),
+                    tenant_id=tenant_id,
+                    details={"url": url[:200], "max_pages": body.max_pages},
+                )
     except Exception:
         logger.exception("AUDIT_EVENT_RECORD_FAILED | action=crawl_run_queued")
 
@@ -135,12 +171,15 @@ def start_crawl(
     }
 
 
-@router.get("/{tenant_id}/crawl-runs")
+@router.post("/crawl-runs")
 def get_crawl_runs(
-    tenant_id: str,
-    limit: int = 20,
-    principal: dict = Depends(require_tenant_access()),
+    body: CrawlRunsRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    limit = body.limit
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     runs = list_crawl_runs(tenant_id, limit=limit)
     latest = runs[0] if runs else None
     schedule = get_crawl_schedule(tenant_id)
@@ -174,17 +213,31 @@ def get_crawl_run_detail(
     }
 
 
-@router.get("/{tenant_id}/crawl-runs/{run_id}/staged")
+@router.post("/crawl-runs/staged")
 def get_crawl_run_staged(
-    tenant_id: str,
-    run_id: int,
-    principal: dict = Depends(require_tenant_access()),
+    body: CrawlStagedRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    run_id = body.run_id
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     run = get_crawl_run(run_id, tenant_id=tenant_id)
     if not run:
         raise HTTPException(status_code=404, detail="Crawl run not found")
     staged = get_crawl_staged(run_id, tenant_id=tenant_id)
     if not staged:
+        # A crawl is intentionally asynchronous. Return its live state/counts
+        # rather than a misleading hard 404 while the worker is still running.
+        if run.get("status") in ("queued", "running"):
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "tenant_id": tenant_id,
+                "status": run.get("status"),
+                "run": run,
+                "payload": None,
+            }
         raise HTTPException(status_code=404, detail="No staged payload for this run")
 
     payload = staged.get("payload") or {}
@@ -475,19 +528,21 @@ def _render_crawl_export_pdf(data: dict) -> bytes:
     return payload
 
 
-@router.get("/{tenant_id}/crawl-runs/{run_id}/export")
+@router.post("/crawl-runs/export")
 def export_crawl_run(
-    tenant_id: str,
-    run_id: int,
-    format: str = "json",
-    principal: dict = Depends(require_tenant_access()),
+    body: CrawlExportRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     """Download a run's staged crawled knowledge (KB / FAQs / products).
 
     Formats: json (default), csv, pdf. Unknown format → 400; unknown or
     cross-tenant run → 404, mirroring the sibling crawl routes.
     """
-    fmt = (format or "json").strip().lower()
+    tenant_id = session_tenant_id(request=request)
+    run_id = body.run_id
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    fmt = (body.format or "json").strip().lower()
     if fmt not in ("json", "csv", "pdf"):
         raise HTTPException(
             status_code=400,
@@ -523,12 +578,15 @@ def export_crawl_run(
     )
 
 
-@router.post("/{tenant_id}/crawl-runs/{run_id}/approve")
+@router.post("/crawl-runs/approve")
 def approve_crawl(
-    tenant_id: str,
-    run_id: int,
-    principal: dict = Depends(require_tenant_access()),
+    body: CrawlApproveRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    run_id = body.run_id
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     from services.crawl_pipeline import approve_crawl_run
 
     try:
@@ -545,12 +603,15 @@ def approve_crawl(
     return {"ok": True, "result": result}
 
 
-@router.post("/{tenant_id}/crawl-runs/{run_id}/reject")
+@router.post("/crawl-runs/reject")
 def reject_crawl(
-    tenant_id: str,
-    run_id: int,
-    principal: dict = Depends(require_tenant_access()),
+    body: CrawlRejectRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
+    tenant_id = session_tenant_id(request=request)
+    run_id = body.run_id
+    principal = authorize_tenant_access(request, tenant_id, credentials)
     from services.crawl_pipeline import reject_crawl_run
 
     try:

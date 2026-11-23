@@ -51,10 +51,12 @@ SEND2_SESSION_SEND_URL = os.getenv(
     "SEND2_SESSION_SEND_URL",
     "https://api.send2.digital/devdesk/session-msg-send",
 )
-# ── Database ──────────────────────────────────────────────────────────────
-# Defaults to the repo-root faq.db — the same file backend/database.py opens.
-# Never hardcode an absolute path here: SQLite silently CREATES a missing file,
-# so a stale path yields a blank DB and every query fails with "no such table".
+# ── Legacy path (not the application database) ─────────────────────────────
+# Application data lives in MongoDB (MONGODB_URI / MONGODB_DATABASE /
+# DATABASE_BACKEND=mongodb). faq.db and ROUTING_DB_PATH are legacy: no runtime
+# code should open them for tenants, products, chat, or admin data.
+# Keep ROUTING_DB_PATH only when something still needs a filesystem path for
+# non-DB artifacts that historically sat beside faq.db.
 DB_PATH = os.getenv("ROUTING_DB_PATH") or str(PROJECT_ROOT / "faq.db")
 if not os.path.isabs(DB_PATH):
     DB_PATH = str((PROJECT_ROOT / DB_PATH).resolve())
@@ -85,7 +87,7 @@ OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 # Bifurcation-only overrides (PDF/kit staging). Prefer a small/fast local
 # model so uploads do not hang 5+ minutes per chunk on weak GPU setups.
 BIFURCATE_OLLAMA_MODEL = (
-    os.getenv("BIFURCATE_OLLAMA_MODEL") or OLLAMA_MODEL or "qwen2.5:1.5b"
+    os.getenv("BIFURCATE_OLLAMA_MODEL") or OLLAMA_MODEL or "qwen3:8b"
 )
 BIFURCATE_OLLAMA_NUM_GPU = _int_env("BIFURCATE_OLLAMA_NUM_GPU", OLLAMA_NUM_GPU)
 BIFURCATE_OLLAMA_TIMEOUT = float(
@@ -152,7 +154,6 @@ MENU_HEADER = os.getenv("MENU_HEADER", BUSINESS_NAME)
 MENU_BODY = os.getenv("MENU_BODY", "What would you like help with?")
 MENU_FOOTER = os.getenv("MENU_FOOTER", "Or type your question directly")
 TEMPLATE_PREFIX = os.getenv("TEMPLATE_PREFIX", (BUSINESS_NAME or "").replace(" ", "_"))
-IMAGE_BASE_URL = os.getenv("IMAGE_BASE_URL")
 
 # ── Auth / admin ──────────────────────────────────────────────────────────
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
@@ -166,8 +167,8 @@ OTP_EXPIRY_MINUTES = _int_env("OTP_EXPIRY_MINUTES", 10)
 # Single source of truth for ALL runtime uploads (D5): the UPLOAD_DIR env
 # var wins; the repo tree is only the fallback default.
 UPLOAD_DIR = os.getenv("UPLOAD_DIR") or str(BACKEND_DIR / "uploaded_files")
-# No default. A committed live key was removed; set IMGHIPPO_API_KEY in the environment
-# if image hosting is used. Revoke any key that was previously shipped in this file.
+# Legacy unused key (kept so old .env files do not break). PDFs + photos are
+# served only via PUBLIC_BASE_URL — never imghippo/catbox.
 IMGHIPPO_API_KEY = os.getenv("IMGHIPPO_API_KEY") or ""
 
 # ── Email / SMTP (for OTP delivery) ──────────────────────────────────────
@@ -182,22 +183,37 @@ SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "")
 SEND_MEDIA = os.getenv("SEND_MEDIA", "false").lower() == "true"
 CATALOG_DELIVERY_MODE = os.getenv("CATALOG_DELIVERY_MODE", "pdf").lower().strip()
 
-CATALOGUE_PDF_URL = os.getenv("CATALOGUE_PDF_URL", "https://files.catbox.moe/h2pw4m.pdf")
+CATALOGUE_PDF_URL = os.getenv("CATALOGUE_PDF_URL", "")
 CATALOGUE_PDF_FILENAME = os.getenv("CATALOGUE_PDF_FILENAME", "Product Brochure.pdf")
 
 CATALOGUE_BUTTON_ID = os.getenv("CATALOGUE_BUTTON_ID", "new_arrival")
 CATALOGUE_BUTTON_TITLE = os.getenv("CATALOGUE_BUTTON_TITLE", "New Releases")
 CATALOGUE_BODY_TEXT = os.getenv("CATALOGUE_BODY_TEXT", "Choose an option:")
 
-# ── Tunnel / public URL ───────────────────────────────────────────────────
-PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
+# ── Tunnel / public URL (Cloudflare) ─────────────────────────────────────
+# Single knob for WhatsApp PDFs + photos. Set in routing/.env only, e.g.
+#   PUBLIC_BASE_URL=https://xxxx.trycloudflare.com
+# When the tunnel URL changes, update that line and restart the backend.
+# IMAGE_BASE_URL is an optional legacy alias; if blank, it mirrors PUBLIC_BASE_URL.
+PUBLIC_BASE_URL = (
+    os.getenv("PUBLIC_BASE_URL") or os.getenv("IMAGE_BASE_URL") or ""
+).strip().rstrip("/")
+IMAGE_BASE_URL = PUBLIC_BASE_URL
 HKDEK_WEBHOOK_URL = os.getenv("HKDEK_WEBHOOK_URL")
 
 # ── Logging ───────────────────────────────────────────────────────────────
 logger = logging.getLogger(f"{BOT_NAME}_bot")
 
 def detect_tunnel_url() -> str:
-    """Auto-detect Cloudflare tunnel URL from log files."""
+    """Diagnostic only — never overrides routing/.env PUBLIC_BASE_URL.
+
+    Media hosting always uses PUBLIC_BASE_URL from .env. This helper only
+    warns when a cloudflared log shows a different trycloudflare.com URL.
+    """
+    if not PUBLIC_BASE_URL:
+        logger.warning(
+            "PUBLIC_BASE_URL is empty — set your Cloudflare HTTPS origin in routing/.env"
+        )
     log_patterns = ["*_cf_err*.log", "*_cf_out*.log", "*cloudflared*.log", "*cf*.log"]
     tunnel_pattern = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
@@ -208,9 +224,14 @@ def detect_tunnel_url() -> str:
                 matches = tunnel_pattern.findall(content)
                 if matches:
                     latest = matches[-1]
-                    if latest != PUBLIC_BASE_URL:
-                        logger.warning(f"Tunnel URL mismatch: .env has {PUBLIC_BASE_URL}, log has {latest}")
-                    return latest
+                    if latest.rstrip("/") != PUBLIC_BASE_URL:
+                        logger.warning(
+                            "Cloudflare log has %s but .env PUBLIC_BASE_URL=%s "
+                            "(update .env and restart — logs do not override)",
+                            latest,
+                            PUBLIC_BASE_URL or "(empty)",
+                        )
+                    return ""
             except Exception as e:
                 logger.debug(f"Could not read {log_file}: {e}")
     return ""

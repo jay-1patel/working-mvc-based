@@ -28,8 +28,7 @@ import { DistributorsPanel } from '@/components/tenants/distributors-panel'
 import { ChatHistoryPanel } from '@/components/tenants/chat-history-panel'
 import { CallbacksPanel } from '@/components/tenants/callbacks-panel'
 import { ComplaintsPanel } from '@/components/tenants/complaints-panel'
-import { UploadsPanel } from '@/components/tenants/uploads-panel'
-import { WebsiteKnowledgePanel } from '@/components/tenants/website-knowledge-panel'
+import { WebsiteCrawlerPanel } from '@/components/tenants/website-crawler-panel'
 import { AdminChatPanel } from '@/components/tenants/admin-chat'
 
 import { IntentsEditor } from '@/components/tenants/intents-editor'
@@ -159,7 +158,7 @@ function Router() {
     )
   }
 
-  const writeViews = new Set(['profile', 'menu-edit', 'versions', 'tokens'])
+  const writeViews = new Set(['profile', 'profile-menu', 'menu-edit', 'versions', 'tokens'])
   if (route.view === 'api-access') {
     if (!isSuperAdmin && (!identity?.tenant_id || route.tenantId !== identity.tenant_id || !can('manage_operations'))) {
       return <AppShell route={route}><NotPermitted what="request API access for this tenant" /></AppShell>
@@ -196,7 +195,8 @@ function Router() {
   return (
     <AppShell route={route}>
       {route.view === 'overview' && <TodayPanel tenantId={route.tenantId} />}
-      {route.view === 'profile' && <ProfileEditor tenantId={route.tenantId} />}
+      {route.view === 'profile' && <ProfileEditor tenantId={route.tenantId} mode="brand" />}
+      {route.view === 'profile-menu' && <ProfileEditor tenantId={route.tenantId} mode="menu" />}
       {route.view === 'menu' && <BotMenuPanel tenantId={route.tenantId} />}
       {route.view === 'menu-edit' && (
         <MenuEditor tenantId={route.tenantId} focusId={route.query.get('focus')} />
@@ -213,9 +213,14 @@ function Router() {
       {route.view === 'inbox' && <ChatsPanel tenantId={route.tenantId} />}
       {route.view === 'complaints' && <ComplaintsPanel tenantId={route.tenantId} />}
       {route.view === 'callbacks' && <CallbacksPanel tenantId={route.tenantId} />}
-      {route.view === 'uploads' && <UploadsPanel tenantId={route.tenantId} />}
-      {route.view === 'website-knowledge' && (
-        <WebsiteKnowledgePanel tenantId={route.tenantId} />
+      {(route.view === 'website-crawler' ||
+        route.view === 'uploads' ||
+        route.view === 'website-knowledge') && (
+        <WebsiteCrawlerPanel
+          key={route.view === 'uploads' ? 'files' : 'crawl'}
+          tenantId={route.tenantId}
+          initialTab={route.view === 'uploads' ? 'files' : 'crawl'}
+        />
       )}
       {route.view === 'chat' && <AdminChatPanel tenantId={route.tenantId} />}
       {route.view === 'versions' && <VersionsPanel tenantId={route.tenantId} />}
@@ -253,6 +258,7 @@ const PENDING_VIEWS = new Set<string>([
 const KNOWN_VIEWS = [
   'overview',
   'profile',
+  'profile-menu',
   'menu',
   'menu-edit',
   'intents',
@@ -267,6 +273,7 @@ const KNOWN_VIEWS = [
   'technologies',
   'careers',
   'benefits',
+  'website-crawler',
   'uploads',
   'website-knowledge',
   'chat',

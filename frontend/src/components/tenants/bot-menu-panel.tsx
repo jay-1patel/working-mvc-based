@@ -13,9 +13,8 @@ import { useResolved, useTenantDetail } from './hooks'
  * will present it, each row labelled with where the item came from
  * (your PDF, typed by an admin, or the system default). Editing still
  * happens in the Menu editor, because in this system menu changes go
- * through draft → publish (or a change request for non-super roles) —
- * there is no safe instant toggle, so the switch on each row is
- * display-only; writers use Edit / Menu editor to change on/off.
+ * through draft → publish (or a change request for non-super roles).
+ * Active/Inactive is changed in the Menu editor, not on this page.
  */
 export function BotMenuPanel({ tenantId }: { tenantId: string }) {
   const { canWriteTenant, isSuperAdmin } = usePermissions()
@@ -96,20 +95,6 @@ export function BotMenuPanel({ tenantId }: { tenantId: string }) {
                           <span className="sr-only">Edit {button.title}</span>
                         </IconButton>
                       )}
-                      <span
-                        role="img"
-                        aria-label={button.enabled ? 'Active' : 'Inactive'}
-                        title={button.enabled ? 'Active' : 'Inactive'}
-                        className={`relative h-6 w-11 shrink-0 rounded-full ${
-                          button.enabled ? 'bg-acc' : 'bg-switchoff'
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow ${
-                            button.enabled ? 'right-0.5' : 'left-0.5'
-                          }`}
-                        />
-                      </span>
                     </li>
                   )
                 })}

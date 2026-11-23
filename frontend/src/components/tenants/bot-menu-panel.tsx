@@ -14,8 +14,8 @@ import { useResolved, useTenantDetail } from './hooks'
  * (your PDF, typed by an admin, or the system default). Editing still
  * happens in the Menu editor, because in this system menu changes go
  * through draft → publish (or a change request for non-super roles) —
- * there is no safe instant toggle, so the switch on each row reflects
- * the item's on/off state and opens the editor for writers.
+ * there is no safe instant toggle, so the switch on each row is
+ * display-only; writers use Edit / Menu editor to change on/off.
  */
 export function BotMenuPanel({ tenantId }: { tenantId: string }) {
   const { canWriteTenant, isSuperAdmin } = usePermissions()
@@ -96,39 +96,20 @@ export function BotMenuPanel({ tenantId }: { tenantId: string }) {
                           <span className="sr-only">Edit {button.title}</span>
                         </IconButton>
                       )}
-                      {canWrite ? (
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={button.enabled}
-                          aria-label={`${button.title} — ${button.enabled ? 'on' : 'off'}. Open in the Menu editor to change.`}
-                          title="Menu changes go through draft and publish — open the editor"
-                          onClick={() => openEditor(button.id)}
-                          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                            button.enabled ? 'bg-acc' : 'bg-switchoff'
-                          }`}
-                        >
-                          <span
-                            className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow ${
-                              button.enabled ? 'right-0.5' : 'left-0.5'
-                            }`}
-                          />
-                        </button>
-                      ) : (
+                      <span
+                        role="img"
+                        aria-label={button.enabled ? 'Active' : 'Inactive'}
+                        title={button.enabled ? 'Active' : 'Inactive'}
+                        className={`relative h-6 w-11 shrink-0 rounded-full ${
+                          button.enabled ? 'bg-acc' : 'bg-switchoff'
+                        }`}
+                      >
                         <span
-                          role="img"
-                          aria-label={button.enabled ? 'On' : 'Off'}
-                          className={`relative h-6 w-11 shrink-0 rounded-full ${
-                            button.enabled ? 'bg-acc' : 'bg-switchoff'
+                          className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow ${
+                            button.enabled ? 'right-0.5' : 'left-0.5'
                           }`}
-                        >
-                          <span
-                            className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow ${
-                              button.enabled ? 'right-0.5' : 'left-0.5'
-                            }`}
-                          />
-                        </span>
-                      )}
+                        />
+                      </span>
                     </li>
                   )
                 })}

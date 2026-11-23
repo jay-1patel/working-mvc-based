@@ -668,7 +668,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                                 <p className="mt-1 text-xs leading-relaxed text-txmuted">{button.description}</p>
                               )}
                             </div>
-                            {canWrite && <div className="flex shrink-0 items-center gap-1.5">
+                            {canWrite && <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center gap-1.5 rounded-full border border-line bg-card px-2 py-1">
                                 <Toggle
                                   size="sm"

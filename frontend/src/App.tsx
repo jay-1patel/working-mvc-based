@@ -39,6 +39,8 @@ import { TokensPanel } from '@/components/tenants/tokens-panel'
 import { TestAndSmoke } from '@/components/tenants/test-and-smoke'
 import { WhatsAppTester } from '@/components/tester/whatsapp-tester'
 import { TeamScreen } from '@/components/team/team-screen'
+import { OnboardingUsersPanel } from '@/components/team/onboarding-users'
+import { isCustomerCareIdentity } from '@/lib/admins'
 import { RegisterWizard } from '@/components/onboarding/register-wizard'
 import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
@@ -115,6 +117,17 @@ function Router() {
     return (
       <AppShell route={route}>
         <TeamScreen />
+      </AppShell>
+    )
+  }
+
+  if (route.view === 'onboarding-users') {
+    if (!isCustomerCareIdentity(identity)) {
+      return <NotPermitted what="open onboarding users" />
+    }
+    return (
+      <AppShell route={route}>
+        <OnboardingUsersPanel />
       </AppShell>
     )
   }
@@ -290,6 +303,7 @@ const KNOWN_VIEWS = [
   'api-access',
   'dashboard',
   'tenant-requests',
+  'onboarding-users',
   'api-requests',
   'audit-history',
   'errors',

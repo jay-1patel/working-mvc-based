@@ -323,12 +323,16 @@ def profile_button_status(button_id: str, wa_id: str = "", tenant_id: Optional[s
     enabled = button.enabled and (
         not button.requires_feature or profile.features.is_on(button.requires_feature)
     )
+    # Only gate on an intent when it is actually defined. Custom menu rows often
+    # name an informational intent before answers are published; a missing intent
+    # must not make the live WhatsApp row look "no longer available".
     if button.intent:
         intent = profile.intent(button.intent)
-        enabled = enabled and bool(
-            intent and intent.enabled
-            and (not intent.requires_feature or profile.features.is_on(intent.requires_feature))
-        )
+        if intent is not None:
+            enabled = enabled and bool(
+                intent.enabled
+                and (not intent.requires_feature or profile.features.is_on(intent.requires_feature))
+            )
     return True, enabled
 
 

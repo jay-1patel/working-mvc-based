@@ -24,10 +24,15 @@ from shared.tenancy.loader import reload_profile  # noqa: E402
 
 TENANT_ID = "spiritual"
 
-# Remove generic vertical defaults so only spiritual options appear.
+# Remove offerings/FAQ/support leftovers only.
+# Do NOT tombstone short ids like "prasad" — merge treats them as clones of
+# menu_prasad and would delete the live spiritual rows.
 REMOVE_DEFAULTS = [
     {"id": "menu_offerings", "__remove__": True},
+    {"id": "browse_offerings", "__remove__": True},
     {"id": "menu_faq", "__remove__": True},
+    {"id": "faq_temple", "__remove__": True},
+    {"id": "contact_office", "__remove__": True},
     {"id": "menu_callback", "__remove__": True},
     {"id": "menu_complaint", "__remove__": True},
     {"id": "menu_human", "__remove__": True},
@@ -74,8 +79,6 @@ SPIRITUAL_BUTTONS = [
         "enabled": True,
         "intent": "where_to_stay",
     },
-    # Drop previous label if it still exists from an older publish.
-    {"id": "menu_how_to_stay", "__remove__": True},
     {
         "id": "menu_advantage",
         "title": "Advantage",
@@ -128,21 +131,64 @@ def main() -> int:
     )
     # Set real temple coordinates when available, e.g. brand["latitude"]=23.02
 
+    # Ensure every spiritual menu intent exists and is enabled, otherwise
+    # profile_button_status used to mark the WhatsApp row unavailable.
+    intent_defs = {
+        "prasad_info": {
+            "examples": ["prasad", "prasad timing", "prasad offerings"],
+            "keywords": ["prasad", "prasadam", "blessed food"],
+            "answer": "🛕 *Prasad*\n\nPrasad details will be shared here. Please ask if you need today's timing.",
+        },
+        "arti_time": {
+            "examples": ["arti time", "aarti timing", "when is arti"],
+            "keywords": ["arti", "aarti", "timing", "puja time"],
+            "answer": "🪔 *Arti Time*\n\nDaily arti timings will be shared here. Ask for morning or evening schedule.",
+        },
+        "how_to_reach": {
+            "examples": ["how to reach", "directions", "location", "address", "map"],
+            "keywords": ["reach", "directions", "location", "address", "map", "route"],
+            "answer": (
+                "🗺️ *How to Reach*\n\n"
+                "We have shared the location pin above.\n"
+                "Open it in Maps for turn-by-turn directions.\n"
+                "For help on the way, call our support number."
+            ),
+        },
+        "where_to_stay": {
+            "examples": ["where to stay", "stay options", "lodging", "dharamshala"],
+            "keywords": ["stay", "lodge", "hotel", "dharamshala", "accommodation"],
+            "answer": "🛏️ *Where to Stay*\n\nStay options near the temple will be shared here.",
+        },
+        "advantage_info": {
+            "examples": ["advantage", "benefits", "why visit"],
+            "keywords": ["advantage", "benefits", "seva", "blessing"],
+            "answer": "✨ *Advantage*\n\nBenefits of visiting and seva will be shared here.",
+        },
+        "history_info": {
+            "examples": ["history", "heritage", "origin"],
+            "keywords": ["history", "heritage", "origin", "story"],
+            "answer": "📜 *History*\n\nSacred history and heritage will be shared here.",
+        },
+        "vehicle_type": {
+            "examples": ["vehicle type", "parking", "car parking"],
+            "keywords": ["vehicle", "parking", "car", "bike", "bus"],
+            "answer": "🚗 *Vehicle Type*\n\nParking and vehicle guidance will be shared here.",
+        },
+    }
     intents = list(base.get("intents") or [])
-    if not any(isinstance(i, dict) and i.get("name") == "how_to_reach" for i in intents):
-        intents.append(
-            {
-                "name": "how_to_reach",
-                "examples": ["how to reach", "directions", "location", "address", "map"],
-                "keywords": ["reach", "directions", "location", "address", "map", "route"],
-                "answer": (
-                    "🗺️ *How to Reach*\n\n"
-                    "We have shared the location pin above.\n"
-                    "Open it in Maps for turn-by-turn directions.\n"
-                    "For help on the way, call our support number."
-                ),
-            }
-        )
+    by_name = {
+        str(i.get("name")): i
+        for i in intents
+        if isinstance(i, dict) and i.get("name")
+    }
+    for name, spec in intent_defs.items():
+        existing = by_name.get(name)
+        if existing is None:
+            intents.append({"name": name, "enabled": True, **spec})
+        else:
+            existing["enabled"] = True
+            for key, value in spec.items():
+                existing.setdefault(key, value)
 
     draft = {
         **base,

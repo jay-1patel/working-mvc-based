@@ -18,7 +18,8 @@ import { useToast } from '@/components/ui/toast'
 
 /**
  * customer_care only: every tenant admin/sub-admin with a Login button that
- * opens their live session so the operator sees that user's console.
+ * opens that tenant as Customercare / superadmin (full access), using the
+ * account's session under the hood for writes.
  */
 export function OnboardingUsersPanel() {
   const { identity, loginAsUser } = useAuth()
@@ -65,14 +66,14 @@ export function OnboardingUsersPanel() {
     setOpening(user.username)
     const ok = await action.run(() => loginAsUser(user.username))
     setOpening(null)
-    if (ok !== null) toast.push(`Opened as ${user.username}`)
+    if (ok !== null) toast.push(`Opened ${user.tenant_id || 'tenant'} as superadmin (via ${user.username})`)
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Onboarded users"
-        description="All tenant admins and sub-admins. Login opens their console with the same screens they see."
+        description="All tenant admins and sub-admins. Login opens that tenant as you (Customercare superadmin) with full access."
         meta={<Pill tone="ok">{filtered.length} users</Pill>}
       />
 
@@ -167,7 +168,7 @@ export function OnboardingUsersPanel() {
       )}
 
       <p className="mt-3 text-xs text-txfaint">
-        Login uses that account&apos;s live session. Use Exit in the banner to return to customer_care.
+        Login keeps you as Customercare superadmin inside that tenant. Use Exit in the banner to return.
       </p>
       {filtered.length > 0 && (
         <div className="mt-2">

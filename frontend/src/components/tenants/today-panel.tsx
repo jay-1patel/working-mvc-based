@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { AlertTriangle, Globe, MessagesSquare, Send } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { useTenants } from '@/lib/tenants'
@@ -10,9 +10,10 @@ import { crawlApi } from '@/lib/crawl'
 import { operationsApi } from '@/lib/operations'
 import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { navigate } from '@/lib/router'
-import { GhostButton, NeedRow, Panel, PrimaryButton, SourceChip, StatCard } from '@/components/remake/ui'
+import { GhostButton, NeedRow, Notice, Panel, PrimaryButton, SourceChip, StatCard } from '@/components/remake/ui'
 import { LoadingBlock } from '@/components/ui/feedback'
 import { OverviewDashboard } from '@/components/dashboard/overview-dashboard'
+import { useToast } from '@/components/ui/toast'
 import { useTenantDetail } from './hooks'
 
 interface ErrorRow {
@@ -57,10 +58,14 @@ const ROLE_LABELS: Record<string, string> = {
  * call cannot supply is simply left out rather than estimated.
  */
 export function TodayPanel({ tenantId }: { tenantId: string }) {
-  const { identity } = useAuth()
-  const { isSuperAdmin } = usePermissions()
+  const { identity, exitImpersonation } = useAuth()
+  const { isSuperAdmin, impersonating } = usePermissions()
   const { tenants } = useTenants()
+  const toast = useToast()
+  const [approving, setApproving] = useState(false)
   const tenant = tenants.find((t) => t.id === tenantId) ?? null
+  // View-only super admin, or customer_care after Onboarded users → Login.
+  const canReviewPending = isSuperAdmin || impersonating
 
   const inbox = useAsync((s) => conversationsApi.inbox(tenantId, false, s), [tenantId])
   const history = useAsync(
@@ -70,8 +75,19 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
   const runs = useAsync((s) => crawlApi.listRuns(tenantId, s), [tenantId])
   const detail = useTenantDetail(tenantId)
   const mine = useAsync(
-    (s) => (isSuperAdmin ? Promise.resolve([]) : tenantApprovalsApi.mine(s)),
-    [isSuperAdmin],
+    (s) => (canReviewPending ? Promise.resolve([]) : tenantApprovalsApi.mine(s)),
+    [canReviewPending],
+  )
+  // Pending profile / registration for this tenant — also visible in support
+  // mode (Login from Onboarded users), not only view-only super-admin.
+  const tenantPending = useAsync(
+    (s) =>
+      canReviewPending
+        ? tenantApprovalsApi.allAsReviewer('pending', s).then((rows) =>
+            rows.filter((r) => r.tenant_id === tenantId),
+          )
+        : Promise.resolve([]),
+    [canReviewPending, tenantId],
   )
   const errors = useAsync(
     (s) =>
@@ -122,13 +138,71 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
     stagedWaiting?.payload?.bifurcation?.faqs?.length ?? stagedWaiting?.summary?.faqs_count ?? 0
 
   const pendingMine = (mine.data ?? []).filter((r) => r.status === 'pending').length
+  const pendingForTenant = tenantPending.data ?? []
 
   const todayStr = new Date().toDateString()
   const newCustomers = (customers.data ?? []).filter(
     (c) => c.first_seen && new Date(c.first_seen).toDateString() === todayStr,
   ).length
 
+  const openReviewQueue = () => {
+    if (impersonating) void exitImpersonation('/tenant-requests')
+    else navigate('/tenant-requests')
+  }
+
+  /** Approve as customer_care, then leave support Login → full superadmin console. */
+  const approveAndReturn = async () => {
+    const target =
+      pendingForTenant.find((r) => r.request_type === 'publish_profile') ?? pendingForTenant[0]
+    if (!target) return
+    setApproving(true)
+    try {
+      const result = await tenantApprovalsApi.decideAsReviewer(target.id, 'approved', '')
+      toast.push(result.message ?? 'Approved and applied.')
+      if (impersonating) {
+        // Back to Customercare with Platform + Onboarded users (Login into any tenant).
+        await exitImpersonation('/onboarding-users')
+      } else {
+        tenantPending.reload()
+        navigate('/tenant-requests')
+      }
+    } catch (err) {
+      toast.push((err as Error)?.message || 'Could not approve request', 'error')
+    } finally {
+      setApproving(false)
+    }
+  }
+
   const needs: React.ReactNode[] = []
+  if (canReviewPending && pendingForTenant.length) {
+    const publishCount = pendingForTenant.filter((r) => r.request_type === 'publish_profile').length
+    const createCount = pendingForTenant.filter((r) => r.request_type === 'create_tenant').length
+    const parts: string[] = []
+    if (publishCount) {
+      parts.push(
+        `${publishCount} profile ${publishCount === 1 ? 'publish' : 'publishes'}`,
+      )
+    }
+    if (createCount) {
+      parts.push(
+        `${createCount} registration ${createCount === 1 ? 'request' : 'requests'}`,
+      )
+    }
+    needs.push(
+      <NeedRow
+        key="tenant-requests"
+        icon={<Send className="h-4 w-4" />}
+        action={
+          <PrimaryButton onClick={openReviewQueue}>
+            {impersonating ? 'Exit & review' : 'Review'}
+          </PrimaryButton>
+        }
+      >
+        <strong>{pendingForTenant.length}</strong> pending {parts.join(' and ')} for this business —
+        waiting for your decision
+      </NeedRow>,
+    )
+  }
   if (waiting) {
     needs.push(
       <NeedRow
@@ -198,8 +272,31 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
 
   const loadingCore = inbox.loading && waiting === null
 
+  const pendingBanner =
+    canReviewPending && pendingForTenant.length > 0 ? (
+      <Notice tone="warn" title="Profile change awaiting your approval" className="mb-4">
+        <p className="mb-3 text-sm">
+          <strong>{pendingForTenant.length}</strong> pending request
+          {pendingForTenant.length === 1 ? '' : 's'} for this business
+          {pendingForTenant[0]?.requester_username
+            ? ` (from ${pendingForTenant[0].requester_username})`
+            : ''}
+          . The live profile is unchanged until you approve.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <PrimaryButton disabled={approving} onClick={() => void approveAndReturn()}>
+            {approving ? 'Approving…' : 'Approve and return to superadmin'}
+          </PrimaryButton>
+          <GhostButton disabled={approving} onClick={openReviewQueue}>
+            {impersonating ? 'Exit & review on Business requests' : 'Open Business requests'}
+          </GhostButton>
+        </div>
+      </Notice>
+    ) : null
+
   return (
     <div>
+      {pendingBanner}
       <OverviewDashboard mode="tenant" tenantId={tenantId} />
 
       <Panel title="Needs you" className="mb-4">

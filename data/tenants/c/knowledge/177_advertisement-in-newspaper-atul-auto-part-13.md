@@ -1,0 +1,5 @@
+With respect to above subject, this is to inform the stock exchanges that pursuant to the provisions of Section 124(6) of the Companies Act, 2013 read with rule 6 of the Investor Education and Protection Fund Authority (Accounting, Auditing, Transfer and Refund) Rules, 2016, the Company has sent notice to the shareholders, who have not claimed/ encashed their dividend for seven or more consecutive years and shares are required to be transferred to IEPF.
+
+An advertisement to this effect has been published in Financial Express (Gujarati Edition) and in Indian Express (English Edition) for the information of members. A copy of the notice sent to shareholders and newspaper advertisement are attached herewith. Click Here to view the Newspaper Publication.
+
+Newspaper notice u/r 30 of the SEBI (LODR) regulations, 2015 – Notice of 37th Annual General Meeting (AGM)

@@ -1,4 +1,5 @@
-import { api } from './api'
+import { api, apiUrl, logApiCall, logApiError } from './api'
+import { getImpersonator } from './impersonation'
 
 /**
  * Tenant change requests: admins can view and edit the tenant registration
@@ -104,11 +105,78 @@ export const tenantApprovalsApi = {
     ).requests
   },
 
+  /**
+   * Review queue as the super admin. While customer_care is logged into a
+   * tenant via Onboarded users → Login, the live session is the tenant admin,
+   * so this call uses the saved operator credentials instead.
+   */
+  allAsReviewer: async (status?: TenantChangeStatus, signal?: AbortSignal) => {
+    const operator = getImpersonator()
+    if (!operator) return tenantApprovalsApi.all(status, signal)
+
+    const query = status ? `?status=${encodeURIComponent(status)}` : ''
+    const path = `/api/admin/tenant-change-requests${query}`
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    const res = await fetch(apiUrl(path), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        username: operator.username,
+        session_id: operator.sessionId,
+      },
+      signal,
+    })
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => null))?.detail || res.statusText
+      logApiError('GET', path, res.status, String(detail), startedAt)
+      throw new Error(typeof detail === 'string' ? detail : `Request failed (${res.status})`)
+    }
+    logApiCall('GET', path, res.status, startedAt)
+    const body = (await res.json()) as { requests: TenantChangeRequest[] }
+    return body.requests
+  },
+
   decide: async (id: number, decision: 'approved' | 'rejected', note: string) =>
     api.post<{ request: TenantChangeRequest; message: string }>(
       `/api/admin/tenant-change-requests/${id}/decision`,
       { decision, note },
     ),
+
+  /** Approve/reject using customer_care credentials while inside a support Login. */
+  decideAsReviewer: async (
+    id: number,
+    decision: 'approved' | 'rejected',
+    note: string,
+  ) => {
+    const operator = getImpersonator()
+    if (!operator) return tenantApprovalsApi.decide(id, decision, note)
+
+    const path = `/api/admin/tenant-change-requests/${id}/decision`
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    const body = {
+      decision,
+      note,
+      username: operator.username,
+      session_id: operator.sessionId,
+    }
+    const res = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        username: operator.username,
+        session_id: operator.sessionId,
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => null))?.detail || res.statusText
+      logApiError('POST', path, res.status, String(detail), startedAt)
+      throw new Error(typeof detail === 'string' ? detail : `Request failed (${res.status})`)
+    }
+    logApiCall('POST', path, res.status, startedAt)
+    return (await res.json()) as { request: TenantChangeRequest; message: string }
+  },
 
   events: async (id: number, signal?: AbortSignal) =>
     (

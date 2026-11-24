@@ -28,7 +28,6 @@ import { isOnboardingLocked, TENANT_PERMISSION, usePermissions } from '@/lib/per
 import { getVertical } from '@/lib/verticals'
 import { cn } from '@/lib/cn'
 import { CountBadge } from '@/components/remake/ui'
-import { VerticalGlyph } from '@/components/vertical-icon'
 
 /**
  * Views with a split pane own the full height of the content area. The panes
@@ -50,21 +49,17 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
     impersonating,
     impersonatedUsername,
     exitImpersonation,
-    loginAsTenant,
   } = useAuth()
   const { can } = usePermissions()
   const { tenants, active, setActive } = useTenants()
   const showOnboardingUsers = isCustomerCareIdentity(identity) && !impersonating
-  const [enteringTenant, setEnteringTenant] = useState<string | null>(null)
 
-  // The page follows the hash. The switcher must follow the same tenant,
-  // otherwise the sidebar describes a different brand than the screen.
+  // Keep the active tenant in sync with the route so the sidebar matches the screen.
   useEffect(() => {
     if (route.tenantId && route.tenantId !== active?.id) {
       setActive(route.tenantId)
     }
   }, [route.tenantId, active?.id, setActive])
-  const [switcherOpen, setSwitcherOpen] = useState(false)
   // Below `lg` the sidebar lives behind a hamburger; this tracks that drawer.
   const [navOpen, setNavOpen] = useState(false)
   /** Sidebar dropdown parents the admin has expanded (auto-opens when a child is active). */
@@ -73,7 +68,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   // Any navigation collapses the drawer so it never covers the page asked for.
   useEffect(() => {
     setNavOpen(false)
-    setSwitcherOpen(false)
   }, [route.view, route.tenantId])
 
   // Escape dismisses the drawer without waiting for a navigation.
@@ -112,19 +106,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const contentCount = useOfferingsCount(
     route.tenantId && can('view_products') ? route.tenantId : null,
   )
-
-  const enterTenantAsAdmin = async (tenantId: string) => {
-    if (enteringTenant) return
-    setEnteringTenant(tenantId)
-    try {
-      await loginAsTenant(tenantId)
-    } catch (err) {
-      console.error(err)
-      window.alert(err instanceof Error ? err.message : 'Could not open that tenant')
-    } finally {
-      setEnteringTenant(null)
-    }
-  }
 
   // Waiting-for-a-human count for the Chats badge. Polled gently; the
   // inbox screen itself polls faster once open.
@@ -296,16 +277,16 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         </div>
         <div className="flex items-center gap-2.5 px-5 py-4">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accsoft font-bold text-acc ring-1 ring-inset ring-acc/25">
-            {!isSuperAdmin && logoUrl ? (
+            {(!isSuperAdmin || route.tenantId) && logoUrl ? (
               <img src={logoUrl} alt={brandName || 'Company logo'} className="h-full w-full object-contain" />
-            ) : !isSuperAdmin && brandName ? (
+            ) : (!isSuperAdmin || route.tenantId) && brandName ? (
               <span className="text-sm">{brandName.slice(0, 1).toUpperCase()}</span>
             ) : (
               <Blocks className="h-4 w-4" />
             )}
           </div>
           <div className="min-w-0 flex-1">
-            {!isSuperAdmin ? (
+            {!isSuperAdmin || route.tenantId ? (
               <>
                 <p className="truncate text-sm font-semibold text-tx">
                   {brandName || 'Company console'}
@@ -352,91 +333,6 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           )}
         </div>
 
-        {identity?.role === 'super_admin' && !impersonating && (
-          <div className="relative mt-4 px-3">
-            <button
-              type="button"
-              onClick={() => setSwitcherOpen((v) => !v)}
-              className="flex w-full items-center gap-2.5 rounded-lg bg-card px-3 py-2.5 text-left ring-1 ring-line transition hover:bg-paper"
-            >
-              <VerticalGlyph name={getVertical(active?.vertical).icon} className="h-4 w-4 shrink-0 text-acc" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium text-tx">
-                  {active?.display_name || active?.id || 'No tenant'}
-                </span>
-                <span className="block truncate text-xs text-txmuted">
-                  {showOnboardingUsers
-                    ? 'pick a tenant to open with full admin access'
-                    : active
-                      ? getVertical(active.vertical).short
-                      : 'select a tenant'}
-                </span>
-              </span>
-              <ChevronDown className={cn('h-4 w-4 shrink-0 text-txmuted transition', switcherOpen && 'rotate-180')} />
-            </button>
-
-            {switcherOpen && (
-              <div className="absolute left-3 right-3 top-full z-30 mt-1 overflow-hidden rounded-lg bg-card shadow-xl ring-1 ring-line">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSwitcherOpen(false)
-                    navigate('/tenants')
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-tx hover:bg-paper"
-                >
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                  All tenants
-                  <span className="ml-auto text-txmuted">{tenants.length}</span>
-                </button>
-                <div className="max-h-72 overflow-y-auto scroll-thin">
-                  {tenants.map((tenant) => {
-                    const label = (tenant.display_name || tenant.id).trim()
-                    const nameKey = label.toLowerCase().replace(/\s+/g, ' ')
-                    const duplicateName =
-                      tenants.filter(
-                        (t) =>
-                          (t.display_name || t.id).trim().toLowerCase().replace(/\s+/g, ' ') ===
-                          nameKey,
-                      ).length > 1
-                    return (
-                    <button
-                      key={tenant.id}
-                      type="button"
-                      disabled={Boolean(enteringTenant)}
-                      onClick={() => {
-                        setSwitcherOpen(false)
-                        if (showOnboardingUsers) {
-                          void enterTenantAsAdmin(tenant.id)
-                          return
-                        }
-                        setActive(tenant.id)
-                        navigate(`/tenants/${encodeURIComponent(tenant.id)}/overview`)
-                      }}
-                      className={cn(
-                        'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-paper disabled:opacity-60',
-                        tenant.id === active?.id ? 'text-acc' : 'text-tx',
-                      )}
-                    >
-                      <VerticalGlyph name={getVertical(tenant.vertical).icon} className="h-3.5 w-3.5 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {enteringTenant === tenant.id ? 'Opening…' : label}
-                        {duplicateName && enteringTenant !== tenant.id ? (
-                          <span className="text-txmuted"> · {tenant.id}</span>
-                        ) : null}
-                      </span>
-                      {tenant.current_version && enteringTenant !== tenant.id ? (
-                        <span className="shrink-0 text-xs text-txmuted">v{tenant.current_version}</span>
-                      ) : null}
-                    </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         <nav aria-label="Main navigation" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-3 scroll-thin">
           {locked ? (
             <div className="space-y-0.5">
@@ -477,7 +373,9 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           ) : showOnboardingUsers ? (
             <div className="space-y-0.5">
               <p className="px-3 text-xs leading-relaxed text-txmuted">
-                Select a tenant user below to open that tenant&apos;s full support console.
+                {route.view === 'onboarding-users'
+                  ? "Select a tenant user below to open that tenant's full support console."
+                  : 'Full superadmin tools below. Use Onboarded users to Login into any tenant.'}
               </p>
             </div>
           ) : tenantScoped && route.tenantId ? (
@@ -506,7 +404,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </p>
           )}
 
-          {!locked && isSuperAdmin && !showOnboardingUsers && (
+          {/* Full platform tools for every super admin, including customer_care. */}
+          {!locked && isSuperAdmin && (
             <div className="space-y-0.5 border-t border-line pt-3">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Platform
@@ -520,6 +419,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
           )}
 
+          {/* customer_care only: Login into any tenant with full support privileges. */}
           {!locked && showOnboardingUsers && (
             <div className="space-y-0.5 border-t border-line pt-3">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
@@ -555,7 +455,13 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                   identity?.role === 'sub_admin' ? 'bg-chipdefbg text-txmuted' : 'bg-accsoft text-acc',
                 )}
               >
-                {identity?.role === 'super_admin' ? 'super admin' : identity?.role === 'admin' ? 'admin' : 'sub admin'}
+                {identity?.role === 'super_admin'
+                  ? impersonating
+                    ? 'super admin · support'
+                    : 'super admin'
+                  : identity?.role === 'admin'
+                    ? 'admin'
+                    : 'sub admin'}
               </span>
             </div>
             <button
@@ -609,9 +515,15 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-attline bg-attbg px-4 py-2.5 text-sm text-attink"
             >
               <p>
-                Support access as <strong>{impersonatedUsername || identity?.username}</strong>
-                {' — '}
-                full admin screens (Team, audit, writes). Not the view-only super-admin mode.
+                <strong>{identity?.username || 'Customercare'}</strong> (super admin) — full access in this
+                tenant
+                {impersonatedUsername ? (
+                  <>
+                    {' '}
+                    via <strong>{impersonatedUsername}</strong>&apos;s account
+                  </>
+                ) : null}
+                .
               </p>
               <button
                 type="button"
@@ -627,8 +539,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               role="note"
               className="mb-4 rounded-lg bg-chipwebbg px-4 py-2.5 text-xs text-chipwebink"
             >
-              View-only — pick a tenant from the switcher (or Onboarded users → Login) to open it with
-              full admin access.
+              View-only — use Onboarded users → Login to open any tenant account as superadmin with full access.
             </div>
           )}
           {children}

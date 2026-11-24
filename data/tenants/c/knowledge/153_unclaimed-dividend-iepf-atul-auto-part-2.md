@@ -1,0 +1,3 @@
+Please click here to download the details of such shareholders whose shares are already transferred to IEPF Authority
+
+The Shareholderer are requested to claim it before the due date by submitting the dully filled and Signed Letter of Undertaking with required KYC. Please click here to download the Letter of undertaking. After the mentioned due date, the shares will be transferred to IEPF Demant account without any further notice to the shareholders and no claim shall lie against the Company in respect of the equity share(s) so transferred.

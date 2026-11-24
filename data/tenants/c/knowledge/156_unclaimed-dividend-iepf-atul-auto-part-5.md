@@ -1,0 +1,3 @@
+The shareholders who have not received/ encashed their unclaimed amount are requested to send the duly filled and signed letter of undertaking with required attachment to the Company Secretary of the Company or M/s. Sharex Dynamic (India) Private Limited.
+
+Statement of Unclaimed and unpaid Dividend amount pending with the Company Click Here to view the details of Unclaimed and unpaid Dividend as on 31st March 2024.

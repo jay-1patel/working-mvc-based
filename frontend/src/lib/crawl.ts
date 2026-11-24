@@ -13,7 +13,7 @@ export interface CrawlRun {
   id: number
   tenant_id: string
   source_url: string
-  status: 'queued' | 'running' | 'done' | 'failed' | string
+  status: 'queued' | 'running' | 'done' | 'finished_partial' | 'failed' | string
   trigger?: string
   pages_found?: number | null
   pages_scraped?: number | null
@@ -155,7 +155,7 @@ export const crawlApi = {
   listRuns: (tenantId: string, signal?: AbortSignal) =>
     api.post<CrawlRunsResponse>('/api/admin/tenants/crawl-runs', {}, { signal }),
 
-  // No max_pages is sent: crawls are unlimited and fetch every page found.
+  // UI start omits caps; the API/pipeline defaults to max_pages=500, max_depth=6.
   start: (tenantId: string, url: string) =>
     api.post<{ ok: boolean; status: string; run_id: number; run: CrawlRun }>(
       '/api/admin/tenants/crawl',

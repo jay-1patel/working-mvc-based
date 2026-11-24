@@ -1,7 +1,7 @@
 """Admin accounts, OTP, files and admin chat messages data access — extracted from backend/database.py."""
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .core import (
     logger, get_db_context, use_mongodb, _loads_json, get_request_tenant,
@@ -92,7 +92,11 @@ def list_admins() -> list:
 
 
 def update_admin(username: str, **kwargs) -> bool:
+    """Update an admin row. Prefer ``admin_id=`` when the caller has it — username
+    encoding mismatches otherwise look like a successful write that never landed.
+    """
     allowed = {"password_hash", "salt", "role", "permissions", "recovery_key", "session_id"}
+    admin_id = kwargs.pop("admin_id", None)
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
@@ -100,15 +104,37 @@ def update_admin(username: str, **kwargs) -> bool:
         from .mongo import Repository
         if "permissions" in updates and isinstance(updates["permissions"], str):
             updates["permissions"] = _loads_json(updates["permissions"], {})
-        updates["updated_at"] = datetime.utcnow()
-        Repository("admins").update({"username": username}, updates)
+        from .timestamps import now_stamp
+        updates["updated_at"] = now_stamp()
+        repo = Repository("admins")
+        flt = {"id": int(admin_id)} if admin_id is not None else {"username": username}
+        repo.update(flt, updates)
+        # modified_count can be 0 when the value is unchanged — confirm the row exists
+        # and (for session_id) that the stored value matches what we wrote.
+        row = repo.find_one(flt)
+        if not row:
+            return False
+        if "session_id" in updates and str(row.get("session_id") or "") != str(updates["session_id"]):
+            return False
         return True
     if "permissions" in updates and isinstance(updates["permissions"], dict):
         updates["permissions"] = json.dumps(updates["permissions"])
     set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [username]
     with get_db_context() as conn:
-        conn.execute(f"UPDATE admins SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE username = ?", values)
+        if admin_id is not None:
+            values = list(updates.values()) + [int(admin_id)]
+            cur = conn.execute(
+                f"UPDATE admins SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                values,
+            )
+        else:
+            values = list(updates.values()) + [username]
+            cur = conn.execute(
+                f"UPDATE admins SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
+                values,
+            )
+        if cur.rowcount == 0:
+            return False
     return True
 
 
@@ -209,7 +235,8 @@ def update_admin_record(username: str, role: str = None, permissions: dict = Non
         return False
     if use_mongodb():
         from .mongo import Repository
-        updates["updated_at"] = datetime.utcnow()
+        from .timestamps import now_stamp
+        updates["updated_at"] = now_stamp()
         Repository("admins").update({"username": username}, updates)
         return True
     set_clause = ", ".join(f"{k} = ?" for k in updates)
@@ -222,7 +249,8 @@ def update_admin_record(username: str, role: str = None, permissions: dict = Non
 def update_admin_email(username: str, email: str = None) -> bool:
     if use_mongodb():
         from .mongo import Repository
-        Repository("admins").update({"username": username}, {"email": email, "updated_at": datetime.utcnow()})
+        from .timestamps import now_stamp
+        Repository("admins").update({"username": username}, {"email": email, "updated_at": now_stamp()})
         return True
     with get_db_context() as conn:
         conn.execute("UPDATE admins SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?", (email, username))
@@ -558,7 +586,8 @@ def delete_admin_file(name: str, tenant_id: str = None, actor: dict = None) -> b
 
 def save_admin_chat_message(chat_id: str, username: str, message: str,
                             attachment: dict = None, tenant_id: str = None) -> dict:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    from .timestamps import now_stamp
+    now = now_stamp() if use_mongodb() else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if use_mongodb():
         from .mongo import Repository
         row = Repository("admin_chat_messages").insert({
@@ -588,15 +617,21 @@ def save_admin_chat_message(chat_id: str, username: str, message: str,
 
 def get_admin_chat_history(chat_id: str, username: str = None, limit: int = 200,
                            tenant_id: str = None) -> list:
+    from .timestamps import parse_stamp
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=60)
     cutoff = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
     if use_mongodb():
         from .mongo import Repository
-        filters = {"chat_id": chat_id, "created_at": {"$gte": cutoff}}
+        filters = {"chat_id": chat_id}
         if tenant_id:
             filters["tenant_id"] = tenant_id
         rows = Repository("admin_chat_messages").find_all(
             filters, sort=[("id", -1)], limit=limit
         )
+        rows = [
+            r for r in rows
+            if (parsed := parse_stamp(r.get("created_at"))) is not None and parsed >= cutoff_dt
+        ]
         deleted_ids = set()
         if username:
             deleted = Repository("deleted_chat_messages").find_all({"username": username})

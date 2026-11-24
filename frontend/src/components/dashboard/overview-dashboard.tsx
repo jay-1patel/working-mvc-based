@@ -11,7 +11,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { useTenants } from '@/lib/tenants'
+import { useTenantProfile, useTenants } from '@/lib/tenants'
 import { useAsync } from '@/lib/hooks'
 import { api } from '@/lib/api'
 import { navigate } from '@/lib/router'
@@ -88,6 +88,8 @@ export function OverviewDashboard({
   tenantId?: string
 }) {
   const { identity } = useAuth()
+  const tenantProfile = useTenantProfile(tenantId ?? null)
+  const ordersEnabled = tenantProfile?.features?.orders === true
   const { tenants } = useTenants()
   const tenant = tenantId ? tenants.find((t) => t.id === tenantId) : null
   const isSuper = identity?.role === 'super_admin'
@@ -153,12 +155,12 @@ export function OverviewDashboard({
       value: st ? st.kb_files + st.faq_files : '—',
       hint: `${st?.kb_files ?? 0} KB · ${st?.faq_files ?? 0} FAQ`,
     },
-    {
+    ...(ordersEnabled ? [{
       icon: ShoppingCart,
       label: 'Orders',
       value: st?.total_orders ?? '—',
       hint: `${st?.orders_solved ?? 0} completed`,
-    },
+    }] : []),
   ]
 
   return (
@@ -289,11 +291,11 @@ export function OverviewDashboard({
 
             <Panel title="Fulfilment health">
               <div className="grid gap-6 sm:grid-cols-2">
-                <ProgressRing
+                {ordersEnabled && <ProgressRing
                   value={st?.orders_solved ?? 0}
                   total={st?.total_orders ?? 0}
                   label="Orders completed"
-                />
+                />}
                 <ProgressRing
                   value={st?.complaints_solved ?? 0}
                   total={st?.total_complaints ?? 0}

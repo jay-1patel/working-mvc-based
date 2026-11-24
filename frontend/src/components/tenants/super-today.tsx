@@ -24,6 +24,12 @@ export function SuperToday() {
 
   const needs: React.ReactNode[] = []
   if (pendingChanges.length) {
+    const publishN = pendingChanges.filter((r) => r.request_type === 'publish_profile').length
+    const createN = pendingChanges.filter((r) => r.request_type === 'create_tenant').length
+    const tenantLabels = Array.from(new Set(pendingChanges.map((r) => r.tenant_id))).slice(0, 4)
+    const detailParts: string[] = []
+    if (publishN) detailParts.push(`${publishN} profile`)
+    if (createN) detailParts.push(`${createN} registration`)
     needs.push(
       <NeedRow
         key="changes"
@@ -32,6 +38,10 @@ export function SuperToday() {
       >
         <strong>{pendingChanges.length}</strong> business{' '}
         {pendingChanges.length === 1 ? 'request is' : 'requests are'} waiting for your decision
+        {detailParts.length ? ` (${detailParts.join(', ')})` : ''}
+        {tenantLabels.length
+          ? ` — ${tenantLabels.join(', ')}${pendingChanges.length > tenantLabels.length ? '…' : ''}`
+          : ''}
       </NeedRow>,
     )
   }

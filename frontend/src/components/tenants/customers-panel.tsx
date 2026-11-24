@@ -15,6 +15,7 @@ import {
 import { LoadingBlock } from '@/components/ui/feedback'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
+import { useTenantProfile } from '@/lib/tenants'
 
 /**
  * Everyone the bot has sold to, taken a ticket from or chatted with,
@@ -22,6 +23,8 @@ import { useToast } from '@/components/ui/toast'
  */
 export function CustomersPanel({ tenantId }: { tenantId: string }) {
   const toast = useToast()
+  const profile = useTenantProfile(tenantId)
+  const ordersEnabled = profile?.features?.orders === true
   const [search, setSearch] = useState('')
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
 
@@ -128,7 +131,7 @@ export function CustomersPanel({ tenantId }: { tenantId: string }) {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
-                  <Pill tone="ok">{customer.total_orders} orders</Pill>
+                  {ordersEnabled && <Pill tone="ok">{customer.total_orders} orders</Pill>}
                   {customer.total_complaints > 0 && (
                     <Pill tone={customer.open_complaints > 0 ? 'bad' : 'neutral'}>
                       {customer.total_complaints} complaints

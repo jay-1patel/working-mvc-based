@@ -214,9 +214,17 @@ class RenderTriggerTests(unittest.TestCase):
         html = f"<html><head>{scripts}</head><body><div id='root'></div></body></html>"
         self.assertTrue(should_render_page(html))
 
-    def test_thin_plain_page_does_not_trigger(self):
+    def test_thin_plain_page_triggers_under_char_floor(self):
+        # Under ~200 visible characters → render (even without a SPA shell).
         html = _page("Thin", "<p>hello world</p>")
         self.assertFalse(html_is_data_rich(html))
+        self.assertTrue(should_render_page(html))
+
+    def test_proper_text_page_never_triggers(self):
+        # Enough visible text must never Playwright-render.
+        body = "<p>" + ("Proper article text. " * 20) + "</p>"
+        html = _page("Article", body)
+        self.assertGreaterEqual(len(body), 200)
         self.assertFalse(should_render_page(html))
 
 

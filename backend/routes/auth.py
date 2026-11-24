@@ -21,6 +21,7 @@ from database import (
     count_admins,
     create_admin as db_create_admin,
     delete_admin,
+    get_admin_by_id,
     get_admin_by_username,
     get_db_context,
     record_admin_audit_event,
@@ -1184,7 +1185,11 @@ def regenerate_admin_session(username: str, current_admin: dict = Depends(get_cu
     stored_username = _stored_username(target, username)
     public_username = _public_username(stored_username)
     session_id = secrets.token_urlsafe(32)
-    if not db_update_admin(stored_username, session_id=session_id):
+    if not db_update_admin(
+        stored_username,
+        session_id=session_id,
+        admin_id=target.get("id"),
+    ):
         raise HTTPException(status_code=404, detail="Admin not found")
     audit_kwargs = dict(
         action="admin_session_regenerated",
@@ -1293,15 +1298,34 @@ def _impersonate_target(current_admin: dict, target: dict, *, via: str) -> dict:
 
     public_username = _public_username(target.get("username"))
     stored_username = _stored_username(target, public_username)
+    admin_id = target.get("id")
     session_id = str(target.get("session_id") or "").strip()
     session_minted = False
     # Existing accounts may never have logged in (empty session_id). Mint one
     # so customer_care can still open their console without a prior login.
     if not session_id:
         session_id = secrets.token_urlsafe(32)
-        if not db_update_admin(stored_username, session_id=session_id):
-            raise HTTPException(status_code=500, detail="Could not create a session for this account")
         session_minted = True
+        ok = db_update_admin(
+            stored_username,
+            session_id=session_id,
+            admin_id=admin_id,
+        )
+        if not ok:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Could not create a session_id for admin '{public_username}'",
+            )
+        # Re-read so we never hand the client a session that is not in the DB.
+        refreshed = get_admin_by_username(stored_username) or (
+            get_admin_by_id(int(admin_id)) if admin_id is not None else None
+        )
+        stored = str((refreshed or {}).get("session_id") or "").strip()
+        if stored != session_id:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Admin '{public_username}' still has no session_id after mint",
+            )
 
     # Support access: elevate the stored permission set so API checks allow
     # Team, audit, and tenant writes while customer_care is reviewing.

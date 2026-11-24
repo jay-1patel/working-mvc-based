@@ -12,12 +12,17 @@ from .products import _resolve_tenant
 
 
 def _parse_history_ts(value):
+    try:
+        from .timestamps import parse_stamp
+        return parse_stamp(value)
+    except ImportError:
+        pass
     if value is None:
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
     text = str(value).strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+    for fmt in ("%d-%m-%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
         try:
             return datetime.strptime(text[:26].replace("Z", ""), fmt).replace(tzinfo=timezone.utc)
         except ValueError:
@@ -31,7 +36,11 @@ def _parse_history_ts(value):
 
 def save_chat(wa_id, sender_name, message, response, route="faq", tenant_id=None):
     tid = tenant_id or _current_tenant.get() or _resolve_tenant()
-    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if use_mongodb():
+        from .timestamps import now_stamp
+        created_at = now_stamp()
+    else:
+        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     stored_message = f"[{route}] {message}"
     if use_mongodb():
         from .mongo import Repository

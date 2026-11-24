@@ -7,13 +7,14 @@ import json
 import os
 import re
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 
 from bson import BSON
 from pymongo import MongoClient, ReturnDocument, ASCENDING
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
+
+from .timestamps import now_stamp, to_stamp
 
 REGISTRY = json.loads(Path(__file__).with_name('mongo_schema.json').read_text(encoding='utf-8'))
 _client = None
@@ -118,12 +119,11 @@ def encode_row(table, row):
                 out[key] = json.loads(value)
             except (TypeError, ValueError):
                 raise ValueError(f'Invalid JSON in {table}.{key}; value withheld') from None
-        elif kind == 'datetime' and isinstance(value, str):
-            try:
-                date = datetime.fromisoformat(value.replace('Z', '+00:00'))
-                out[key] = date.replace(tzinfo=date.tzinfo or timezone.utc).astimezone(timezone.utc)
-            except ValueError:
-                raise ValueError(f'Invalid timestamp in {table}.{key}; value withheld') from None
+        elif kind == 'datetime':
+            stamped = to_stamp(value)
+            if stamped is None:
+                raise ValueError(f'Invalid timestamp in {table}.{key}; value withheld')
+            out[key] = stamped
     # Only assigned phone numbers participate in the derived unique index.
     if table == 'tenants':
         number = out.get('mobile_number')
@@ -138,9 +138,14 @@ def public_row(table, row):
     out = {key: value for key, value in row.items() if not key.startswith('_')}
     for column in schema(table)['columns']:
         key = column['name']
-        if isinstance(out.get(key), datetime):
-            value = out[key]
-            out[key] = value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc).isoformat()
+        if column.get('kind') != 'datetime':
+            continue
+        value = out.get(key)
+        if value is None or value == '':
+            continue
+        stamped = to_stamp(value)
+        if stamped is not None:
+            out[key] = stamped
     return out
 
 
@@ -210,7 +215,7 @@ class Repository:
         for name, column in columns.items():
             if name not in values and column.get('default') is not None:
                 default = column['default']
-                values[name] = datetime.now(timezone.utc) if default == {'factory':'utcnow'} else copy.deepcopy(default)
+                values[name] = now_stamp() if default == {'factory':'utcnow'} else copy.deepcopy(default)
         if primary == ['id'] and columns['id']['integer'] and values.get('id') is None:
             values['id'] = self.next_id(session)
         document = encode_row(self.table, values)

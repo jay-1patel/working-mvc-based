@@ -1,0 +1,5 @@
+Where shares are held in physical form, the Company will issue duplicate share certificate(s) and transfer the said shares to IEPF. Upon issue of such duplicate share certificate(s), the original share certificate(s) will be deemed to be cancelled. Where shares are held in demat form, the Company will give appropriate instructions to the Depositories such that the Depositories are able to transfer the said shares to demat account of the IEPF Authority.
+
+The Shareholders may also note that both the unclaimed dividend and the shares transferred to IEPF, including all benefits accruing on such shares, if any, can be claimed back from the IEPF Authority after following the procedure prescribed under the Rules.
+
+The Shareholders may further note that this details should be regarded and shall be deemed adequate notice in respect of issue of duplicate share certificate(s) by the Company for the purpose of transfer of shares to IEPF pursuant to the Rules.

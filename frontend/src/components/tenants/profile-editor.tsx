@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2, Pencil, Save, Send, TriangleAlert } from 'lucide-react'
-import { useAction } from '@/lib/hooks'
+import { useAction, useAsync } from '@/lib/hooks'
 import { tenantsApi } from '@/lib/tenants'
 import {
   editorContactErrors,
@@ -11,6 +11,9 @@ import {
   type EditorForm,
 } from '@/lib/profile'
 import { getVertical } from '@/lib/verticals'
+import { tenantApprovalsApi } from '@/lib/tenant-approvals'
+import { navigate } from '@/lib/router'
+import { formatDate } from '@/lib/format'
 import {
   ErrorBanner,
   FieldInput,
@@ -42,13 +45,16 @@ export function ProfileEditor({
   mode?: ProfileEditorMode
 }) {
   const detail = useTenantDetail(tenantId)
-  const { identity } = useAuth()
+  const { identity, exitImpersonation, impersonating } = useAuth()
   const isSuperAdmin = identity?.role === 'super_admin'
+  // View-only super admin, or customer_care after Onboarded users → Login.
+  const canReviewPending = isSuperAdmin || impersonating
   // Decided role rule (flipped from the old model): the tenant's own admin
   // edits the profile here — saving writes a draft and publishing routes
   // through super-admin approval for non-menu changes. The super admin is
   // VIEW-ONLY inside a tenant, so for them this page is a read-only mirror.
-  const readOnly = isSuperAdmin
+  // Support Login keeps write access (impersonating as the tenant admin).
+  const readOnly = isSuperAdmin && !impersonating
   const action = useAction()
   const toast = useToast()
   const [form, setForm] = useState<EditorForm | null>(null)
@@ -57,6 +63,21 @@ export function ProfileEditor({
   // The profile is read-only until the admin explicitly opts in, so a stray
   // click on a switch or input cannot silently rewrite a live tenant.
   const [editing, setEditing] = useState(false)
+
+  const pendingPublish = useAsync(
+    (s) =>
+      canReviewPending
+        ? tenantApprovalsApi
+            .allAsReviewer('pending', s)
+            .then(
+              (rows) =>
+                rows.find(
+                  (r) => r.tenant_id === tenantId && r.request_type === 'publish_profile',
+                ) ?? null,
+            )
+        : Promise.resolve(null),
+    [canReviewPending, tenantId],
+  )
 
   // Prefer the pending draft (merged over the file baseline): it contains
   // every unpublished change from the register wizard, so this editor and
@@ -204,6 +225,57 @@ export function ProfileEditor({
       />
 
       {action.error && <ErrorBanner title="Action failed" message={action.error} className="mb-4" />}
+      {canReviewPending && pendingPublish.data && (
+        <Notice tone="warn" title="Profile change awaiting your approval" className="mb-4">
+          <p className="mb-2 text-sm">
+            Submitted by <strong>{pendingPublish.data.requester_username}</strong>
+            {pendingPublish.data.created_at
+              ? ` on ${formatDate(pendingPublish.data.created_at)}`
+              : ''}
+            . The live profile is unchanged until you approve it.
+          </p>
+          {pendingPublish.data.summary && (
+            <p className="mb-3 text-sm text-txmuted">{pendingPublish.data.summary}</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <PrimaryButton
+              className={smallBtn}
+              disabled={action.busy}
+              onClick={() =>
+                void action.run(async () => {
+                  const result = await tenantApprovalsApi.decideAsReviewer(
+                    pendingPublish.data!.id,
+                    'approved',
+                    '',
+                  )
+                  toast.push(result.message ?? 'Approved and applied.')
+                  if (impersonating) {
+                    await exitImpersonation('/onboarding-users')
+                  } else {
+                    pendingPublish.reload()
+                    detail.reload()
+                    navigate('/tenant-requests')
+                  }
+                  return result
+                })
+              }
+            >
+              {action.busy ? 'Approving…' : 'Approve and return to superadmin'}
+            </PrimaryButton>
+            <GhostButton
+              className={smallBtn}
+              disabled={action.busy}
+              onClick={() =>
+                impersonating
+                  ? void exitImpersonation('/tenant-requests')
+                  : navigate('/tenant-requests')
+              }
+            >
+              {impersonating ? 'Exit & review' : 'Open Business requests'}
+            </GhostButton>
+          </div>
+        </Notice>
+      )}
       {warnings.length > 0 && (
         <Notice tone="warn" title="Validation warnings" className="mb-4">
           <ul className="list-disc space-y-1 pl-4">

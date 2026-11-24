@@ -1,0 +1,5 @@
+Pursuant to Regulation 24A of the SEBI (Listing Obligations and Disclosure Requirements) Regulations, 2015 (“Listing Regulations”) and Clause 3(b) of SEBI circular No. CIR/CFD/CMD1/27/2019 dated February 08, 2019, the Annual Secretarial Compliance Report of the Company for the year ended March 31, 2021 issued by M/s. Bunty Hudda & Associates, Practising Company Secretary submitted to Stock Exchanges. Please Click here to view the Annual Secretarial Compliance Report.
+
+Annual Secretarial Compliance Report for the Year ended March 31, 2020
+
+Pursuant to Regulation 24A of the SEBI (Listing Obligations and Disclosure Requirements) Regulations, 2015 (“Listing Regulations”) and Clause 3(b) of SEBI Circular No. CIR/CFD/CMD1/27/2019 DATED FEBRUARY 08, 2019, we submit herewith, Annual Secretarial Compliance Report of the Company for the year ended March 31, 2020 issued by M/s. Bunty Hudda & Associates, Practising Company Secretary.

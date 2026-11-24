@@ -69,8 +69,8 @@ try:  # backend/ on sys.path (the normal import mode)
         find_crawl_image_by_sha, find_crawl_image_by_source_url, get_crawl_run, get_crawl_schedule,
         get_crawl_staged, get_running_crawl, insert_crawl_image, insert_crawl_page,
         list_crawl_images, list_crawl_pages, list_crawl_runs, list_due_crawl_schedules,
-        mark_crawl_finished, mark_crawl_started, save_crawl_staged, update_crawl_run,
-        upsert_crawl_schedule,
+        mark_crawl_finished, mark_crawl_started, reap_orphaned_crawl_runs,
+        save_crawl_staged, update_crawl_run, upsert_crawl_schedule,
     )
     from db.customers import (  # noqa: F401
         touch_customer, update_customer_profile,
@@ -144,8 +144,8 @@ except ImportError:  # imported as part of the `backend` package
         find_crawl_image_by_sha, find_crawl_image_by_source_url, get_crawl_run, get_crawl_schedule,
         get_crawl_staged, get_running_crawl, insert_crawl_image, insert_crawl_page,
         list_crawl_images, list_crawl_pages, list_crawl_runs, list_due_crawl_schedules,
-        mark_crawl_finished, mark_crawl_started, save_crawl_staged, update_crawl_run,
-        upsert_crawl_schedule,
+        mark_crawl_finished, mark_crawl_started, reap_orphaned_crawl_runs,
+        save_crawl_staged, update_crawl_run, upsert_crawl_schedule,
     )
     from backend.db.customers import (  # noqa: F401
         touch_customer, update_customer_profile,

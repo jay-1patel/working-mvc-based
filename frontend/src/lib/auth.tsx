@@ -7,7 +7,16 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { api, getSessionId, getToken, getUsername, setCredentials, setToken, setUnauthorizedHandler } from './api'
+import {
+  api,
+  apiUrl,
+  getSessionId,
+  getToken,
+  getUsername,
+  setCredentials,
+  setToken,
+  setUnauthorizedHandler,
+} from './api'
 import { navigate } from './router'
 import type { AdminIdentity } from './types'
 import { isMockMode, mockIdentity } from './mock'
@@ -19,6 +28,23 @@ import {
   saveImpersonator,
 } from './impersonation'
 import { adminsApi, isCustomerCareIdentity } from './admins'
+
+/** /api/auth/me with explicit credentials (used to keep Customercare identity while supporting). */
+async function fetchIdentityAs(username: string, sessionId: string): Promise<AdminIdentity> {
+  const res = await fetch(apiUrl('/api/auth/me'), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      username,
+      session_id: sessionId,
+    },
+  })
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null))?.detail || res.statusText
+    throw new Error(typeof detail === 'string' ? detail : `Could not load identity (${res.status})`)
+  }
+  return (await res.json()) as AdminIdentity
+}
 
 interface AuthState {
   loading: boolean
@@ -39,7 +65,7 @@ interface AuthState {
   /** customer_care: open a tenant as its primary admin (full support UI). */
   loginAsTenant: (tenantId: string) => Promise<void>
   /** Restore the customer_care session saved before login-as. */
-  exitImpersonation: () => Promise<void>
+  exitImpersonation: (redirectTo?: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -84,9 +110,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false)
           return
         }
-        const me = await api.get<AdminIdentity>('/api/auth/me')
-        if (cancelled) return
-        setIdentity(me)
+        // Support Login keeps the tenant-admin session for API writes, but the
+        // UI identity must stay Customercare / superadmin.
+        const operator = getImpersonator()
+        if (operator) {
+          setImpersonating(true)
+          setImpersonatedUsername(getImpersonatedUsername())
+          const me = await fetchIdentityAs(operator.username, operator.sessionId)
+          if (cancelled) return
+          setIdentity(me)
+        } else {
+          const me = await api.get<AdminIdentity>('/api/auth/me')
+          if (cancelled) return
+          setIdentity(me)
+        }
       } catch {
         if (!cancelled) setIdentity(null)
       } finally {
@@ -146,7 +183,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshIdentity = useCallback(async () => {
     try {
-      const me = await api.get<AdminIdentity>('/api/auth/me')
+      const operator = getImpersonator()
+      const me = operator
+        ? await fetchIdentityAs(operator.username, operator.sessionId)
+        : await api.get<AdminIdentity>('/api/auth/me')
       setIdentity(me)
       return me
     } catch {
@@ -164,23 +204,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!result.tenant_id) {
       throw new Error('That account is not assigned to a tenant')
     }
+    const sessionId = String(result.session_id || '').trim()
+    if (!sessionId) {
+      throw new Error(
+        `Admin "${result.username}" has no session_id in the database. Regenerate their session, then try Login again.`,
+      )
+    }
+    // Keep Customercare / superadmin as the visible identity. The live API
+    // session switches to the tenant account so writes are allowed.
+    const operatorIdentity =
+      identity && isCustomerCareIdentity(identity)
+        ? identity
+        : await fetchIdentityAs(operatorUser, operatorSession)
     saveImpersonator(operatorUser, operatorSession, result.username)
-    setCredentials(result.username, result.session_id)
+    setCredentials(result.username, sessionId)
     setImpersonating(true)
     setImpersonatedUsername(result.username)
-    const me = await api.get<AdminIdentity>('/api/auth/me')
-    // Support mode: full admin UI (Team, audit, every tenant screen) and skip
-    // the first-login lock so customer_care is not stuck on Register.
     setIdentity({
-      ...me,
-      permissions:
-        result.permissions && Object.keys(result.permissions).length > 0
-          ? result.permissions
-          : me.permissions,
+      ...operatorIdentity,
+      role: 'super_admin',
       onboarding_approved: true,
+      is_customer_care: true,
     })
     navigate(`/tenants/${encodeURIComponent(result.tenant_id)}/overview`)
-  }, [])
+  }, [identity])
 
   const loginAsUser = useCallback(
     async (username: string) => {
@@ -198,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applySupportSession],
   )
 
-  const exitImpersonation = useCallback(async () => {
+  const exitImpersonation = useCallback(async (redirectTo = '/onboarding-users') => {
     const operator = getImpersonator()
     if (!operator) {
       clearImpersonator()
@@ -212,7 +259,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setImpersonatedUsername(null)
     const me = await api.get<AdminIdentity>('/api/auth/me')
     setIdentity(me)
-    navigate('/onboarding-users')
+    navigate(redirectTo)
   }, [])
 
   const can = useCallback(

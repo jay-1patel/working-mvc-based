@@ -1,0 +1,3 @@
+With respect to above subject, this is to inform the stock exchanges that pursuant to the provisions of the Companies Act, 2013 and applicable circulars issued by MCA and SEBI, the Company has published the notice/ information requesting the Shareholders to register their e-mail addresses for receiving the Notice of the 37th Annual General Meeting of the Company and Annual Report for the year ended March 31, 2025.
+
+An advertisement to this effect has been published in The Indian Express and Financial Express (English and Gujarati Edition) for the information of members. A copy of the newspaper advertisement is attached herewith. Click Here to view the Newspaper Publication.

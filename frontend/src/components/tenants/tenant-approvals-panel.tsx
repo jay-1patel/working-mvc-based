@@ -7,6 +7,7 @@ import {
 } from '@/lib/tenant-approvals'
 import { useAsync, useAction } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
+import { isCustomerCareIdentity } from '@/lib/admins'
 import { navigate } from '@/lib/router'
 import { formatDate, isTruthyFlag } from '@/lib/format'
 import { tenantsApi } from '@/lib/tenants'
@@ -444,6 +445,7 @@ export function TenantChangeReview() {
   const state = useAsync((signal) => tenantApprovalsApi.all(filter === 'all' ? undefined : filter, signal), [filter])
   const action = useAction()
   const toast = useToast()
+  const { identity, refreshIdentity } = useAuth()
   const [notes, setNotes] = useState<Record<number, string>>({})
 
   const decide = async (request: TenantChangeRequest, decision: 'approved' | 'rejected') => {
@@ -454,6 +456,12 @@ export function TenantChangeReview() {
       toast.push(result.message ?? `${TYPE_LABELS[request.request_type]} request ${decision}`)
       setNotes((current) => ({ ...current, [request.id]: '' }))
       state.reload()
+      // Stay as Customercare / superadmin with full Platform + Onboarded users.
+      // Refresh identity so privileges and Login access stay correct after apply.
+      void refreshIdentity()
+      if (decision === 'approved' && isCustomerCareIdentity(identity)) {
+        navigate('/onboarding-users')
+      }
     }
   }
 

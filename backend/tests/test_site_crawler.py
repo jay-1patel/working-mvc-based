@@ -619,11 +619,10 @@ class CrawlApiAndE2ETests(unittest.TestCase):
         media_urls = [p.get("media_url") for p in products if p.get("media_url")]
         self.assertTrue(media_urls, "expected promoted media_url on offerings")
         for mu in media_urls:
-            self.assertTrue(
-                str(mu).startswith("/uploaded_files/product_images/"),
-                mu,
-            )
-            fname = str(mu).rsplit("/", 1)[-1]
+            path = str(mu)
+            # Relative or absolute (PUBLIC_BASE_URL prefixed) are both fine.
+            self.assertIn("/uploaded_files/product_images/", path, path)
+            fname = path.rsplit("/", 1)[-1]
             self.assertTrue(
                 (self.upload / "product_images" / fname).is_file(),
                 f"missing promoted file for {mu}",
@@ -756,8 +755,9 @@ def _build_big_fixture_html(base: str) -> dict:
     for i in range(1, BIG_SITE_PAGE_COUNT):
         body = f"""<!DOCTYPE html><html><head><title>Page {i}</title></head><body>
       <h1>Page {i}</h1>
-      <p>Content of page {i} on the big fixture site, with enough text for
-      extraction to treat it as a real content page.</p>
+      <p>{ARTICLE} Content of page {i} on the big fixture site, with enough
+      text for extraction to treat it as a real content page rather than a
+      thin SPA shell that would need Playwright rendering.</p>
       <a href="/">Home</a>
       </body></html>"""
         pages[f"/page-{i}"] = ("text/html", body.encode())

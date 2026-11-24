@@ -137,7 +137,7 @@ describe('Website Knowledge panel', () => {
 
     // Run row: status + pages. Crawls are unlimited, so a finished run that
     // fetched everything it found reads "6 pages crawled" (no "of" framing).
-    expect(screen.getByText('done')).toBeTruthy()
+    expect(screen.getByText('Done')).toBeTruthy()
     expect(screen.getByText(/6 pages crawled/)).toBeTruthy()
     expect(screen.queryByText(/of 6 pages crawled/)).toBeNull()
 

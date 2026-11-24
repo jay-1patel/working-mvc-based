@@ -1,10 +1,11 @@
 import { Building2, FlaskConical, PlusCircle, RefreshCw, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTenants, tenantsApi } from '@/lib/tenants'
 import { navigate } from '@/lib/router'
 import { usePermissions } from '@/lib/permissions'
 import { getVertical } from '@/lib/verticals'
-import { useAction } from '@/lib/hooks'
+import { useAction, useAsync } from '@/lib/hooks'
+import { tenantApprovalsApi } from '@/lib/tenant-approvals'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -54,12 +55,26 @@ function TenantHealth({ tenant }: { tenant: Tenant }) {
 
 export function TenantList() {
   const { tenants, loading, error, reload } = useTenants()
-  const { canManageTenants } = usePermissions()
+  const { canManageTenants, isSuperAdmin } = usePermissions()
   const [confirming, setConfirming] = useState<string | null>(null)
   const [activeTestTenant, setActiveTestTenant] = useState<string | null>(null)
   const [switchingTenant, setSwitchingTenant] = useState<string | null>(null)
   const action = useAction()
   const toast = useToast()
+  const pendingRequests = useAsync(
+    (s) => (isSuperAdmin ? tenantApprovalsApi.all('pending', s) : Promise.resolve([])),
+    [isSuperAdmin],
+  )
+  const pendingByTenant = useMemo(() => {
+    const map = new Map<string, { publish: number; create: number }>()
+    for (const row of pendingRequests.data ?? []) {
+      const cur = map.get(row.tenant_id) ?? { publish: 0, create: 0 }
+      if (row.request_type === 'publish_profile') cur.publish += 1
+      else if (row.request_type === 'create_tenant') cur.create += 1
+      map.set(row.tenant_id, cur)
+    }
+    return map
+  }, [pendingRequests.data])
 
   useEffect(() => {
     tenantsApi.getActiveTestTenant().then(setActiveTestTenant).catch(() => {})
@@ -214,6 +229,12 @@ export function TenantList() {
                       {tenant.status && tenant.status !== 'active' && (
                         <Badge tone="danger">{tenant.status}</Badge>
                       )}
+                      {pendingByTenant.get(tenant.id)?.publish ? (
+                        <Badge tone="warning">profile change pending</Badge>
+                      ) : null}
+                      {pendingByTenant.get(tenant.id)?.create ? (
+                        <Badge tone="warning">registration pending</Badge>
+                      ) : null}
                       {isTestActive && (
                         <Badge tone="success" >
                           🟢 Active Test Bot

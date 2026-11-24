@@ -50,23 +50,35 @@ import { useToast } from '@/components/ui/toast'
  */
 
 /**
- * Page-count label for a run. Crawls are unlimited, so a finished run that
- * fetched everything it found reads "95 pages crawled". The "X of Y"
- * framing is kept only when some discovered pages genuinely did not get
- * scraped (fetch errors, robots, non-HTML) — including historic runs that
- * were recorded under the old 50-page cap.
+ * Page-count label for a run. A finished run that fetched everything it
+ * found reads "95 pages crawled". The "X of Y" framing is kept when some
+ * discovered pages were not scraped (errors, robots, caps, or a partial
+ * finish after the total time budget).
  */
 function pagesCrawledLabel(run: CrawlRun): string {
   const scraped = run.pages_scraped ?? 0
   const found = run.pages_found ?? scraped
-  if (run.status === 'done' && found > 0 && scraped >= found) {
+  if (
+    (run.status === 'done' || run.status === 'finished_partial') &&
+    found > 0 &&
+    scraped >= found
+  ) {
     return `${scraped} pages crawled`
   }
   return `${scraped} of ${found} pages crawled`
 }
 
+function runStatusLabel(status: string): string {
+  if (status === 'finished_partial') return 'Finished (partial)'
+  if (status === 'done') return 'Done'
+  if (status === 'failed') return 'Failed'
+  if (status === 'running') return 'Running'
+  if (status === 'queued') return 'Queued'
+  return status
+}
+
 function runStatusTone(status: string): PillTone {
-  if (status === 'done') return 'ok'
+  if (status === 'done' || status === 'finished_partial') return 'ok'
   if (status === 'failed') return 'bad'
   if (status === 'running' || status === 'queued') return 'warn'
   return 'neutral'
@@ -218,7 +230,7 @@ export function WebsiteKnowledgePanel({
                     <span className="text-sm font-medium text-tx">
                       {formatDate(run.created_at)}
                     </span>
-                    <Pill tone={runStatusTone(run.status)}>{run.status}</Pill>
+                    <Pill tone={runStatusTone(run.status)}>{runStatusLabel(run.status)}</Pill>
                     <span className="text-xs text-txmuted">
                       {pagesCrawledLabel(run)}
                     </span>

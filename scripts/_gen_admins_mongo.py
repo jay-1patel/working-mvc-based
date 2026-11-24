@@ -104,7 +104,8 @@ def update_admin(username: str, **kwargs) -> bool:
         from .mongo import Repository
         if "permissions" in updates and isinstance(updates["permissions"], str):
             updates["permissions"] = _loads_json(updates["permissions"], {})
-        updates["updated_at"] = datetime.utcnow()
+        from backend.db.timestamps import now_stamp
+        updates["updated_at"] = now_stamp()
         Repository("admins").update({"username": username}, updates)
         return True
     if "permissions" in updates and isinstance(updates["permissions"], dict):
@@ -213,7 +214,8 @@ def update_admin_record(username: str, role: str = None, permissions: dict = Non
         return False
     if use_mongodb():
         from .mongo import Repository
-        updates["updated_at"] = datetime.utcnow()
+        from backend.db.timestamps import now_stamp
+        updates["updated_at"] = now_stamp()
         Repository("admins").update({"username": username}, updates)
         return True
     set_clause = ", ".join(f"{k} = ?" for k in updates)
@@ -226,7 +228,8 @@ def update_admin_record(username: str, role: str = None, permissions: dict = Non
 def update_admin_email(username: str, email: str = None) -> bool:
     if use_mongodb():
         from .mongo import Repository
-        Repository("admins").update({"username": username}, {"email": email, "updated_at": datetime.utcnow()})
+        from backend.db.timestamps import now_stamp
+        Repository("admins").update({"username": username}, {"email": email, "updated_at": now_stamp()})
         return True
     with get_db_context() as conn:
         conn.execute("UPDATE admins SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?", (email, username))

@@ -1,0 +1,5 @@
+जब गाड़ी पूरे दिन बिना किसी रुकावट के साथ निभाए, तभी होती है असली बचत और बड़ी कमाई। GEM Aqua की आरामदायक पैसेंजर सीटें और डबल सिलेंडर टेक्नोलॉजी आपको देती है पूरे दिन बिना थके चलने का भरोसा। \[ Atul GEM Aqua, Passenger Comfort, Double Cylinder Technology, Comfortable Seating, Driver Convenience, Long Hours Performance, Higher Earnings \] #AtulAuto
+
+10 kWh LFP बैटरी झटपट चार्ज होती है ताकि आपकी गाड़ी दिन भर सड़कों पर दौड़ती रहे और कमाई का एक मिनट भी बर्बाद न हो। \[ Atul PLUGG e, 10 kWh LFP Battery, Fast Charging, Electric Auto, Long Range, Non-Stop Performance, Daily Earnings, EV Vehicle, EV Auto \] #AtulAuto
+
+अतुल सिर्फ गाड़ी नहीं, परिवार के सपने सच करने का ज़रिया है। 315 किमी\* की लंबी रेंज के साथ दीजिए अपने परिवार को एक बेहतर कल। \[ Atul Auto, 315 KM Range, Long Range, Family Dreams, Better Future, Reliable Performance, Driver Empowerment, Uplifting Lives \] #AtulAuto

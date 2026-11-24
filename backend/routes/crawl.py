@@ -36,8 +36,7 @@ router = APIRouter(prefix="/api/admin/tenants", tags=["crawl"])
 
 class CrawlStartRequest(BaseModel):
     url: str = Field(..., min_length=1)
-    # Legacy optional fields are accepted for old clients but full crawls
-    # intentionally ignore these caps in the pipeline.
+    # Optional caps; when omitted the pipeline defaults to 500 pages / depth 6.
     max_pages: Optional[int] = Field(default=None, ge=1)
     max_depth: Optional[int] = Field(default=None, ge=0, le=100)
 
@@ -180,6 +179,17 @@ def get_crawl_runs(
     tenant_id = session_tenant_id(request=request)
     limit = body.limit
     principal = authorize_tenant_access(request, tenant_id, credentials)
+    # Self-heal stale "running" rows left behind when the server stopped
+    # mid-crawl (BackgroundTasks die with the process).
+    try:
+        from database import reap_orphaned_crawl_runs
+        reap_orphaned_crawl_runs(
+            tenant_id=tenant_id,
+            force_all=False,
+            reason="crawl worker died / stuck (auto recovery)",
+        )
+    except Exception:
+        logger.exception("CRAWL_ORPHAN_REAP_ON_LIST_FAILED | tenant=%s", tenant_id)
     runs = list_crawl_runs(tenant_id, limit=limit)
     latest = runs[0] if runs else None
     schedule = get_crawl_schedule(tenant_id)

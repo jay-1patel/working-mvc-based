@@ -31,6 +31,24 @@ async def lifespan(app: FastAPI):
     logger.info("[STARTUP] tenant data dir OK: %s", _tenant_data_dir)
     init_db()
     logger.info("[STARTUP] init_db done")
+    # Crawls run as in-process BackgroundTasks. Anything still queued/running
+    # after a restart is orphaned — clear it so the UI is not stuck forever.
+    try:
+        from database import reap_orphaned_crawl_runs
+        reaped = reap_orphaned_crawl_runs(
+            force_all=True,
+            reason="crawl worker died / server restarted (auto recovery)",
+        )
+        if reaped:
+            logger.warning(
+                "[STARTUP] reaped %s orphaned crawl run(s): %s",
+                len(reaped),
+                [r.get("id") for r in reaped],
+            )
+        else:
+            logger.info("[STARTUP] no orphaned crawl runs")
+    except Exception as orphan_exc:
+        logger.warning("[STARTUP] orphan crawl reap skipped: %s", orphan_exc, exc_info=True)
     try:
         from db.core import use_mongodb
         if use_mongodb():

@@ -1,0 +1,3 @@
+With respect to above subject, this is to inform the stock exchanges that pursuant to Regulation 30, 33 and 47 read with Part A(12) of Schedule III of the SEBI (Listing Obligations and Disclosures Requirements) Regulations, 2015 with regard to outcome of board meeting held on May 16, 2026, please find enclosed a copy of relevant page of the newspaper The Financial Express (English and Gujarati Edition) in which the extract of Standalone and Consolidated audited Financial Results for the quarter and financial ended on March 31, 2026 were published for the information of members. Click Here to view the Newspaper Publication.
+
+Newspaper notice u/r 30 of the SEBI (LODR) regulations, 2015 – Notice of Postal Ballot

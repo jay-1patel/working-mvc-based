@@ -1,0 +1,1 @@
+In March 2012, ATUL Auto Limited won the “Most Promising SME in Auto & Engineering” award at the CNBC-TV18-ICICI Bank Emerging India Awards in Mumbai. Niraj Chandra, Vijay Kedia, and J.V. Adhia received the award from Union Minister Sachin Pilot. Vijay Kedia expressed gratitude, highlighting the team’s collective effort and aiming to transition from a medium to a large enterprise

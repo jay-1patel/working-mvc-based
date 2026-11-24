@@ -1,0 +1,1 @@
+Sale Performance – October 2023 Posted on November 29, 2024November 29, 2024 by Atul-Auto-Admin In October 2023, the company sold 3,060 vehicles, a 30.10% increase from 2,352 vehicles in October 2022. From April to October 2023, total sales were 13,525 vehicles, a 1.00% decrease from 13,661 vehicles in the same period in 2022.

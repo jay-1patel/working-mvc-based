@@ -384,6 +384,15 @@ def _since_days(days: int) -> datetime:
 def _row_in_window(created_at, days: int) -> bool:
     if created_at is None:
         return False
+    try:
+        from .timestamps import parse_stamp
+    except ImportError:
+        parse_stamp = None
+    if parse_stamp is not None:
+        dt = parse_stamp(created_at)
+        if dt is None:
+            return False
+        return dt >= _since_days(days)
     if isinstance(created_at, datetime):
         dt = created_at if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)
     else:

@@ -59,7 +59,9 @@ USER_AGENT = (
 # crawl-delay, and the JS-shell heuristic thresholds below which a statically
 # fetched page is considered client-side rendered and re-fetched via Playwright.
 DEFAULT_CRAWL_DELAY = 1.0
-JS_RENDER_TEXT_THRESHOLD = 800
+# Visible-text character floor: under this (or a known SPA shell) we may
+# Playwright-render; pages with proper text must never be rendered.
+JS_RENDER_TEXT_THRESHOLD = 200
 JS_SCRIPT_TAG_THRESHOLD = 5
 
 
@@ -140,15 +142,15 @@ RENDER_TRIGGER_MIN_WORDS = 30
 def should_render_page(html: str) -> bool:
     """Decide whether a statically fetched page needs a browser render.
 
-    Two triggers: (a) the classic JS-shell heuristic, or (b) almost no
-    visible text while the source itself is data-rich — the measured
-    low-script-count failure the shell detector alone misses.
+    Playwright is used only when the plain fetch has almost no visible
+    text (under ~200 characters) or matches a known SPA shell. Pages
+    that already contain proper text must never be rendered.
     """
     if not html:
         return False
     if looks_like_js_shell(html):
         return True
-    return visible_text_word_count(html) < RENDER_TRIGGER_MIN_WORDS and html_is_data_rich(html)
+    return len(_visible_text(html)) < JS_RENDER_TEXT_THRESHOLD
 
 
 def playwright_available() -> bool:

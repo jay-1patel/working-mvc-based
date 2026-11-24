@@ -1,0 +1,5 @@
+The dividend declared at Annual General Meeting (Final Dividend)/ Board Meeting (Interim) is required to be paid within 30 days from the date of declaration. The company shall, within seven days from the date of expiry of the said period of thirty days, transfer the total amount of dividend which remains unpaid or unclaimed to a special account to be opened by the company in that behalf in any scheduled bank to be called the Unpaid Dividend Account. Any amount lying in this account is called “Unclaimed Dividend”.
+
+The dividend/ share application money due for refund/ sales proceeds of fractional shares within seven years from the date of transfer to the unclaimed account will, in terms of section 124 and 125 of the Companies Act, 2013 and rules made thereunder, be transferred to the Investor Education and Protection Fund (IEPF), established by the central government.
+
+Please click here to check your unclaimed/ unpaid dividend as on June 30, 2022.

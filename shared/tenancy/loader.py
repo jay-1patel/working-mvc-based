@@ -19,6 +19,7 @@ from . import cache, store
 from .defaults import (
     DEFAULT_FLOWS,
     DEFAULT_TENANT_ID,
+    VERTICAL_DEFAULTS,
     get_vertical_defaults,
     scrub_company_info_pages,
     scrub_foreign_vertical_artifacts,
@@ -29,6 +30,27 @@ from .paths import client_config_path, client_dir
 from .schemas import TenantProfile
 
 logger = logging.getLogger("tenancy.loader")
+
+
+def effective_features(saved_features: Any, vertical: str | None) -> Dict[str, bool]:
+    """Return saved feature flags intersected with the vertical entitlement."""
+    vert = vertical if vertical in VERTICAL_DEFAULTS else "generic"
+    allowed = (VERTICAL_DEFAULTS[vert].get("features") or {})
+    saved = saved_features or {}
+    if hasattr(saved, "model_dump"):
+        saved = saved.model_dump()
+    elif hasattr(saved, "dict"):
+        saved = saved.dict()
+    return {name: bool(saved.get(name, False)) and bool(allowed.get(name, False))
+            for name in allowed}
+
+
+def clamp_profile_features(payload: Dict[str, Any], vertical: str | None = None) -> Dict[str, Any]:
+    """Clamp a writable profile payload in-place and return it."""
+    result = payload
+    vert = vertical or result.get("vertical") or "generic"
+    result["features"] = effective_features(result.get("features"), vert)
+    return result
 
 
 class ProfileValidationError(ValueError):
@@ -117,6 +139,8 @@ def build_profile(tenant_id: str, *, db_layer: Optional[Dict[str, Any]] = None,
         or record.get("vertical")
         or "generic"
     )
+    if vertical not in VERTICAL_DEFAULTS:
+        vertical = "generic"
 
     defaults = get_vertical_defaults(vertical)
     # Reusable flow skeletons sit beneath the vertical's own data. A vertical can
@@ -127,6 +151,8 @@ def build_profile(tenant_id: str, *, db_layer: Optional[Dict[str, Any]] = None,
     merged = merge_layers(defaults, file_layer, db_layer)
     merged["tenant_id"] = tid
     merged.setdefault("vertical", vertical)
+    merged["vertical"] = vertical
+    merged["features"] = effective_features(merged.get("features"), vertical)
     if record.get("display_name") and not merged.get("display_name"):
         merged["display_name"] = record["display_name"]
     if record.get("status"):

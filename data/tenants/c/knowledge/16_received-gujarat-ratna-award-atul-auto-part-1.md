@@ -1,0 +1,1 @@
+Received Gujarat Ratna Award Posted on November 29, 2024 by Atul-Auto-Admin Shri Jayanti Bhai Chandra-CMD, ATUL AUTO LIMITED has been awarded as ‘Gujarat Ratna’ by Honorable Chief Minister Shrimati Anandi Ben Patel.

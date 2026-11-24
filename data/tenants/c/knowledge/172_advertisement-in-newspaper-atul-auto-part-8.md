@@ -1,0 +1,5 @@
+With respect to above subject and that pursuant to the provisions of section 108 of the Companies Act, 2013 with the Companies (Management and Administration) Rules, 2014 and Regulations 47 of SEBI (LODR) Regulations 2015, the Company has published the postal ballot notice of the Company with Details of Remote e-voting for the purpose of postal ballot in Indian Express in English and in Financial Express in Gujarati Edition newspaper for the information of members
+
+An advertisement to this effect has been published in Indian Express (English) and Financial Express (Gujarati) newspaper for the information of members. A copies of newspaper advertisement are attached herewith. Click Here to view the Newspaper Publication.
+
+Newspaper notice u/r 30 of the SEBI (LODR) regulations, 2015 – Special Window for re-lodgement of transfer requests of physical shares.

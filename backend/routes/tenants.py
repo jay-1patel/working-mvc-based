@@ -744,6 +744,10 @@ def save_profile_draft(    tenant_id: str,
     # save cannot blank or rewrite values that still live on the server profile.
     snapshot = _scrub_console_profile(body.snapshot if isinstance(body.snapshot, dict) else {})
     merged = merge_drafts(draft, snapshot)
+    tenant_record = tenancy_store.get_tenant(tenant_id) or {}
+    tenancy_loader.clamp_profile_features(
+        merged, merged.get("vertical") or tenant_record.get("vertical") or "generic"
+    )
     with _with_conn() as conn:
         tenancy_store.save_draft(tenant_id, merged, updated_by=by, conn=conn)
         _backfill_domain(conn, tenant_id, (snapshot.get("brand") or {}).get("website") or "", only_if_empty=True)
@@ -1119,6 +1123,7 @@ def publish_profile(
 
     by = principal.get("username") or principal.get("label", "")
     with _with_conn() as conn:
+        tenancy_loader.clamp_profile_features(draft, profile.vertical)
         version = tenancy_store.publish_version(tenant_id, draft, published_by=by, conn=conn)
         if principal.get("type") == "admin":
             record_admin_audit_event(

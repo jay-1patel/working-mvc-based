@@ -9,12 +9,17 @@ from .core import (
 
 
 def _parse_ts(value) -> Optional[datetime]:
+    try:
+        from .timestamps import parse_stamp
+        return parse_stamp(value)
+    except ImportError:
+        pass
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
     text = str(value).strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f",
+    for fmt in ("%d-%m-%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f",
                 "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%f%z"):
         try:
             parsed = datetime.strptime(text.replace("Z", "+0000"), fmt.replace("%z", "%z") if "%z" in fmt else fmt)

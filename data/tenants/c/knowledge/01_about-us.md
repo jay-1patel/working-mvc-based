@@ -1,3 +1,3 @@
 # About Us
 
-TrailVista Holidays Ahmedabad is a tours & travels company helping families, couples and groups plan Gujarat circuits, pan-India holidays and select international trips. We arrange hotels, private vehicles, flights, visa documentation support and on-trip assistance. Our travel desk operates Monday to Saturday with dedicated sales and customer-care lines.
+MetroDrive Autos Ahmedabad is an authorised multi-brand style passenger-car dealership on SG Highway offering new cars, certified used cars, finance & insurance assistance, and a full authorised workshop for periodic service, body repair and genuine spare parts. Our showroom and service bays operate Monday to Saturday with trained product specialists and certified technicians.

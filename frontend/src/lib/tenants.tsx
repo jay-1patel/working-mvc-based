@@ -229,8 +229,7 @@ export function useTenants(): TenantState {
  * the sidebar.
  *
  * Null means "not known yet" (still loading, no tenant selected, or this admin
- * cannot read the resolved profile) — callers treat that as "do not hide
- * anything on account of a feature".
+ * cannot read the resolved profile) — feature-gated callers fail closed.
  */
 export function useTenantProfile(tenantId: string | null): ResolvedProfile | null {
   const [profile, setProfile] = useState<ResolvedProfile | null>(null)

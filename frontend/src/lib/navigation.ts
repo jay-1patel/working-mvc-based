@@ -124,11 +124,8 @@ const VERTICALS_WITH_COMPANY_INFO = new Set(['it_software'])
 /**
  * Build the sidebar for one tenant.
  *
- * `features` may be null while the resolved profile is loading (or when the
- * admin lacks `manage_operations`, which that endpoint needs). In that case the
- * feature gate is skipped and only permissions decide — showing a live inbox to
- * someone who cannot open it is a smaller sin than hiding every screen until a
- * request the user may not be allowed to make resolves.
+ * `features` may be null while the resolved profile is loading or unavailable.
+ * Feature-gated items fail closed; ungated items remain permission-driven.
  */
 /** Tenant-nav groups only a super admin may see (hidden from admin / sub-admin). */
 export const SUPER_ADMIN_ONLY_NAV_GROUPS: NavGroup[] = ['Grow', 'Manage']
@@ -320,7 +317,7 @@ export function isVisible(
   features: Features | null,
 ): boolean {
   if (item.permissions && !item.permissions.some((p) => can(p))) return false
-  if (item.feature && features && features[item.feature] === false) return false
+  if (item.feature && (!features || features[item.feature] !== true)) return false
   return true
 }
 

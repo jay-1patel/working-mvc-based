@@ -15,12 +15,38 @@ from services.bifurcation_guards import placeholder_warnings
 
 logger = logging.getLogger("crawl_pipeline")
 
+# Applied when the crawl-start request (or schedule) omits a limit.
+DEFAULT_MAX_PAGES = 500
+DEFAULT_MAX_DEPTH = 6
+DEFAULT_TOTAL_TIMEOUT_SECONDS = 1800.0
+DEFAULT_BIFURCATION_TIMEOUT_SECONDS = 180.0
+MAX_BIFURCATION_TIMEOUT_SECONDS = 1800.0
 
-def _bifurcation_timeout_seconds() -> float:
+
+def _crawl_total_timeout_seconds() -> float:
     try:
-        return float(os.environ.get("CRAWL_BIFURCATION_TIMEOUT_SECONDS", "180"))
+        value = float(os.environ.get("CRAWL_TOTAL_TIMEOUT_SECONDS", str(DEFAULT_TOTAL_TIMEOUT_SECONDS)))
     except (TypeError, ValueError):
-        return 180.0
+        return DEFAULT_TOTAL_TIMEOUT_SECONDS
+    return value if value > 0 else DEFAULT_TOTAL_TIMEOUT_SECONDS
+
+
+def _bifurcation_timeout_seconds(page_count: int = 0) -> float:
+    """Budget = max(floor, 2 × pages), capped at 1800s.
+
+    ``CRAWL_BIFURCATION_TIMEOUT_SECONDS`` remains the floor (default 180).
+    """
+    try:
+        floor = float(os.environ.get(
+            "CRAWL_BIFURCATION_TIMEOUT_SECONDS",
+            str(DEFAULT_BIFURCATION_TIMEOUT_SECONDS),
+        ))
+    except (TypeError, ValueError):
+        floor = DEFAULT_BIFURCATION_TIMEOUT_SECONDS
+    if floor <= 0:
+        floor = DEFAULT_BIFURCATION_TIMEOUT_SECONDS
+    budget = max(floor, 2.0 * max(0, int(page_count or 0)))
+    return min(budget, MAX_BIFURCATION_TIMEOUT_SECONDS)
 
 
 def _extract_bifurcation_with_deadline(onboarder, crawl_res_for_ai, run_id: int):
@@ -32,7 +58,12 @@ def _extract_bifurcation_with_deadline(onboarder, crawl_res_for_ai, run_id: int)
     from concurrent.futures import ThreadPoolExecutor
     from concurrent.futures import TimeoutError as FuturesTimeoutError
 
-    timeout = _bifurcation_timeout_seconds()
+    page_count = len((crawl_res_for_ai or {}).get("pages") or [])
+    timeout = _bifurcation_timeout_seconds(page_count)
+    logger.info(
+        "CRAWL_BIFURCATION_BUDGET | run=%s | pages=%s | budget_seconds=%.1f",
+        run_id, page_count, timeout,
+    )
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="crawl-bifurcation")
     future = executor.submit(onboarder.extract_bifurcation, crawl_res_for_ai)
     try:
@@ -40,7 +71,10 @@ def _extract_bifurcation_with_deadline(onboarder, crawl_res_for_ai, run_id: int)
         executor.shutdown(wait=False)
         return result
     except FuturesTimeoutError:
-        logger.warning("CRAWL_BIFURCATION_TIMEOUT | run=%s", run_id)
+        logger.warning(
+            "CRAWL_BIFURCATION_TIMEOUT | run=%s | pages=%s | budget_seconds=%.1f",
+            run_id, page_count, timeout,
+        )
         executor.shutdown(wait=False)
         result = onboarder.extract_bifurcation(crawl_res_for_ai, allow_llm=False)
         result["bifurcation_source"] = "heuristic_timeout"
@@ -102,13 +136,23 @@ def run_crawl_pipeline(
         )
 
     try:
+        effective_max_pages = (
+            int(max_pages) if max_pages is not None else DEFAULT_MAX_PAGES
+        )
+        effective_max_depth = (
+            int(max_depth) if max_depth is not None else DEFAULT_MAX_DEPTH
+        )
+        if effective_max_pages < 1:
+            effective_max_pages = DEFAULT_MAX_PAGES
+        if effective_max_depth < 0:
+            effective_max_depth = DEFAULT_MAX_DEPTH
+        total_timeout = _crawl_total_timeout_seconds()
+
         crawler = SiteCrawler(
             base_url=url,
-            # Manual and scheduled knowledge crawls always consume the full
-            # discovered same-domain graph. Keep legacy arguments in the
-            # function signature for compatibility, but do not truncate runs.
-            max_pages=None,
-            max_depth=None,
+            max_pages=effective_max_pages,
+            max_depth=effective_max_depth,
+            total_timeout=total_timeout,
             progress_callback=persist_progress,
         )
         crawl_res = crawler.crawl()
@@ -118,6 +162,9 @@ def run_crawl_pipeline(
 
         inventory = crawl_res.get("inventory") or []
         pages = crawl_res.get("pages") or []
+        # Partial finishes (total time budget) keep every page collected so
+        # far and still proceed to bifurcation / staging.
+        partial_finish = crawl_res.get("stop_reason") == "total_timeout"
 
         for item in inventory:
             insert_crawl_page(
@@ -203,7 +250,8 @@ def run_crawl_pipeline(
             "crawl": {
                 "root_url": crawl_res.get("root_url"),
                 "domain": crawl_res.get("domain"),
-                "max_pages": max_pages,  # None = unlimited (no page-count cap)
+                "max_pages": effective_max_pages,
+                "max_depth": effective_max_depth,
                 "pages_found": pages_found,
                 "pages_scraped": pages_scraped,
                 "pages": [
@@ -267,7 +315,8 @@ def run_crawl_pipeline(
         }
 
         save_crawl_staged(run_id, tenant_id, payload)
-        update_crawl_run(run_id, status="done", mark_finished=True)
+        final_status = "finished_partial" if partial_finish else "done"
+        update_crawl_run(run_id, status=final_status, mark_finished=True)
 
         if trigger == "schedule":
             mark_crawl_finished(tenant_id, "success", pages_found=pages_found)
@@ -303,12 +352,13 @@ def run_crawl_pipeline(
             logger.exception("AUDIT_EVENT_RECORD_FAILED | action=crawl_run_staged run=%s", run_id)
 
         summary.update({
-            "status": "done",
+            "status": final_status,
             "pages_found": pages_found,
             "pages_scraped": pages_scraped,
             "pages_skipped": len(kb["skipped"]),
             "pages_rendered": int(crawl_res.get("pages_rendered") or 0),
             "render_unavailable": bool(crawl_res.get("render_unavailable")),
+            "stop_reason": crawl_res.get("stop_reason"),
             "kb_chunks": len(kb["chunks"]),
             "offerings": len((bifurcation or {}).get("offerings") or []),
             "faqs": len((bifurcation or {}).get("faqs") or []),
@@ -814,10 +864,10 @@ def enqueue_scheduled_crawl(schedule: dict) -> Optional[int]:
         url=schedule["url"],
         run_id=run["id"],
         trigger="schedule",
-        # Stored schedule max_pages is deliberately IGNORED: the page-count
-        # limit was removed (2026-11-11), so legacy schedules (which carry
-        # the old default 50) also run unlimited instead of staying capped.
-        max_pages=None,
+        # Honour schedule caps when set; otherwise pipeline defaults
+        # (max_pages=500, max_depth=6) apply.
+        max_pages=schedule.get("max_pages"),
+        max_depth=schedule.get("max_depth"),
         actor={
             "username": "crawl_scheduler",
             "role": "system",

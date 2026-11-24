@@ -1,0 +1,4 @@
+aporeSlovakiaSloveniaSolomon IslandsSomaliaSouth AfricaSouth GeorgiaSouth SudanSpainSri LankaSudanSurinameSvalbard And Jan Mayen IslandsSwazilandSwedenSwitzerlandSyriaTaiwanTajikistanTanzaniaThailandTogoTokelauTongaTrinidad And TobagoTunisiaTurkeyTurkmenistanTurks And Caicos IslandsTuvaluUgandaUkraineUnited Arab EmiratesUnited KingdomUnited StatesUnited States Minor Outlying IslandsUruguayUzbekistanVanuatuVatican City State (Holy See)VenezuelaVietnamVirgin Islands (British)Virgin Islands (US)Wallis And Futuna IslandsWestern SaharaYemenZambiaZimbabwe
+
+Category*
+Select CategoryATUL RikATUL GemATUL GemiATUL-EATUL eliteATUL Shakti

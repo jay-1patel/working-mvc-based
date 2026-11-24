@@ -350,6 +350,151 @@ def get_running_crawl(tenant_id: str) -> Optional[dict]:
     return _run_row(row) if row else None
 
 
+def _orphan_stale_seconds() -> float:
+    """Age after which a queued/running crawl is treated as orphaned.
+
+    Defaults to the crawl total budget + 10 minutes. Override with
+    CRAWL_ORPHAN_SECONDS. Crawls run in-process (FastAPI BackgroundTasks),
+    so a server stop leaves rows stuck in queued/running forever without
+    this reaper.
+    """
+    import os
+
+    raw = (os.environ.get("CRAWL_ORPHAN_SECONDS") or "").strip()
+    if raw:
+        try:
+            value = float(raw)
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+    try:
+        budget = float(os.environ.get("CRAWL_TOTAL_TIMEOUT_SECONDS", "1800"))
+    except (TypeError, ValueError):
+        budget = 1800.0
+    if budget <= 0:
+        budget = 1800.0
+    return budget + 600.0
+
+
+def reap_orphaned_crawl_runs(
+    *,
+    tenant_id: Optional[str] = None,
+    force_all: bool = False,
+    reason: str = "crawl worker died / server stopped (auto recovery)",
+) -> List[dict]:
+    """Mark orphaned queued/running crawl runs as failed.
+
+    ``force_all=True`` (startup): every queued/running run is orphaned —
+    in-process BackgroundTasks cannot outlive the previous process.
+
+    Otherwise only runs older than ``CRAWL_ORPHAN_SECONDS`` are reaped, so
+    a live crawl still in progress is left alone.
+    """
+    cutoff = None if force_all else (
+        datetime.now(timezone.utc) - timedelta(seconds=_orphan_stale_seconds())
+    )
+    reaped: List[dict] = []
+
+    def _is_stale(row: dict) -> bool:
+        if force_all:
+            return True
+        stamp = _parse_ts(row.get("started_at")) or _parse_ts(row.get("created_at"))
+        if stamp is None:
+            return True
+        return stamp <= cutoff  # type: ignore[operator]
+
+    error_text = (reason or "orphaned crawl")[:500]
+
+    if use_mongodb():
+        from .mongo import Repository
+
+        filters: Dict[str, Any] = {"status": {"$in": ["queued", "running"]}}
+        if tenant_id:
+            filters["tenant_id"] = tenant_id
+        repo = Repository("tenant_crawl_runs")
+        rows = repo.find(filters, sort=[("id", -1)], limit=500) or []
+        touched_tenants: set[str] = set()
+        for raw in rows:
+            row = _run_row(raw)
+            if not row or not _is_stale(raw if isinstance(raw, dict) else row):
+                continue
+            run_id = row["id"]
+            pages = int(row.get("pages_scraped") or 0)
+            msg = f"Marked failed: {error_text}"
+            if pages:
+                msg = f"{msg} after {pages} page(s)"
+            update_crawl_run(
+                run_id,
+                status="failed",
+                error=msg[:500],
+                mark_finished=True,
+            )
+            tid = (row.get("tenant_id") or "").strip()
+            if tid:
+                touched_tenants.add(tid)
+            reaped.append(row)
+            logger.warning(
+                "CRAWL_ORPHAN_REAPED | run=%s tenant=%s pages=%s force=%s",
+                run_id, tid or "?", pages, force_all,
+            )
+        for tid in touched_tenants:
+            try:
+                schedule = get_crawl_schedule(tid)
+                if schedule and schedule.get("last_status") == "running":
+                    mark_crawl_finished(tid, "failed", error_text[:500])
+            except Exception:
+                logger.exception("CRAWL_ORPHAN_SCHEDULE_CLEAR_FAILED | tenant=%s", tid)
+        return reaped
+
+    with get_db_context() as conn:
+        if tenant_id:
+            rows = conn.execute(
+                """SELECT * FROM tenant_crawl_runs
+                   WHERE tenant_id = ? AND status IN ('queued', 'running')
+                   ORDER BY id DESC""",
+                (tenant_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM tenant_crawl_runs
+                   WHERE status IN ('queued', 'running')
+                   ORDER BY id DESC"""
+            ).fetchall()
+        touched_tenants = set()
+        for raw in rows:
+            row = _run_row(raw)
+            if not row or not _is_stale(dict(raw) if hasattr(raw, "keys") else row):
+                continue
+            run_id = row["id"]
+            pages = int(row.get("pages_scraped") or 0)
+            msg = f"Marked failed: {error_text}"
+            if pages:
+                msg = f"{msg} after {pages} page(s)"
+            conn.execute(
+                """UPDATE tenant_crawl_runs
+                   SET status = 'failed', error = ?, finished_at = CURRENT_TIMESTAMP
+                   WHERE id = ? AND status IN ('queued', 'running')""",
+                (msg[:500], run_id),
+            )
+            tid = (row.get("tenant_id") or "").strip()
+            if tid:
+                touched_tenants.add(tid)
+            reaped.append(row)
+            logger.warning(
+                "CRAWL_ORPHAN_REAPED | run=%s tenant=%s pages=%s force=%s",
+                run_id, tid or "?", pages, force_all,
+            )
+        for tid in touched_tenants:
+            conn.execute(
+                """UPDATE tenant_crawl_schedules
+                   SET last_status = 'failed', last_error = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE tenant_id = ? AND last_status = 'running'""",
+                (error_text[:500], tid),
+            )
+    return reaped
+
+
 def update_crawl_run(
     run_id: int,
     *,

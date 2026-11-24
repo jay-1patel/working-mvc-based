@@ -1,0 +1,1 @@
+Bonus Shares Allotment Posted on November 29, 2024 by Atul-Auto-Admin On July 6, 2012, the Board of Directors allotted 36,57,200 equity shares of Rs. 10 each as bonus shares, totaling Rs. 3,65,72,000. Shareholders received one bonus share for every two shares held as of July 5, 2012.

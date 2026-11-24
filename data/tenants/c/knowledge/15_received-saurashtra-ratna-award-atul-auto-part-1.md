@@ -1,0 +1,1 @@
+Received Saurashtra Ratna Award Posted on November 29, 2024 by Atul-Auto-Admin Shri Jayanti Bhai Chandra-CMD, ATUL AUTO LIMITED has been awarded as ‘Saurashtra Ratna’ by Honorable Chief Minister Shri Vijaybhai Rupani.

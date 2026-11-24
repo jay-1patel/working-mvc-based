@@ -263,20 +263,19 @@ export function contentWritePerms(vertical?: string | null): {
 }
 
 /**
- * First-login lock: a company admin stays in onboarding until a super admin
- * approves one of the tenant change requests they filed from "Register a
- * tenant". Until then they only get "Register a tenant" and "My change
- * requests". Super admins and sub admins are never gated, and a missing flag
- * (older backend) is treated as unlocked.
+ * First-login lock: a company admin with no tenant_id must finish the
+ * setup wizard (WhatsApp → company/vertical → profile) before the console
+ * opens. Credentials come from Send2; the admin creates their own tenant
+ * on first login. Super admins and sub admins are never gated.
  */
 export function isOnboardingLocked(
-  identity: { role?: string | null; onboarding_approved?: boolean } | null,
+  identity: { role?: string | null; tenant_id?: string | null; onboarding_approved?: boolean } | null,
   opts?: { impersonating?: boolean },
 ): boolean {
   // customer_care support sessions must not be trapped in Register.
   if (opts?.impersonating) return false
   if (!identity || identity.role !== 'admin') return false
-  return identity.onboarding_approved === false
+  return !String(identity.tenant_id || '').trim()
 }
 
 /**

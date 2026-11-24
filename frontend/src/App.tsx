@@ -69,14 +69,12 @@ function Router() {
     )
   }
 
-  // First-login lock: until a super admin approves the tenant's registration,
-  // the admin only gets the registration panel and their change requests. The
-  // sidebar (AppShell) is trimmed to those two entries for the same reason.
+  // First-login lock: admin with no tenant_id must finish WhatsApp → company
+  // setup before the console opens.
   if (locked) {
-    const view = route.view === 'tenant-requests' ? 'tenant-requests' : 'register'
     return (
-      <AppShell route={{ ...route, view }}>
-        {view === 'tenant-requests' ? <MyTenantChangeRequests /> : <RegisterWizard />}
+      <AppShell route={{ ...route, view: 'register' }}>
+        <RegisterWizard />
       </AppShell>
     )
   }
@@ -99,9 +97,8 @@ function Router() {
   }
 
   if (route.view === 'register') {
-    // Admins can view and edit the registration panel; their submission goes
-    // to the super admin approval queue instead of publishing directly.
-    if (!canManageTenants && identity?.role !== 'admin') return <NotPermitted what="register tenants" />
+    // First-login setup for company admins; super admins see provisioning guidance.
+    if (!canManageTenants && identity?.role !== 'admin') return <NotPermitted what="set up a tenant" />
     return (
       <AppShell route={route}>
         <RegisterWizard />

@@ -741,6 +741,18 @@ class UpdateAdminRequest(BaseModel):
     tenant_id: Optional[str] = None
 
 
+class FirstLoginCompleteRequest(BaseModel):
+    """Self-serve first login: create tenant, bind WhatsApp, publish profile, scope admin."""
+    tenant_id: str
+    slug: str = ""
+    vertical: str = "generic"
+    display_name: str = ""
+    website: str = ""
+    waba_phone_id: str = ""
+    mobile_number: str = ""
+    snapshot: Optional[dict] = None
+
+
 # ---------- routes ----------
 
 @router.get("/status")
@@ -1212,40 +1224,13 @@ def regenerate_admin_session(username: str, current_admin: dict = Depends(get_cu
 def _onboarding_approved(admin: dict) -> bool:
     """Whether this company admin has cleared first-time onboarding.
 
-    Only the company ``admin`` role is gated. An admin is cleared once a super
-    admin approves one of the tenant change requests they filed from the
-    "Register a tenant" panel. Super admins and sub admins are never gated.
+    Only the company ``admin`` role is gated. Cleared once the admin has a
+    ``tenant_id`` (first-login wizard finished). Super admins and sub admins
+    are never gated.
     """
     if admin.get("role") != "admin":
         return True
-    # Session principal is plain; requests may have been stored plain or Base64.
-    plain = _public_username(admin.get("username"))
-    names: list[str] = []
-    if plain:
-        names.append(plain)
-        try:
-            encoded = encode_send2_username(plain)
-            if encoded not in names:
-                names.append(encoded)
-        except ValueError:
-            pass
-    if not names:
-        return False
-    if use_mongodb():
-        from db.mongo import Repository
-
-        row = Repository("tenant_change_requests").find_one(
-            {"requester_username": {"$in": names}, "status": "approved"}
-        )
-        return row is not None
-    placeholders = ",".join("?" for _ in names)
-    with get_db_context() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM tenant_change_requests "
-            f"WHERE requester_username IN ({placeholders}) AND status = 'approved' LIMIT 1",
-            names,
-        ).fetchone()
-    return row is not None
+    return bool(str(admin.get("tenant_id") or "").strip())
 
 
 @router.get("/me")
@@ -1259,6 +1244,218 @@ def admin_me(current_admin: dict = Depends(get_current_admin)):
         "tenant_id": current_admin.get("tenant_id"),
         "onboarding_approved": _onboarding_approved(current_admin),
         "is_customer_care": _is_customer_care(current_admin),
+    }
+
+
+@router.post("/first-login/complete")
+def first_login_complete(
+    body: FirstLoginCompleteRequest,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Admin first-login setup: create tenant, bind WhatsApp, publish v1, scope self.
+
+    Send2-provisioned admins have no tenant_id until this succeeds. Super admins
+    do not create tenants for this path.
+    """
+    if current_admin.get("role") != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only a company admin can complete first-login setup",
+        )
+    if str(current_admin.get("tenant_id") or "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Setup already completed — this admin already has a tenant",
+        )
+
+    from shared.tenancy import cache as tenancy_cache
+    from shared.tenancy import loader as tenancy_loader
+    from shared.tenancy import schemas as tenancy_schemas
+    from shared.tenancy import store as tenancy_store
+    from shared.tenancy.schemas import require_known_vertical
+
+    tid = str(body.tenant_id or "").strip()
+    if not tid:
+        raise HTTPException(status_code=400, detail="tenant_id is required")
+    slug = (body.slug or tid).strip() or tid
+    display_name = (body.display_name or "").strip()
+    website = (body.website or "").strip()
+    snapshot = dict(body.snapshot or {})
+
+    try:
+        vertical = require_known_vertical(body.vertical or snapshot.get("vertical") or "generic")
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}") from exc
+    snapshot["vertical"] = vertical
+    if display_name and not snapshot.get("display_name"):
+        snapshot["display_name"] = display_name
+
+    conflict = tenancy_store.find_registry_conflict(tid, slug)
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"tenant '{tid}' already exists "
+                f"(conflicts with '{conflict.get('id')}' / slug '{conflict.get('slug')}')"
+            ),
+        )
+    if display_name:
+        name_clash = tenancy_store.find_tenant_by_display_name(display_name, exclude_tenant_id=tid)
+        if name_clash:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A tenant named '{display_name}' already exists "
+                    f"(id '{name_clash.get('id')}'). Pick a different company name."
+                ),
+            )
+
+    waba_raw = str(body.waba_phone_id or "").strip()
+    mobile_raw = str(body.mobile_number or "").strip()
+    waba_phone_id = ""
+    mobile_number = ""
+    if waba_raw:
+        try:
+            waba_phone_id = tenancy_store.normalize_waba_phone_id(waba_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if mobile_raw:
+        try:
+            mobile_number = tenancy_store.normalize_mobile_number(mobile_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    elif waba_raw:
+        # Prefer the WhatsApp number as the business mobile when it looks like one.
+        try:
+            mobile_number = tenancy_store.normalize_mobile_number(waba_raw)
+        except ValueError:
+            brand = snapshot.get("brand") if isinstance(snapshot.get("brand"), dict) else {}
+            support_phone = str((brand or {}).get("support_phone") or "").strip()
+            if support_phone:
+                try:
+                    mobile_number = tenancy_store.normalize_mobile_number(support_phone)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"mobile_number required: {exc}",
+                    ) from exc
+    if not mobile_number:
+        raise HTTPException(
+            status_code=422,
+            detail="A WhatsApp / business mobile number with country code is required",
+        )
+
+    clash = tenancy_store.find_tenant_by_mobile(mobile_number)
+    if clash and clash != tid:
+        raise HTTPException(
+            status_code=409,
+            detail=f"mobile_number already registered to tenant '{clash}'",
+        )
+    if waba_phone_id:
+        phone_clash = tenancy_store.find_tenant_by_phone_id(waba_phone_id)
+        if phone_clash and phone_clash != tid:
+            raise HTTPException(
+                status_code=409,
+                detail=f"phone id already bound to tenant '{phone_clash}'",
+            )
+
+    try:
+        tenancy_loader.build_profile(tid, db_layer={}, file_layer={}, include_db=False)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}") from exc
+
+    by = _public_username(current_admin.get("username"))
+    # Session principal uses the plain name; admins.username is Send2 Base64.
+    try:
+        db_username = encode_send2_username(by)
+    except ValueError:
+        db_username = str(current_admin.get("username") or by)
+
+    tenancy_store.ensure_tenant(
+        tid,
+        slug=slug,
+        vertical=vertical,
+        waba_phone_id=waba_phone_id,
+        mobile_number=mobile_number,
+        display_name=display_name,
+        status="active",
+    )
+    # Domain backfill (best-effort; same as create_tenant).
+    try:
+        from routes.tenants import _backfill_domain
+
+        _backfill_domain(None, tid, website)
+    except Exception:
+        pass
+
+    if waba_phone_id:
+        if not tenancy_store.set_waba_phone_id(tid, waba_phone_id):
+            raise HTTPException(
+                status_code=409,
+                detail="phone id already bound to another tenant",
+            )
+
+    try:
+        profile = tenancy_loader.validate_merged_profile(tid, snapshot)
+    except tenancy_loader.ProfileValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Profile failed validation, nothing published: {exc}",
+        ) from exc
+
+    missing = tenancy_schemas.missing_contact_fields(profile.brand)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing required profile fields: {', '.join(missing)}",
+        )
+
+    tenancy_loader.clamp_profile_features(snapshot, profile.vertical)
+    tenancy_store.save_draft(tid, snapshot, updated_by=by)
+    version = tenancy_store.publish_version(tid, snapshot, published_by=by)
+    tenancy_cache.purge(tid)
+
+    if not update_admin_record(db_username, tenant_id=tid):
+        update_admin_record(by, tenant_id=tid)
+    # Confirm scope landed (mongo update can report success with zero matches).
+    scoped = get_admin_by_username(db_username) or get_admin_by_username(by)
+    if not scoped or str(scoped.get("tenant_id") or "").strip() != tid:
+        raise HTTPException(
+            status_code=500,
+            detail="Tenant was created but the admin could not be scoped to it",
+        )
+
+    audit_kwargs = dict(
+        action="admin_first_login_complete",
+        actor=current_admin,
+        resource_type="tenant",
+        resource_id=tid,
+        tenant_id=tid,
+        details={
+            "vertical": vertical,
+            "version": version,
+            "display_name": display_name,
+            "website": website,
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+
+    logger.info(
+        "FIRST_LOGIN_COMPLETE | admin=%s | tenant=%s | vertical=%s | version=%s",
+        by, tid, vertical, version,
+    )
+    return {
+        "ok": True,
+        "tenant_id": tid,
+        "version": version,
+        "vertical": vertical,
+        "username": by,
+        "onboarding_approved": True,
+        "tenant": tenancy_store.get_tenant(tid),
     }
 
 

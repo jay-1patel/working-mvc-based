@@ -151,7 +151,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Tenant admins open their tenant Today (charts + needs-you).
     // customer_care opens the onboarding-users roster; other super admins
     // open the platform dashboard.
-    if (me.role !== 'super_admin' && me.tenant_id) {
+    if (me.role === 'admin' && !me.tenant_id) {
+      navigate('/register')
+    } else if (me.role !== 'super_admin' && me.tenant_id) {
       navigate(`/tenants/${encodeURIComponent(me.tenant_id)}/overview`)
     } else if (isCustomerCareIdentity(me)) {
       navigate('/onboarding-users')

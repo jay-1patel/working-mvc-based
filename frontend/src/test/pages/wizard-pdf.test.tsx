@@ -250,7 +250,10 @@ describe('applyStagedToDraft (unit)', () => {
   })
 })
 
-describe('register wizard PDF auto-fill (admin, awaiting approval)', () => {
+// PDF upload lived on the old "pick tenant" step. First-login no longer has
+// that step (admin creates the tenant at Finish); keep applyStagedToDraft
+// unit coverage above and skip the removed UI path.
+describe.skip('register wizard PDF auto-fill (admin, awaiting approval)', () => {
   it('stages the document, shows what was fetched, and protects existing values', async () => {
     testState.respond('POST /api/admin/tenants/acme/onboarding/stage', () => ({ body: STAGED }))
     await renderLockedAdminWizard()

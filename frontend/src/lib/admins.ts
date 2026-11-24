@@ -100,4 +100,24 @@ export const adminsApi = {
     }),
 
   me: () => api.get<AdminIdentity>('/api/auth/me'),
+
+  /** First-login setup: create tenant, bind WhatsApp, publish v1, scope self. */
+  firstLoginComplete: (body: {
+    tenant_id: string
+    slug?: string
+    vertical: string
+    display_name?: string
+    website?: string
+    waba_phone_id?: string
+    mobile_number?: string
+    snapshot: Record<string, unknown>
+  }) =>
+    api.post<{
+      ok: boolean
+      tenant_id: string
+      version: number
+      vertical: string
+      username: string
+      onboarding_approved: boolean
+    }>('/api/auth/first-login/complete', body),
 }

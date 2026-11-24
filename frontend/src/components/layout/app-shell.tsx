@@ -351,24 +351,11 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
                 )}
               >
                 <PlusCircle className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">Register a tenant</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/tenant-requests')}
-                className={cn(
-                  'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
-                  route.view === 'tenant-requests'
-                    ? 'bg-accsoft font-semibold text-acc'
-                    : 'text-txmuted hover:bg-paper hover:text-tx',
-                )}
-              >
-                <Send className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">My change requests</span>
+                <span className="min-w-0 flex-1 truncate">Set up chatbot</span>
               </button>
               <p className="px-3 pt-2 text-xs leading-relaxed text-txmuted">
-                Your registration is awaiting super admin approval. Once it is approved, the full
-                dashboard unlocks.
+                Add WhatsApp, your company, and business field. When you finish, the full console
+                unlocks with the menus for that field.
               </p>
             </div>
           ) : showOnboardingUsers ? (

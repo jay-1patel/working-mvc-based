@@ -101,19 +101,15 @@ describe('phase 4 — people (team)', () => {
 })
 
 describe('phase 4 — register wizard shapes', () => {
-  it('super admin gets the Company step only, with the create payload fields', async () => {
+  it('super admin sees first-login provisioning guidance (no create form)', async () => {
     await renderView('#/register')
-    expect(screen.getByRole('heading', { name: 'Register a tenant' })).toBeInTheDocument()
-    expect(screen.getByLabelText(/Company name/)).toBeInTheDocument()
-    expect(screen.getByLabelText(/Tenant id/)).toBeInTheDocument()
-    // One step only: the submit is the tenant creation, and no admin-step
-    // labels appear in the stepper.
-    expect(screen.getByRole('button', { name: 'Create tenant' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tenant setup' })).toBeInTheDocument()
+    expect(screen.getByText(/First-login is self-serve/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create tenant' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /WhatsApp/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Guardrails/ })).not.toBeInTheDocument()
   })
 
-  it('locked admin gets all seven steps in the stepper', async () => {
+  it('locked admin (no tenant) gets WhatsApp-first seven steps', async () => {
     testState.respond('GET /api/auth/me', () => ({
       body: {
         id: 2,
@@ -121,12 +117,12 @@ describe('phase 4 — register wizard shapes', () => {
         role: 'admin',
         email: 'admin@acme.example',
         permissions: Object.fromEntries(ALL_PERMISSIONS.map((k) => [k, true])),
-        tenant_id: T,
+        tenant_id: null,
         onboarding_approved: false,
       },
     }))
     await renderView('#/register')
-    for (const label of ['Tenant', 'WhatsApp', 'Brand & voice', 'Your business', 'Notifications', 'Guardrails', 'Review']) {
+    for (const label of ['WhatsApp', 'Company', 'Brand & voice', 'Your business', 'Notifications', 'Guardrails', 'Review']) {
       expect(await screen.findByText(label)).toBeInTheDocument()
     }
   })

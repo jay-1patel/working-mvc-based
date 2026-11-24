@@ -29,6 +29,7 @@ import { ChatHistoryPanel } from '@/components/tenants/chat-history-panel'
 import { CallbacksPanel } from '@/components/tenants/callbacks-panel'
 import { ComplaintsPanel } from '@/components/tenants/complaints-panel'
 import { WebsiteCrawlerPanel } from '@/components/tenants/website-crawler-panel'
+import { SettingsPanel } from '@/components/tenants/settings-panel'
 import { AdminChatPanel } from '@/components/tenants/admin-chat'
 
 import { IntentsEditor } from '@/components/tenants/intents-editor'
@@ -219,6 +220,7 @@ function Router() {
       {route.view === 'profile' && <ProfileEditor tenantId={route.tenantId} mode="brand" />}
       {route.view === 'profile-menu' && <ProfileEditor tenantId={route.tenantId} mode="menu" />}
       {route.view === 'menu' && <BotMenuPanel tenantId={route.tenantId} />}
+      {route.view === 'settings' && <SettingsPanel tenantId={route.tenantId} />}
       {route.view === 'menu-edit' && (
         <MenuEditor tenantId={route.tenantId} focusId={route.query.get('focus')} />
       )}
@@ -281,6 +283,7 @@ const KNOWN_VIEWS = [
   'profile',
   'profile-menu',
   'menu',
+  'settings',
   'menu-edit',
   'intents',
   'records',

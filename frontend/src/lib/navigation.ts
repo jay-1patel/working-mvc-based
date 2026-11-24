@@ -17,6 +17,7 @@
  *   callbacks         → Callbacks                customers → Customers
  *   menu              → WhatsApp menu (under WhatsApp dropdown)
  *   profile-menu      → Profile menu (hours + notifications, under WhatsApp dropdown)
+ *   settings          → Settings (customer KB gaps / unanswered queries, under WhatsApp dropdown)
  *   distributors      → Partners                 campaigns → Send an offer
  *   intents           → Questions the bot understands
  *   versions          → Versions                 tokens    → Connections
@@ -48,6 +49,7 @@ import {
   Package,
   Phone,
   ScrollText,
+  Settings,
   ShoppingCart,
   Truck,
   Users,
@@ -226,6 +228,7 @@ export function buildTenantNav(opts: {
       children: [
         { id: 'menu', label: 'WhatsApp menu', icon: ListTree, permissions: ['manage_operations'] },
         { id: 'profile-menu', label: 'Profile menu', icon: Clock, permissions: ['manage_operations'] },
+        { id: 'settings', label: 'Settings', icon: Settings, permissions: ['manage_operations'] },
       ],
     },
     {

@@ -73,7 +73,11 @@ describe('remake — grouped navigation', () => {
     expect(labels.indexOf('Profile')).toBe(labels.indexOf('Chats') + 1)
     expect(labels).toContain('WhatsApp')
     const whatsapp = nav.find((i) => i.id === 'whatsapp')
-    expect(whatsapp?.children?.map((c) => c.label)).toEqual(['WhatsApp menu', 'Profile menu'])
+    expect(whatsapp?.children?.map((c) => c.label)).toEqual([
+      'WhatsApp menu',
+      'Profile menu',
+      'Settings',
+    ])
     expect(labels).toContain('Website crawler')
     expect(labels).toContain('Customers')
     expect(labels).toContain('Connections')

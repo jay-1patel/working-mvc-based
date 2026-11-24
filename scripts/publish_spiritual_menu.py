@@ -190,11 +190,15 @@ def main() -> int:
             for key, value in spec.items():
                 existing.setdefault(key, value)
 
+    vocabulary = dict(base.get("vocabulary") or {})
+    vocabulary["browse_label"] = "Options"
+
     draft = {
         **base,
         "vertical": base.get("vertical") or "generic",
         "display_name": base.get("display_name") or "LEEWAY SOFT TECH PRIVATE LIMITED",
         "brand": brand,
+        "vocabulary": vocabulary,
         "intents": intents,
         "menu": {
             "key": "kb_main",

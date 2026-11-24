@@ -71,10 +71,10 @@ class FeatureGatingTests(unittest.TestCase):
         live = get_tenant_profile("gate-test")
 
         visible = {b.id for b in live.menu.visible_buttons(live.features)}
-        self.assertIn("menu_offerings", visible)
+        self.assertNotIn("menu_offerings", visible)  # removed from generic defaults
         self.assertIn("menu_callback", visible)
         self.assertIn("menu_complaint", visible)
-        # The three the operator switched off disappear from the menu.
+        # The features the operator switched off disappear from the menu.
         self.assertNotIn("menu_faq", visible)
         self.assertNotIn("menu_human", visible)
 
@@ -90,7 +90,22 @@ class FeatureGatingTests(unittest.TestCase):
         self.assertFalse(is_enabled("gate-test", "human_handover"))
 
     def test_menu_button_enabled_is_independent_of_feature_flags(self):
-        # Missing `enabled` in older profile layers keeps the row visible.
+        # Explicit offerings row — generic defaults no longer ship menu_offerings.
+        tenancy_store.save_draft(
+            "gate-test",
+            {
+                "menu": {
+                    "buttons": [
+                        {
+                            "id": "menu_offerings",
+                            "title": "Offerings",
+                            "enabled": True,
+                            "requires_feature": "offerings",
+                        }
+                    ]
+                }
+            },
+        )
         profile, _ = self._publish()
         live = get_tenant_profile("gate-test")
         self.assertTrue(next(b for b in live.menu.buttons if b.id == "menu_offerings").enabled)

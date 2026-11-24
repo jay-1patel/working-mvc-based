@@ -727,7 +727,7 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       browse: 'Our Cars',
       catalog: 'Brochure',
       lead: 'sales enquiry',
-      leadAction: 'Book Test Drive',
+      leadAction: 'Test Drive',
     },
     recommended: [
       'offerings',

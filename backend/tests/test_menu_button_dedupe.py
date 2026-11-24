@@ -229,9 +229,11 @@ class MenuButtonDedupeTests(unittest.TestCase):
                 "Block Lost Card",
             ],
         )
+        # Location / Branch & Support interactive rows are dropped on sanitize.
         self.assertEqual(buttons[0]["id"], "menu_products")
         self.assertEqual(buttons[0]["intent"], "menu_products")
-        self.assertEqual(buttons[7]["intent"], "branch_locator")
+        self.assertNotIn("menu_branch", {b["id"] for b in buttons})
+        self.assertNotIn("Branch & Support", [b["title"] for b in buttons])
         self.assertEqual(buttons[-1]["flow"], "raise_ticket")
 
     def test_ten_extracted_menu_items_render_as_ten_whatsapp_rows(self):
@@ -631,7 +633,6 @@ class MenuButtonDedupeTests(unittest.TestCase):
                 "menu_products": {"intent": "product_details", "flow": None, "req": "products_schemes"},
                 "menu_cards": {"intent": "product_details", "flow": None, "req": "offering_details"},
                 "menu_eligibility": {"intent": None, "flow": "enquire", "req": "lead_capture"},
-                "menu_branch": {"intent": "branch_locator", "flow": None, "req": None},
                 "menu_human": {"intent": None, "flow": "book_callback", "req": "human_handover"},
             },
             "finance": {

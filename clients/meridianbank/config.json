@@ -386,19 +386,6 @@
         "intent": null
       },
       {
-        "id": "menu_branch",
-        "title": "Branch & Support",
-        "intent": "branch_support",
-        "description": "Find us / contact support",
-        "section": "🆘 Support",
-        "icon": "📍",
-        "sort_order": 5,
-        "enabled": true,
-        "requires_feature": null,
-        "out_of_hours_only": false,
-        "flow": null
-      },
-      {
         "id": "menu_grievance",
         "title": "Raise a Complaint",
         "description": "Register a grievance",
@@ -468,13 +455,6 @@
       "enabled": true,
       "flow": "enquire",
       "requires_feature": "lead_capture"
-    },
-    {
-      "name": "branch_support",
-      "answer": "📍 *Meridian Bank — Branch & Support*\n\n• *Helpline:* 1800 123 4567 (24x7 for fraud & card blocking).\n• *Hours:* Mon–Fri 09:00–18:00 IST.\n• *Email:* care@meridianbank.com\n• *Grievance Officer:* grievance@meridianbank.com(Complaints acknowledged in 24 hours).",
-      "keywords": [],
-      "examples": [],
-      "enabled": true
     },
     {
       "name": "greeting",

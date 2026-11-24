@@ -89,8 +89,8 @@ VERTICAL_CTA_TITLES = {
     "finance": "Request Proposal",
     "it_software": "Get a Quote",
     "ecommerce": "Buy / Enquire",
-    "automotive": "Book Test Drive",
-    "generic": "Enquire Now",
+    "automotive": "Test Drive",
+    "generic": "Enquire",
 }
 
 # send2 cta_url display_text (max 20 chars) — one URL button, never mixed with replies.

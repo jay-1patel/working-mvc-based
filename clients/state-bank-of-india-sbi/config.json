@@ -155,15 +155,6 @@
         "flow": "raise_ticket"
       },
       {
-        "id": "menu_branch",
-        "title": "Branch & Support",
-        "description": "Find us / contact support",
-        "section": "Support",
-        "sort_order": 8,
-        "enabled": true,
-        "intent": "branch_locator"
-      },
-      {
         "id": "menu_human",
         "title": "Talk to Human",
         "description": "Chat with our team",

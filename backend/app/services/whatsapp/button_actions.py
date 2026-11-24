@@ -58,77 +58,82 @@ logger = logging.getLogger(__name__)
 #    NOTE: titles must stay <= 20 chars (WhatsApp reply-button limit).
 # ---------------------------------------------------------------------------
 
+# WhatsApp reply-button titles must be <= 20 chars. Emoji often counts as 2,
+# so keep labels short — long text gets cut mid-word on the phone.
 BUTTONS: dict[str, str] = {
     # general / navigation
-    "main_menu": "🏠 Main Menu",
-    "contact_support": "💬 Contact Support",
-    "menu_human": "🙋 Talk to Human",
+    "main_menu": "Main Menu",
+    "contact_support": "Support",
+    "menu_human": "Talk to Human",
     # flows
-    "book_callback": "📞 Book a Callback",
-    "get_quote": "📝 Get a Quote",
-    "raise_ticket": "🆘 Raise Ticket",
+    "book_callback": "Callback",
+    "get_quote": "Get Quote",
+    "raise_ticket": "Raise Ticket",
     # IT / Software & Services
-    "menu_services": "🛠️ Our Services",
-    "menu_technologies": "💻 Technologies",
-    "menu_projects": "📁 Projects",
-    "menu_brochure": "📄 Service Brochure",
-    "menu_careers": "💼 Careers",
-    "menu_benefits": "🎁 Benefits",
-    "menu_quote": "📝 Get a Quote",
-    "menu_callback": "📞 Book a Callback",
-    "menu_support": "🆘 Support",
+    "menu_services": "Services",
+    "menu_technologies": "Technologies",
+    "menu_projects": "Projects",
+    "menu_brochure": "Brochure",
+    "menu_careers": "Careers",
+    "menu_benefits": "Benefits",
+    "menu_quote": "Get Quote",
+    "menu_callback": "Callback",
+    "menu_support": "Support",
     # Healthcare
-    "menu_treatments": "🩺 Treatments",
-    "menu_specialities": "🏥 Specialities",
-    "menu_appointment": "📅 Book Appointment",
-    "menu_offerings": "📋 Offerings",
+    "menu_treatments": "Treatments",
+    "menu_specialities": "Specialities",
+    "menu_appointment": "Book Appt",
+    "menu_offerings": "Offerings",
     # Banking
     # D4: menu_products is picked cross-vertical (banking AND ecommerce
     # branches) — its flat default must be neutral, never banking jargon.
-    # A banking tenant still sees "Banking Products" via its OWN menu title
-    # (tenant titles win in get_tenant_action_registry).
-    "menu_products": "🛍️ View Products",
-    "menu_cards": "💳 Cards",
-    "menu_loans": "🏠 Loans",
-    "menu_eligibility": "✅ Check Eligibility",
-    "menu_grievance": "📝 Raise Complaint",
-    "menu_branch": "📍 Branch & Support",
+    # A banking tenant still sees its OWN menu title via get_tenant_action_registry.
+    "menu_products": "Products",
+    "menu_cards": "Cards",
+    "menu_loans": "Loans",
+    "menu_eligibility": "Eligibility",
+    "menu_grievance": "Complaint",
     # Finance
-    "menu_proposal": "📝 Request Proposal",
-    "menu_faq": "❓ FAQs",
+    "menu_proposal": "Proposal",
+    "menu_faq": "FAQs",
     # Tours & Travel
-    "menu_destinations": "🗺️ Destinations",
-    "menu_packages": "🎒 Tour Packages",
-    "menu_booking_policy": "📋 Booking Policy",
-    "menu_visa": "🛂 Visa & Documents",
+    "menu_destinations": "Destinations",
+    "menu_packages": "Packages",
+    "menu_booking_policy": "Booking Policy",
+    "menu_visa": "Visa Docs",
     # E-commerce / Retail
-    "menu_catalogue": "📄 Brochure",
-    "menu_new_arrivals": "✨ New Releases",
-    "menu_about": "🏢 Company Policies",
-    "menu_discounts": "🎁 Offers & Deals",
-    "menu_gst": "🧾 GST Info",
-    "menu_credit_policy": "💳 Credit Policy",
-    "menu_complaint": "📝 Raise Complaint",
-    "menu_view_cart": "🛒 View Cart",
+    "menu_catalogue": "Brochure",
+    "menu_new_arrivals": "New Releases",
+    "menu_about": "Policies",
+    "menu_discounts": "Offers",
+    "menu_gst": "GST Info",
+    "menu_credit_policy": "Credit Policy",
+    "menu_complaint": "Complaint",
+    "menu_view_cart": "View Cart",
+    # Automotive
+    "menu_models": "Our Cars",
+    "menu_test_drive": "Test Drive",
+    "menu_onroad_price": "On-Road Price",
+    "menu_customer_care": "Customer Care",
     # policies / support legacy
-    "privacy_policy": "🔒 Privacy Policy",
-    "terms_conditions": "📄 Terms & Conditions",
-    "company_policy": "🏢 Company Policies",
+    "privacy_policy": "Privacy",
+    "terms_conditions": "Terms",
+    "company_policy": "Policies",
     # orders / logistics legacy
-    "return_policy": "🔁 Returns & Refunds",      # was "↩️ Return & Refund Policy" (25 chars, got chopped)
-    "track_order": "📦 Track Order",
-    "shipping_policy": "🚚 Shipping Policy",       # was "🚚 Shipping & Delivery" (21 chars)
-    "order_policy": "🧾 Orders & Payments",        # was "🧾 Order, Payment & GST" (22 chars)
+    "return_policy": "Returns",
+    "track_order": "Track Order",
+    "shipping_policy": "Shipping",
+    "order_policy": "Orders",
     # products legacy
-    "product_prices": "💰 Product Prices",
-    "new_arrival": "✨ New Releases",
-    "product_ingredients": "🥜 Ingredients Info",  # was "🥜 Ingredients & Nutrition" (25 chars)
-    "allergen_info": "⚠️ Allergen Info",
-    "shelf_life": "📅 Shelf Life",                 # was "📅 Shelf Life & Storage" (22 chars)
+    "product_prices": "Prices",
+    "new_arrival": "New Releases",
+    "product_ingredients": "Ingredients",
+    "allergen_info": "Allergens",
+    "shelf_life": "Shelf Life",
     # B2B legacy
-    "moq_policy": "📊 MOQ & Bulk Orders",
-    "credit_period_policy": "💳 Credit Period",    # was "💳 Credit Period & Terms" (23 chars)
-    "distributor_info": "🤝 Distributorship",
+    "moq_policy": "MOQ / Bulk",
+    "credit_period_policy": "Credit Period",
+    "distributor_info": "Distributor",
 }
 
 BUTTON_FEATURE_REQUIREMENTS: dict[str, str] = {
@@ -653,8 +658,12 @@ def get_contextual_buttons(
         elif any(k in q for k in ("loan", "emi", "interest", "home loan", "personal loan", "car loan", "borrow")):
             picked_ids.append("menu_loans")
             picked_ids.append("menu_eligibility")
-        elif any(k in q for k in ("branch", "atm", "locator", "timing", "address", "ifsc", "location")):
-            picked_ids.append("menu_branch")
+        elif any(k in q for k in ("branch", "atm", "locator", "timing", "address", "ifsc", "location", "nearest")):
+            # No location / nearest-branch interactive buttons — route to support.
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
+            if profile and profile.features.is_on("callback"):
+                picked_ids.append("menu_callback")
             picked_ids.append("menu_products")
         elif any(k in q for k in ("fraud", "stolen", "unauthorized", "lost", "complaint", "grievance", "dispute")):
             if profile and profile.features.is_on("complaints"):
@@ -665,7 +674,7 @@ def get_contextual_buttons(
             picked_ids.append("menu_products")
             picked_ids.append("menu_cards")
         else:
-            picked_ids = ["menu_products", "menu_cards", "menu_branch"]
+            picked_ids = ["menu_products", "menu_cards", "menu_callback"]
         picked_ids.append("main_menu")
 
     # 3. Finance & Advisory Vertical

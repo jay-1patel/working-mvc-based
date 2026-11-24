@@ -144,6 +144,35 @@ def _menu_items_from_vertical_defaults(vertical: str, *, limit: int = 10) -> Lis
     return items
 
 
+# Location / branch-locator interactive rows are not used — drop on sanitize.
+_LOCATION_MENU_ID_KEYS = frozenset({
+    "menu_branch", "menu_location", "menu_nearest_branch", "share_location",
+    "nearest_branch", "find_branch", "locate_us", "get_directions",
+    "send_location", "share_your_location", "branch_locator", "branch_support",
+})
+_LOCATION_MENU_TITLE_RE = re.compile(
+    r"\b("
+    r"nearest\s+branch|share\s+(your\s+)?location|send\s+location|"
+    r"find\s+(my\s+)?(nearest\s+)?branch|branch\s*&\s*support|"
+    r"branch\s+and\s+support|locate\s+us|get\s+directions|"
+    r"atm\s+locator|branch\s+locator"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_location_menu_button(item: Dict[str, Any]) -> bool:
+    """True for unused location / nearest-branch interactive menu rows."""
+    bid = _normalize_menu_button_key(str(item.get("id") or ""))
+    title = str(item.get("title") or "")
+    intent = _normalize_menu_button_key(str(item.get("intent") or ""))
+    if bid in _LOCATION_MENU_ID_KEYS or intent in _LOCATION_MENU_ID_KEYS:
+        return True
+    if _LOCATION_MENU_TITLE_RE.search(title):
+        return True
+    return False
+
+
 def _sanitize_menu_buttons(
     menu_items_raw: List[Any],
     *,
@@ -181,6 +210,8 @@ def _sanitize_menu_buttons(
 
     for i, item in enumerate(menu_items_raw or []):
         if not isinstance(item, dict):
+            continue
+        if _is_location_menu_button(item):
             continue
         title = (item.get("title") or f"Option {i + 1}").strip()[:24]
         desc = (item.get("description") or "").strip()[:72]

@@ -11,6 +11,7 @@ runtime reads ``profile.vertical`` and looks the hints up there.
 from __future__ import annotations
 
 import logging
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -210,9 +211,9 @@ _ECOMMERCE = {
              "intent": "catalogue_request"},
             {"id": "menu_new_arrivals", "title": "New Releases", "description": "Fresh releases this month",
              "section": "🛍️ Products", "icon": "✨", "sort_order": 2, "intent": "new_arrivals"},
-            {"id": "menu_about", "title": "Company Policies", "description": "About us & company policies",
+            {"id": "menu_about", "title": "Policies", "description": "About us & company policies",
              "section": "ℹ️ Info", "icon": "🏢", "sort_order": 3, "intent": "policy_query"},
-            {"id": "menu_discounts", "title": "Discounts & Offers", "description": "Current deals & bulk discounts",
+            {"id": "menu_discounts", "title": "Offers", "description": "Current deals & bulk discounts",
              "section": "ℹ️ Info", "icon": "🎁", "sort_order": 4, "intent": "offer_discount"},
             {"id": "menu_gst", "title": "GST Info", "description": "GST number & tax invoice details",
              "section": "ℹ️ Info", "icon": "🧾", "sort_order": 5, "intent": "policy_query"},
@@ -354,17 +355,17 @@ _IT_SOFTWARE = {
              "intent": "technologies"},
             {"id": "menu_projects", "title": "Projects", "description": "Work we have delivered",
              "section": "🏢 Company", "icon": "📁", "sort_order": 2, "intent": "projects"},
-            {"id": "menu_brochure", "title": "Service Brochure", "description": "Download our brochure",
+            {"id": "menu_brochure", "title": "Brochure", "description": "Download our brochure",
              "section": "🏢 Company", "icon": "📄", "sort_order": 3, "requires_feature": "brochure_pdf",
              "intent": "brochure_request"},
             {"id": "menu_careers", "title": "Careers", "description": "Open roles & hiring process",
              "section": "🏢 Company", "icon": "💼", "sort_order": 4, "intent": "careers"},
             {"id": "menu_benefits", "title": "Benefits", "description": "Why work with us",
              "section": "🏢 Company", "icon": "🎁", "sort_order": 5, "intent": "benefits"},
-            {"id": "menu_quote", "title": "Get a Quote", "description": "Tell us about your project",
+            {"id": "menu_quote", "title": "Get Quote", "description": "Tell us about your project",
              "section": "📞 Talk To Us", "icon": "📝", "sort_order": 6, "requires_feature": "quote",
              "flow": "get_quote"},
-            {"id": "menu_callback", "title": "Book a Callback", "description": "Have us call you back",
+            {"id": "menu_callback", "title": "Callback", "description": "Have us call you back",
              "section": "📞 Talk To Us", "icon": "📞", "sort_order": 7, "requires_feature": "callback",
              "flow": "book_callback"},
             {"id": "menu_support", "title": "Support", "description": "Existing client support",
@@ -536,17 +537,17 @@ _TOURS_TRAVEL = {
             {"id": "menu_packages", "title": "Packages", "description": "Holidays & tour packages",
              "section": "✈️ Travel", "icon": "🎒", "sort_order": 1, "requires_feature": "offerings",
              "intent": "package_details"},
-            {"id": "menu_brochure", "title": "Travel Brochure", "description": "Download our brochure",
+            {"id": "menu_brochure", "title": "Brochure", "description": "Download our brochure",
              "section": "✈️ Travel", "icon": "📄", "sort_order": 2, "requires_feature": "brochure_pdf",
              "intent": "brochure_request"},
             {"id": "menu_booking_policy", "title": "Booking Policy", "description": "Cancellations & payments",
              "section": "ℹ️ Info", "icon": "📋", "sort_order": 3, "intent": "booking_policy"},
-            {"id": "menu_visa", "title": "Visa & Documents", "description": "What you need to travel",
+            {"id": "menu_visa", "title": "Visa Docs", "description": "What you need to travel",
              "section": "ℹ️ Info", "icon": "🛂", "sort_order": 4, "intent": "visa_documents"},
             {"id": "menu_quote", "title": "Enquire", "description": "Plan a trip with us",
              "section": "📞 Talk To Us", "icon": "📝", "sort_order": 5, "requires_feature": "lead_capture",
              "flow": "enquire"},
-            {"id": "menu_callback", "title": "Book a Callback", "description": "Have us call you back",
+            {"id": "menu_callback", "title": "Callback", "description": "Have us call you back",
              "section": "📞 Talk To Us", "icon": "📞", "sort_order": 6, "requires_feature": "callback",
              "flow": "book_callback"},
             {"id": "menu_support", "title": "Support", "description": "Existing booking support",
@@ -645,7 +646,7 @@ _BANKING = {
         "footer": "Or type your question",
         "button_text": "Show Options",
         "buttons": [
-            {"id": "menu_products", "title": "Banking Products", "description": "Accounts, cards & loans",
+            {"id": "menu_products", "title": "Products", "description": "Accounts, cards & loans",
              "section": "🏦 Products", "icon": "🏦", "sort_order": 0, "requires_feature": "products_schemes",
              "intent": "product_details"},
             {"id": "menu_cards", "title": "Cards", "description": "Credit & debit card help",
@@ -654,19 +655,17 @@ _BANKING = {
             {"id": "menu_loans", "title": "Loans", "description": "Personal, home & business loans",
              "section": "🏦 Products", "icon": "🏠", "sort_order": 2, "requires_feature": "offering_details",
              "intent": "product_details"},
-            {"id": "menu_eligibility", "title": "Check Eligibility", "description": "Get a quick check",
+            {"id": "menu_eligibility", "title": "Eligibility", "description": "Get a quick check",
              "section": "📞 Talk To Us", "icon": "✅", "sort_order": 3, "requires_feature": "lead_capture",
              "flow": "enquire"},
-            {"id": "menu_callback", "title": "Request a Callback", "description": "Have us call you back",
+            {"id": "menu_callback", "title": "Callback", "description": "Have us call you back",
              "section": "📞 Talk To Us", "icon": "📞", "sort_order": 4, "requires_feature": "callback",
              "flow": "book_callback"},
-            {"id": "menu_grievance", "title": "Raise a Complaint", "description": "Register a grievance",
+            {"id": "menu_grievance", "title": "Complaint", "description": "Register a grievance",
              "section": "🆘 Support", "icon": "📝", "sort_order": 5, "requires_feature": "complaints",
              "flow": "raise_ticket"},
-            {"id": "menu_branch", "title": "Branch & Support", "description": "Find us / contact support",
-             "section": "🆘 Support", "icon": "📍", "sort_order": 6, "intent": "branch_locator"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
-             "section": "🆘 Support", "icon": "🙋", "sort_order": 7, "requires_feature": "human_handover", "flow": "book_callback"},
+             "section": "🆘 Support", "icon": "🙋", "sort_order": 6, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
     "intents": _intents(
@@ -690,8 +689,6 @@ _BANKING = {
         {"name": "callback_request", "examples": ["call me back", "arrange a call"],
          "keywords": ["call back", "callback", "phone call", "speak to someone"],
          "requires_feature": "callback", "flow": "book_callback"},
-        {"name": "branch_locator", "examples": ["find my nearest branch", "branch timings"],
-         "keywords": ["branch", "atm", "nearest", "timings", "hours", "location", "ifsc"]},
         _PRICING,
         _SUPPORT,
         _CONTACT_HUMAN,
@@ -763,16 +760,16 @@ _FINANCE = {
             {"id": "menu_services", "title": "Our Services", "description": "What we offer",
              "section": "💼 Services", "icon": "💼", "sort_order": 0, "requires_feature": "services",
              "intent": "service_enquiry"},
-            {"id": "menu_brochure", "title": "Services Brochure", "description": "Download our brochure",
+            {"id": "menu_brochure", "title": "Brochure", "description": "Download our brochure",
              "section": "💼 Services", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf",
              "intent": "brochure_request"},
             {"id": "menu_faq", "title": "FAQs", "description": "Common questions answered",
              "section": "ℹ️ Info", "icon": "❓", "sort_order": 2, "requires_feature": "faq",
              "intent": "compliance_query"},
-            {"id": "menu_proposal", "title": "Request a Proposal", "description": "Tell us about your goals",
+            {"id": "menu_proposal", "title": "Proposal", "description": "Tell us about your goals",
              "section": "📞 Talk To Us", "icon": "📝", "sort_order": 3, "requires_feature": "quote",
              "flow": "get_quote"},
-            {"id": "menu_callback", "title": "Book a Callback", "description": "Have us call you back",
+            {"id": "menu_callback", "title": "Callback", "description": "Have us call you back",
              "section": "📞 Talk To Us", "icon": "📞", "sort_order": 4, "requires_feature": "callback",
              "flow": "book_callback"},
             {"id": "menu_support", "title": "Support", "description": "Existing client support",
@@ -881,10 +878,10 @@ _HEALTHCARE = {
              "section": "🩺 Care", "icon": "🩺", "sort_order": 0, "requires_feature": "offerings", "intent": "treatments"},
             {"id": "menu_specialities", "title": "Specialities", "description": "Our departments",
              "section": "🩺 Care", "icon": "🏥", "sort_order": 1, "requires_feature": "offering_details", "intent": "specialities"},
-            {"id": "menu_appointment", "title": "Book Appointment", "description": "See a doctor",
+            {"id": "menu_appointment", "title": "Book Appt", "description": "See a doctor",
              "section": "📞 Talk To Us", "icon": "📅", "sort_order": 2, "requires_feature": "book_appointment",
              "flow": "book_appointment"},
-            {"id": "menu_callback", "title": "Request a Callback", "description": "Have us call you back",
+            {"id": "menu_callback", "title": "Callback", "description": "Have us call you back",
              "section": "📞 Talk To Us", "icon": "📞", "sort_order": 3, "requires_feature": "callback",
              "flow": "book_callback"},
             {"id": "menu_grievance", "title": "Feedback", "description": "Share feedback or a complaint",
@@ -980,14 +977,14 @@ _GENERIC = {
         "footer": "Or type your question directly",
         "button_text": "Show Options",
         "buttons": [
-            {"id": "menu_offerings", "title": "What We Offer", "description": "Browse our offerings",
+            {"id": "menu_offerings", "title": "Offerings", "description": "Browse our offerings",
              "section": "General", "icon": "📋", "sort_order": 0, "requires_feature": "offerings"},
             {"id": "menu_faq", "title": "FAQs", "description": "Common questions",
              "section": "General", "icon": "❓", "sort_order": 1, "requires_feature": "faq"},
-            {"id": "menu_callback", "title": "Request a Callback", "description": "Have us call you back",
+            {"id": "menu_callback", "title": "Callback", "description": "Have us call you back",
              "section": "Talk To Us", "icon": "📞", "sort_order": 2, "requires_feature": "callback",
              "flow": "book_callback"},
-            {"id": "menu_complaint", "title": "Raise a Complaint", "description": "Tell us what went wrong",
+            {"id": "menu_complaint", "title": "Complaint", "description": "Tell us what went wrong",
              "section": "Support", "icon": "📝", "sort_order": 3, "requires_feature": "complaints",
              "flow": "raise_ticket"},
             {"id": "menu_human", "title": "Talk to Human", "description": "Chat with our team",
@@ -1057,23 +1054,23 @@ _REAL_ESTATE = {
         "footer": "Or type your question directly",
         "button_text": "Explore Options",
         "buttons": [
-            {"id": "menu_properties", "title": "Explore Properties", "description": "2, 3 & 4 BHK apartments & villas",
+            {"id": "menu_properties", "title": "Properties", "description": "2, 3 & 4 BHK apartments & villas",
              "section": "🏢 Properties", "icon": "🏙️", "sort_order": 0, "requires_feature": "offerings", "intent": "property_listings"},
-            {"id": "menu_projects", "title": "Ongoing Projects", "description": "Prime locations & specifications",
+            {"id": "menu_projects", "title": "Projects", "description": "Prime locations & specifications",
              "section": "🏢 Properties", "icon": "🏗️", "sort_order": 1, "requires_feature": "offering_details", "intent": "project_details"},
-            {"id": "menu_brochure", "title": "Project Brochure", "description": "Download e-brochure & floor plans",
+            {"id": "menu_brochure", "title": "Brochure", "description": "Download e-brochure & floor plans",
              "section": "🏢 Properties", "icon": "📄", "sort_order": 2, "requires_feature": "brochure_pdf", "intent": "brochure_request"},
-            {"id": "menu_site_visit", "title": "Schedule Site Visit", "description": "Free cab pick-up & guided site tour",
+            {"id": "menu_site_visit", "title": "Site Visit", "description": "Free cab pick-up & guided site tour",
              "section": "📞 Bookings", "icon": "🚗", "sort_order": 3, "requires_feature": "book_appointment", "flow": "book_callback"},
-            {"id": "menu_pricing_plan", "title": "Pricing & Plans", "description": "Flexible payment schemes & home loans",
+            {"id": "menu_pricing_plan", "title": "Pricing", "description": "Flexible payment schemes & home loans",
              "section": "📞 Bookings", "icon": "💳", "sort_order": 4, "requires_feature": "quote", "intent": "pricing_plan"},
             {"id": "menu_rera_legal", "title": "RERA & Legal", "description": "Approvals, titles & RERA registration",
              "section": "ℹ️ Info", "icon": "📜", "sort_order": 5, "intent": "rera_approvals"},
-            {"id": "menu_callback", "title": "Request a Callback", "description": "Connect with property advisor",
+            {"id": "menu_callback", "title": "Callback", "description": "Connect with property advisor",
              "section": "📞 Bookings", "icon": "📞", "sort_order": 6, "requires_feature": "callback", "flow": "book_callback"},
-            {"id": "menu_support", "title": "Customer Support", "description": "Existing buyer queries & tickets",
+            {"id": "menu_support", "title": "Support", "description": "Existing buyer queries & tickets",
              "section": "🆘 Support", "icon": "🆘", "sort_order": 7, "requires_feature": "complaints", "flow": "raise_ticket"},
-            {"id": "menu_human", "title": "Talk to Advisor", "description": "Chat with our sales team",
+            {"id": "menu_human", "title": "Talk to Sales", "description": "Chat with our sales team",
              "section": "🆘 Support", "icon": "🙋", "sort_order": 8, "requires_feature": "human_handover", "flow": "book_callback"},
         ],
     },
@@ -1287,11 +1284,11 @@ _AUTOMOTIVE = {
         "browse_label": "Our Cars", "catalog_label": "Brochure",
         "catalog_noun": "brochure",
         "order_noun": "test drive", "order_noun_plural": "test drives",
-        "cart_noun": "shortlist", "checkout_label": "Book Test Drive",
+        "cart_noun": "shortlist", "checkout_label": "Test Drive",
         "brochure_label": "Brochure", "brochure_noun": "brochure",
         "offer_noun": "offer", "offer_noun_plural": "offers",
-        "lead_noun": "sales enquiry", "enquiry_label": "Book Test Drive",
-        "quote_label": "Get On-Road Price", "callback_label": "Book Test Drive",
+        "lead_noun": "sales enquiry", "enquiry_label": "Test Drive",
+        "quote_label": "On-Road Price", "callback_label": "Test Drive",
         "support_label": "Customer Care", "track_label": "Track Service",
     },
     "menu": {
@@ -1304,9 +1301,9 @@ _AUTOMOTIVE = {
              "section": "Cars", "icon": "🚗", "sort_order": 0, "requires_feature": "offerings", "intent": "model_enquiry"},
             {"id": "menu_brochure", "title": "Brochure", "description": "Download model brochure",
              "section": "Cars", "icon": "📄", "sort_order": 1, "requires_feature": "brochure_pdf", "intent": "brochure_request"},
-            {"id": "menu_test_drive", "title": "Book Test Drive", "description": "Free test drive at showroom or home",
+            {"id": "menu_test_drive", "title": "Test Drive", "description": "Free test drive at showroom or home",
              "section": "Sales", "icon": "🔑", "sort_order": 2, "requires_feature": "callback", "flow": "book_callback"},
-            {"id": "menu_onroad_price", "title": "Get On-Road Price", "description": "Written on-road quote for your city",
+            {"id": "menu_onroad_price", "title": "On-Road Price", "description": "Written on-road quote for your city",
              "section": "Sales", "icon": "💰", "sort_order": 3, "requires_feature": "quote", "flow": "get_quote"},
             {"id": "menu_human", "title": "Talk to Sales", "description": "Chat with our sales team",
              "section": "Sales", "icon": "🙋", "sort_order": 4, "requires_feature": "human_handover", "flow": "book_callback"},
@@ -1488,6 +1485,35 @@ def foreign_vertical_intent_names(vertical: str | None) -> set[str]:
     return foreign_only
 
 
+# Location / nearest-branch interactive rows are unused product-wide.
+_LOCATION_MENU_BUTTON_IDS = frozenset({
+    "menu_branch", "menu_location", "menu_nearest_branch", "share_location",
+    "nearest_branch", "find_branch", "locate_us", "get_directions",
+    "send_location", "share_your_location",
+})
+_LOCATION_MENU_INTENT_NAMES = frozenset({
+    "branch_locator", "branch_support", "nearest_branch", "share_location",
+})
+_LOCATION_MENU_TITLE_RE = re.compile(
+    r"\b("
+    r"nearest\s+branch|share\s+(your\s+)?location|send\s+location|"
+    r"find\s+(my\s+)?(nearest\s+)?branch|branch\s*&\s*support|"
+    r"branch\s+and\s+support|locate\s+us|get\s+directions|"
+    r"atm\s+locator|branch\s+locator"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_unused_location_menu_button(button: Dict[str, Any]) -> bool:
+    bid = str(button.get("id") or "").strip().lower()
+    intent = str(button.get("intent") or "").strip().lower()
+    title = str(button.get("title") or "")
+    if bid in _LOCATION_MENU_BUTTON_IDS or intent in _LOCATION_MENU_INTENT_NAMES:
+        return True
+    return bool(_LOCATION_MENU_TITLE_RE.search(title))
+
+
 def scrub_foreign_vertical_artifacts(layer: Dict[str, Any], vertical: str | None = None) -> Dict[str, Any]:
     """Drop menu rows / intents that only exist on other vertical kits.
 
@@ -1495,17 +1521,24 @@ def scrub_foreign_vertical_artifacts(layer: Dict[str, Any], vertical: str | None
     MakeMyTrip draft that once absorbed Leeway Softech / real-estate rows)
     can leave Technologies, Careers, Explore Properties on a tours menu.
     This runs after merge so runtime WhatsApp menus stay vertical-scoped.
+    Also drops unused location / nearest-branch interactive rows.
     """
     vert = str(vertical or layer.get("vertical") or "generic")
     drop_buttons = foreign_vertical_menu_button_ids(vert)
-    drop_intents = foreign_vertical_intent_names(vert)
+    drop_intents = foreign_vertical_intent_names(vert) | _LOCATION_MENU_INTENT_NAMES
 
     menu = layer.get("menu")
-    if isinstance(menu, dict) and isinstance(menu.get("buttons"), list) and drop_buttons:
+    if isinstance(menu, dict) and isinstance(menu.get("buttons"), list):
         before = len(menu["buttons"])
         menu["buttons"] = [
             b for b in menu["buttons"]
-            if not (isinstance(b, dict) and str(b.get("id") or "") in drop_buttons)
+            if not (
+                isinstance(b, dict)
+                and (
+                    str(b.get("id") or "") in drop_buttons
+                    or _is_unused_location_menu_button(b)
+                )
+            )
         ]
         removed = before - len(menu["buttons"])
         if removed:
@@ -1808,6 +1841,38 @@ DEFAULT_FLOWS: List[Dict[str, Any]] = [
                 "id": "done",
                 "type": "say",
                 "prompt": "Done! Our team will call you back shortly.",
+            },
+        ],
+    },
+    {
+        # Talk to Human / Talk to Sales — park the chat for an agent.
+        # Menu rows with id menu_human resolve here (not book_callback).
+        "name": "human_handover",
+        "intent": "contact_human",
+        "requires_feature": "human_handover",
+        "description": "Escalate the WhatsApp chat to a live agent.",
+        "start_message": (
+            "Connecting you with our team now. An advisor will continue this chat shortly."
+        ),
+        "success_message": (
+            "You're connected with our team. Type *hi* anytime to continue with the chatbot."
+        ),
+        "steps": [
+            {
+                "id": "handoff",
+                "type": "handoff",
+                "handoff_reason": "human_request",
+                "escalate": True,
+                "store_context": True,
+                "next": "done",
+            },
+            {
+                "id": "done",
+                "type": "say",
+                "prompt": (
+                    "Connecting you with our team now. An advisor will continue "
+                    "this chat shortly.\n\nType *hi* anytime to continue with the chatbot."
+                ),
             },
         ],
     },

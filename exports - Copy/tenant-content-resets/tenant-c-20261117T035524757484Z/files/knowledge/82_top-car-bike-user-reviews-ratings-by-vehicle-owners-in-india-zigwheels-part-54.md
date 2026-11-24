@@ -1,5 +1,0 @@
-## Best Bike User Reviews
-
-Parts are easily available and affordable, which is a big plus for long term ownership.Pros Top end performance, High speed stability is excellent it doesn’t vibrate much even at 100 kmph, Even after years, the aggressive naked design stil turns heads, The dual channel ABS works perfectly and gives a lot of confidence. Cons - Instrument Cluster it feels a bit dated compared to competitors who offer Bluetooth and navigation. Weight at around 158kg, It’s perfect weight of a bike. Headlight in a halogen setup is good for a city.If you want a bike that offers a raw, powerful fuel without breaking the bank on maintenance, the NS200 is still a King in its segment. it’s a perfect balance for someone who wants a daily commuter that can double as weekend tourer. 0ShareSohail Farhan 7 months ago
--
-NTORQ 1255.0Underseat storage I think the NTorq is the best 125cc scooter in the Indian market.

@@ -1,3 +1,0 @@
-## Best Car User Reviews
-
-handling is amazing.Had to mention about the1breaks just another day was in a situation when had to apply sudden brakes and the brakes were very responsive1and had a ful control over the car.Haven't done a exact mileage test but the mid shows an average mileage of 13.3 kmpl, Which is mostly highway run.The average i guess will improve over the time after the service and1more of driving experience.The throw of the head lights in the dark is amazing.The sales person was very1helpful and really guided very well and provided with a very good sum of discount.As first service of car is1still not due so won't be able to tell about that.

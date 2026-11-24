@@ -1,5 +1,0 @@
-## Best Car User Reviews
-
-14ShareVENKAT NATS 3 years ago
--
-Ertiga4.7Maruti suzuki Maruti suzuki ertiga is one of the 7 seater car.Value for money with all premium features.The driving experience is very good, Comfortable to drive.The engine noise is very less as short it is noiseless.The gearbox is very smooth free hand gear shifting.Look wise maruti suzuki ertiga is queen at this segment.No other car can fight with maruti suzuki ertiga at this price range, Look wise, Performance wise service and maintenance.The service of maruti suzuki is very good/excellent.The service centre available in every area and maruti suzuki ertiga is low maintenance car.Maintenance of maruti suzuki ertiga is less than my two wheeler royal enfield bike.Maruti suzuki ertiga is perfect car at every angle no cons observed from this car.Performance, Mileage and look that are pros of the car like a gods gift from maruti suzuki.

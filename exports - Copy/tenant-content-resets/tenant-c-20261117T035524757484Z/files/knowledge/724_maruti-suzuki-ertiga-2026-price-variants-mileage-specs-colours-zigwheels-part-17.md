@@ -1,1 +1,0 @@
-## Maruti Suzuki Ertiga Expert Reviews

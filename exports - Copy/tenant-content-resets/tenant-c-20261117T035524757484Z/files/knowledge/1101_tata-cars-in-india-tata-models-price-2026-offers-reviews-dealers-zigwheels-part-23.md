@@ -1,3 +1,0 @@
-## About Tata
-
-The Tata Aeris comes with a 35-litre fuel tank capacity. As of now, there is no official announcement from the brand regarding the mileage figures for the Tata Aeris. We recommend staying tuned to the brand’s official channels for the latest updates. You can also check the detailed specifications and features by clicking on this link: https://www.zigwheels.com/tata-cars/aeris/specifications/

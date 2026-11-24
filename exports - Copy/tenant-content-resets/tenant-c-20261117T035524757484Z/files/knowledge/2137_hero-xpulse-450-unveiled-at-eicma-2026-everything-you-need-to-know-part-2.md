@@ -1,1 +1,0 @@
-0:00 Design and exterior features 1:08 Engine and performance 2:06 Chassis and suspension 3:26 Brakes and protective gear 4:23 Tech and connectivity 5:09 Launch and market expectations

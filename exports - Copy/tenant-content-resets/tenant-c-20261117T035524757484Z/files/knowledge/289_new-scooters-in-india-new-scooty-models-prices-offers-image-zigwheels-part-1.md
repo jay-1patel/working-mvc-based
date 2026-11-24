@@ -1,1 +1,0 @@
-**2027 Triumph Tiger 1200 Launched In India: In Images**

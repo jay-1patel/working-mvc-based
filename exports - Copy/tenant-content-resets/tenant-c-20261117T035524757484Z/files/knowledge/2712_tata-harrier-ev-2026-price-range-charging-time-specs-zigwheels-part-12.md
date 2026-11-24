@@ -1,3 +1,0 @@
-## Questions & Answers on Tata Harrier EV
-
-- Thank you for your query. Tyre life can vary significantly and is not fixed at a specific number of kilometers. It largely depends on factors such as how the vehicle is maintained, driving habits, road conditions, tyre quality, and driving speed. With proper maintenance, regular tyre pressure checks, timely wheel alignment and balancing, and careful driving, tyres can generally last much longer. However, in case of rough usage or poor road conditions, they may wear out sooner.

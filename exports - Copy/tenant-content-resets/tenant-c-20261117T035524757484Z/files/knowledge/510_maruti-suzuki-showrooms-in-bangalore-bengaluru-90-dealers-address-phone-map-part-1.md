@@ -1,3 +1,0 @@
-Dealer details checked:
-
-There are **90 authorised Maruti Suzuki showrooms in Bangalore (Bengaluru)**: Pratham Motors – 562107, Pratham Motors – Sarjapur Main Rd, 562125, Pratham Motors – 560016, Pratham Motors Pvt. Ltd.-Haralakunde, Pratham Motors Nexa - Sarjapur Road and 85 more. The largest dealer groups are Pratham Motors (13 outlets), Kalyani Motors (3 outlets), Bimal Auto Agency India (2 outlets). Find address, phone number and directions for each below, or browse the full Maruti Suzuki range.

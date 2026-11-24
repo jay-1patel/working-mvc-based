@@ -1,5 +1,0 @@
-## Questions & Answers on Maruti Suzuki Swift
-
-- The Maruti Suzuki Swift delivers a maximum power of 80.46 bhp @ 5700 rpm and maximum torque of 111.7 Nm @ 4300 rpm. However, actual performance may vary depending on factors such as steep gradients, road conditions, weather, and vehicle load. For a better understanding of its performance in hilly areas, we recommend taking a test drive. Kindly click on the provided link to locate the nearest authorized dealership in your city: https://www.zigwheels.com/dealers/maruti-suzuki/Delhi
-
-- For the Maruti Suzuki Swift, we recommend contacting an authorised dealership for details regarding availability, price, and delivery timelines, as these may vary depending on your location and dealer stock. You can click on the following link to locate the nearest authorised dealership in your city for further assistance: https://www.zigwheels.com/dealers/maruti-suzuki/Delhi

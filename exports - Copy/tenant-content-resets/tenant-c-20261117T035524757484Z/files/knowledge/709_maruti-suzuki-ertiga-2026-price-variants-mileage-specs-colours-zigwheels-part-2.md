@@ -1,3 +1,0 @@
-## Maruti Suzuki Ertiga
-
-Updated: November 2026. Maruti Suzuki Ertiga on-road price in Lucknow starts at ₹10.44 Lakh and goes up to ₹15.67 Lakh. It offers a 1.5L petrol engine (101.64 bhp in base form), manual and automatic transmissions with ARAI mileage 20.3 kmpl, plus CNG claimed 26.11 km/kg. Key highlights include a 1-star Global NCAP safety rating and multiple fuel options. It rivals the Kia Carens, Kia Carens Clavis, Mahindra Scorpio N and Toyota Innova Hycross.

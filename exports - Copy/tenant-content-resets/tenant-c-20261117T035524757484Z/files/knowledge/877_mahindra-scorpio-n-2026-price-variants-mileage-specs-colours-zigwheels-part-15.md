@@ -1,1 +1,0 @@
-## Mahindra Scorpio N 2026 Brochure

@@ -1,5 +1,0 @@
-## Best 1001 To 1500cc Bikes (34 results)
-
-26.50 - 30.05 Lakh1300 cc | 21 kmplView November OffersView All VariantsVariants Ex-Showroom Price R 1300 GS Adventure Standard (Racing Red) 1300 cc | 21 kmplRs. 26.50 LakhCheck On Road PriceR 1300 GS Adventure Style Triple Black 1300 cc | 21 kmplRs. 27.65 LakhCheck On Road PriceR 1300 GS Adventure Style GS Trophy 1300 cc | 21 kmplRs. 27.90 LakhCheck On Road PriceR 1300 GS Adventure Style Option 719 1300 cc | 21 kmplRs. 30.05 LakhCheck On Road Price
-- Compare **Triumph Bonneville T120** Rs. 12.17 - 12.65 Lakh1200 cc | 21.27 kmplView November OffersView All VariantsVariants Ex-Showroom Price Bonneville T120 Black 1200 cc | 21.27 kmplRs. 12.17 LakhCheck On Road PriceBonneville T120 STD 1200 cc | 21.27 kmplRs. 12.17 LakhCheck On Road PriceBonneville T120 Icon Edition 1200 cc | 21.27 kmplRs. 12.65 LakhCheck On Road Price
-- Compare **Triumph Bonneville Bobber** Rs.

@@ -1,3 +1,0 @@
-## Renault Duster
-
-Updated: November 2026. Renault Duster on-road price in Ahmedabad starts at ₹12.09 Lakh and goes up to ₹22.58 Lakh. It offers a 1L and 1.3L petrol engine (99 bhp in base form), manual and automatic transmissions with ARAI mileage 17.75–29 kmpl. Key highlights include a 5-star Bharat NCAP safety rating and a turbo-petrol engine. It rivals the Honda Elevate, Hyundai Bayon, Maruti Suzuki Brezza and Maruti Suzuki Grand Vitara.

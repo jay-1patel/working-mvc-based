@@ -1,3 +1,0 @@
-## Maruti Suzuki Swift
-
-Updated: November 2026. Maruti Suzuki Swift on-road price in Lucknow starts at ₹6.91 Lakh and goes up to ₹10.41 Lakh. It offers a 1.2L petrol engine (81.8 bhp in base form), manual and automatic transmissions with ARAI mileage 24.8–26.25 kmpl, plus CNG claimed 35.34 km/kg. Key highlights include a 1-star Global NCAP safety rating and multiple fuel options. It rivals the Tata Altroz, Tata Punch and Tata Tiago.

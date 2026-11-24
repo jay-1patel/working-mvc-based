@@ -1,3 +1,0 @@
-**Maruti Suzuki has 3,374 authorised car showrooms in India**, across 986 cities in 35 states and union territories.
-The largest networks are in Maharashtra (355), Kerala (307), Uttar Pradesh (304), Karnataka (260), Gujarat (258).					Cities with the most showrooms: Delhi (94), Bangalore (90), Hyderabad (63), Pune (60), Chennai (38).
-Service workshops are listed separately under Maruti Suzuki service centres.					Browse the full Maruti Suzuki car range, or find a showroom by city below.

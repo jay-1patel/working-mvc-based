@@ -1,5 +1,0 @@
-## About Bajaj
-
-The Bajaj Pulsar 125 delivers an ARAI-claimed mileage of 57 kmpl, while users have reported an average of around 50 kmpl under real-world conditions. However, the actual mileage may vary depending on factors such as riding speed, load, road conditions, and individual riding style. For detailed information on its specifications, features, and overall performance, we kindly request you to visit the following link: https://www.zigwheels.com/bajaj-bikes/pulsar-125/specifications/
-
-Regarding the engine swap in your vehicle, such modifications are not generally recommended without proper technical evaluation, as compatibility depends on multiple factors. We advise you to consult an authorized service center for accurate guidance and confirmation before proceeding. Click on the link to find the dealership details from your city: https://www.zigwheels.com/bikes/service-centers/bajaj/Delhi

@@ -1,5 +1,0 @@
-Over at Yashobhoomi, you’ll find the Components & Technology Show, the Bharat Construction Equipment Expo, the Air Mobility Expo, the Agri Mobility & Technology Expo and the Metro & Urban Mass Transit Expo.
-
-At least 44 automakers have signed up for the Motor Show, and the confirmed list is a who’s who of Indian roads. Maruti Suzuki, Hyundai, Tata Motors, Mahindra, Kia, Toyota, Honda, Renault, MG, BYD, VinFast, BMW and Mercedes-Benz will all be there.
-
-Hyundai could bring its biggest launch yet, the next-generation Creta. India’s favourite midsize SUV is expected to get a fresh design and a new cabin, and Hyundai might also tease its upcoming sub-compact electric SUV. Kia could hit back with the next-gen Sonet, while Maruti Suzuki may roll out its YMC electric MPV, a clear sign that family EVs are about to go mainstream.

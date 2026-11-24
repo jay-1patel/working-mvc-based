@@ -1,4 +1,0 @@
-- Colours(10)
-- Images(42)
-- View
-- Videos

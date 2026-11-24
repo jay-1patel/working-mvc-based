@@ -1,1 +1,0 @@
-## Tata Cars FAQs

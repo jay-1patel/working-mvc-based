@@ -1,4 +1,0 @@
-## Must Know about Electric Bikes
-
-These batteries are less expensive to make but their charge density isn’t as good as lithium-ion ones, so the range offered is relatively lesser. They are also heavier and take longer to charge. A prime example of an electric scooter powered by a VRLA battery is the Hero Electric Optima LX.
-- ### Types Of Motors The energy stored in the battery is translated into motion using an electric motor. There are two major types of electric motors: Hub and Frame-mounted. The brushless DC hub motors, in particular, are used in most of the electric two-wheelers. They are fairly easy to install, do not require transmission components, and are affordable to manufacture as well. However, they result in an increased unsprung weight, which negatively impacts the handling of a two-wheeler. The TVS iQube Electric is a great example for an electric scooter with a hub motor.

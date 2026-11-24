@@ -1,3 +1,0 @@
-## About Honda
-
-Honda Amaze is a suitable choice for both short city commutes and long-distance drives. It offers a comfortable cabin, smooth ride quality, and efficient engine options that make daily urban driving convenient while also ensuring stability and comfort on highways. We would recommend you to book a test ride for better understanding. Click on the link to know the dealership details from your city: https://www.zigwheels.com/dealers/honda/Delhi

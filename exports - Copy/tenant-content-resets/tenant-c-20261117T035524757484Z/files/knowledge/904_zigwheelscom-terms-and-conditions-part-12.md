@@ -1,3 +1,0 @@
-4.4 You expressly represent and warrant that: (i) you are capable to use this Site in accordance with all terms and conditions herein in relation to the access and use of this Site and the services provided therein; and (ii) all information supplied by you in any correspondences or any other documentation to zigwheels.com is true, current complete and accurate. You expressly agree that this clause shall survive any termination of this Agreement.
-
-5\. Links to Other Websites

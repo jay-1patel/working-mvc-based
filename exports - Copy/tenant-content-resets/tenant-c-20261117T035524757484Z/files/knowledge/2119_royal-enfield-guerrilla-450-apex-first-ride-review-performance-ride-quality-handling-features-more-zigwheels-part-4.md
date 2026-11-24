@@ -1,5 +1,0 @@
-Now, the roads we rode on were honestly some of the best ghats in the country, and the go-kart track was butter-smooth. So ride quality isn’t something we could test thoroughly. That said, the rear suspension remains unchanged, and that shows. On smooth roads, it does its job well, keeping the bike planted and the ride comfortable. But hit a small rough patch, and you’ll have to slow down considerably. Because if you don’t, the bike does feel like it wants to throw you off the seat.
-
-So yes, while the handling has improved, the ride quality still has that slightly firm, sporty edge to it.
-
-The 452cc single-cylinder, liquid-cooled Sherpa engine was always the highlight. It still makes the same amount of power and torque (40PS and 40Nm). Punchy, torquey, and fun, and that hasn’t changed. What has changed, though, is how usable it feels.

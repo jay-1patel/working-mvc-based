@@ -1,3 +1,0 @@
-Dealer details checked:
-
-There are **37 authorised Maruti Suzuki showrooms in Mumbai**: Shivam Autozone-Andheri East, Sai Service Arena Borivali West, Sai Service Private Limited-Lower Parel, Sai Service Private Limited-Andheri, Sai Service Private Limited-Goregaon and 32 more. The largest dealer groups are My Car (Pune) -Vile Parle (2 outlets). Find address, phone number and directions for each below, or browse the full Maruti Suzuki range.

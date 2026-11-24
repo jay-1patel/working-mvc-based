@@ -1,1 +1,0 @@
-## Mahindra User Reviews

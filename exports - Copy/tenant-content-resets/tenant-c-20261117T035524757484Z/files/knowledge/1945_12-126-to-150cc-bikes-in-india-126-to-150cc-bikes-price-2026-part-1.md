@@ -1,3 +1,0 @@
-## 126 To 150cc Bikes in India
-
-There are 12 bikes under 150cc on sale in India with prices starting from Rs. 1.32 Lakh. The most popular bikes in this bracket are the Yamaha FZ-S Fi (149 cc), TVS NTorq 150 (149 cc) and Yamaha FZ X (149 cc). The top brands that manufacture bikes between 126cc and 150cc are Yamaha, TVS and Bajaj. Download the ZigWheels App to know latest prices and offers on bikes under 150cc in your city, pictures, mileage, reviews, variants, specifications and more. Choose the best bike model under 150cc that you’re interested from the options below.

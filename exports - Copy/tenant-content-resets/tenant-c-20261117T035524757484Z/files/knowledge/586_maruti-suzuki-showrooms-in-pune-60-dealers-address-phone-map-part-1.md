@@ -1,3 +1,0 @@
-Dealer details checked:
-
-There are **60 authorised Maruti Suzuki showrooms in Pune**: Sai Service Pvt.Ltd.-Dapodi, Sai Service Pvt.Ltd.-Deccan Gymkhana, Sai Service Nexa-Sakal Nagar, Sai Service Pvt. Ltd. - Sinhagad, Sai Service Pvt. Ltd. - Hinjawadi and 55 more. The largest dealer groups are My Car Arena - Pune (3 outlets), Wonder Cars-Saudagar (2 outlets), Excell Autovista Arena - Pune (2 outlets). Find address, phone number and directions for each below, or browse the full Maruti Suzuki range.

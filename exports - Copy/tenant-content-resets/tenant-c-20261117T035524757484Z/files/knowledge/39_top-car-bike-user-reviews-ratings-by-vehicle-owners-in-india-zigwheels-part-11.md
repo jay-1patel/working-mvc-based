@@ -1,5 +1,0 @@
-## Top User Review
-
-5ShareMohamed Fahim
--
-ErtigaBest family car at this price The maruti suzuki ertiga is a spacious and comfortable mpv with a smooth driving experience.The suspension is well tuned and absorbs bumps in the road effectively, Making it a great choice for long trips.The interior is well designed and offers plenty of room for passengers, Thogh it's a 7-seater car, It makes it a great option for families or group of friends.In terms of the performance, The ertiga is powered by a reliable and efficient engine that provides good mileage.The pickup is decent and the car is easy to maneuver in city traffic.The build quality is good and the car feels solid on the road.Vibrations are minimal and the car generally very stable.The features offered in ertiga are very great at this price point and it includes things like air conditioning, Power windows, And touchscreen front infotainment system.The aftersale service form maruti is generally good.With a wide network of authorized service centers across

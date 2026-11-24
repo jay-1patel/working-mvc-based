@@ -1,3 +1,0 @@
-## Maruti Suzuki Cars Questions and Answers
-
-- The Maruti Suzuki Fronx CNG is available with a manual transmission only; it does not come with an automatic transmission in the CNG variant. The CNG variant generally offers better fuel economy and lower running costs compared to the petrol variant. However, the actual mileage may vary depending on driving conditions, traffic, and driving style. For more details about the Maruti Suzuki Fronx mileage please click on the link: https://www.zigwheels.com/maruti-suzuki-cars/fronx/mileage/

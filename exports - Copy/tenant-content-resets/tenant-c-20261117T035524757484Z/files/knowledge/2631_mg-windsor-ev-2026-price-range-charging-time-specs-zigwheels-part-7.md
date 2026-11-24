@@ -1,1 +1,0 @@
-## Expert's Opinion on Windsor EV

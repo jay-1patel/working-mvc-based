@@ -1,1 +1,0 @@
-## Mahindra Thar OG 2026 Brochure

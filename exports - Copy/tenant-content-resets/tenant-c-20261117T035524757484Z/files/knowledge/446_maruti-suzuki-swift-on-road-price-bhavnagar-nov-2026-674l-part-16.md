@@ -1,5 +1,0 @@
-## Maruti Suzuki Swift Price FAQs
-
-A great car. Its a performance car. I have the 4 cylinder petrol version of the New Swift 2023 Model. Peppy1engine, slick manual gear box. Gear shift is effortless. Light clutch. I am getting 15 to 18 km / litre in city driving. I got 18 km/ litre without aircon in the city. 20 km / litre with aircon on the highway. Seating comfort is good,both1at the front and back. Adequate boot space. Inexpensive maintenance. Only drawback if at all is lack of1rear vent for the AC. The dual tone colour combination looks great. I chose red and black combination. Zxi DT plus model came with upholstery, diamond cut alloy wheels, 15 inch wheels, tinted glass. For an extra 50 k I got the body styling kit, with outside all round fairing, side door cladding, and a whole lot of addons. The 50k spent was value for money and the result was an attractive look to the exterior.
-
-This car is good size and vary good pric

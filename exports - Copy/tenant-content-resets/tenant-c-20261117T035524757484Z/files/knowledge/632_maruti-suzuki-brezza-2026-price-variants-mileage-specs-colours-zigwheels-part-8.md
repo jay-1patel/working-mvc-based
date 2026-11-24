@@ -1,5 +1,0 @@
-## Questions & Answers on Maruti Suzuki Brezza
-
-- In general, the down payment remains in between 20-30% of the on-road price of the vehicle and it totally depends on the CIBIL/Credit score of an individual. So, we'd suggest you walk into the nearest dealership to know the final finance quotation and documentation as they will be the better person to assist you. You can click on the following link to see the details of the nearest authorized dealership by selecting your city accordingly.: https://www.zigwheels.com/dealers/maruti-suzuki
-
-- Maruti Suzuki Brezza offers a range of safety features designed to provide added confidence on every drive, including multiple airbags, ABS with EBD, Electronic Stability Control, and other safety technologies. Click on the link below to know more about its features, specifications, variants, and other details.https://www.zigwheels.com/maruti-suzuki-cars/brezza/specifications/

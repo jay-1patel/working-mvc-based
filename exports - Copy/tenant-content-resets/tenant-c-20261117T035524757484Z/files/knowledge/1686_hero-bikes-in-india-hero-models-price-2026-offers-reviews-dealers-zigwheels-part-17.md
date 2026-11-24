@@ -1,5 +1,0 @@
-## About Hero
-
-At Hero World 2024, Hero launched the all-new Hero Xtreme 125R, a direct rival to the TVS Raider 125 and also unveiled the all-new Hero Mavrick 440. The Mavrick 440 is based on the Harley-Davidson X440’s platform. In 2023, Hero MotoCorp revived the iconic nameplate, Karizma, in the form of the Hero Karizma XMR. Also launched was the Harley-Davidson X440, developed in partnership with Hero Bikes. The X440 is the most affordable Harley-Davidson bike on sale. Apart from that, in 2023, Hero showcased its two new scooter offerings, the Hero Xoom 110 maxi-scooter and the Hero Xoom 125R. These two scooters were also showcased at the Bharat Mobility Expo 2024. Currently, the company is working on a bigger XPulse based on the X440’s platform and it has been spotted testing. Also spotted testing are the upcoming Hero Xpulse 210 and the Xtreme 250 and after looking at the spy shots, it looks like the Karizma XMR’s liquid-cooled engine will be powering those motorcycles.
-
-**Origin**

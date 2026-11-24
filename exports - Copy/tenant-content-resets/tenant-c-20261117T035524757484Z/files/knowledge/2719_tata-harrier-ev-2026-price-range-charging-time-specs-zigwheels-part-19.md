@@ -1,1 +1,0 @@
-## Tata Harrier EV FAQs

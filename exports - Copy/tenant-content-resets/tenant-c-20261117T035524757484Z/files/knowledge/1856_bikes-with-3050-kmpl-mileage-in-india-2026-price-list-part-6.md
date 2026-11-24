@@ -1,1 +1,0 @@
-## Bikes with 30–50 kmpl Mileage FAQs

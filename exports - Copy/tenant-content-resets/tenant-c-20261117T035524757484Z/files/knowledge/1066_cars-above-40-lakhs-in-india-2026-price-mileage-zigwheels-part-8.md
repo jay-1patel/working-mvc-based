@@ -1,1 +1,0 @@
-## Cars Above 40 Lakhs FAQs

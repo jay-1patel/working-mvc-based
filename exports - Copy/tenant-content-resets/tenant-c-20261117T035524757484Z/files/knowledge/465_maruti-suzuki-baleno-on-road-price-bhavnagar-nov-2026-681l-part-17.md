@@ -1,3 +1,0 @@
-## Maruti Suzuki Baleno Price FAQs
-
-Here is a simple and natural review of Maruti Baleno. My experience with the Maruti Baleno has been very good. The car looks stylish and modern with a premium design. The cabin is spacious and comfortable, especially for long drives. The engine performance is smooth, and the mileage is impressive, which makes it budget-friendly. The infotainment system is user-friendly and responsive. Suspension is decent and city driving feels easy due to light steering. Overall, it is a reliable, comfortable, and value-for-money hatchback suitable for daily use as well as family trips.

@@ -1,1 +1,0 @@
-Earlier a part of Times Internet, a subsidiary of the Times of India Group, ZigWheels was acquired by CarDekho, a subsidiary of GirnarSoft, signalling consolidation in the online auto classifieds space. ZigWheels was awarded the most popular automotive website of the year in 2013.

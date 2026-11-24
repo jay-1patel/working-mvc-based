@@ -1,5 +1,0 @@
-## Best Bike User Reviews
-
-on long rides, The hf deluxe proves to be a dependable companion every step of the way. 17ShareJitender Prasad 2 years ago
--
-Pulsar NS200My 1 Year Journey with the Pulsar NS200 Driving Experience Performance I been riding the Pulsar NS200 for over a year now, covering about 4000 km, and the experience has been thrilling. The standout feature is definitely the engine performance. The liquid cooled, little spark engine really comes alive after 7000 RPM. The pickup is very aggressive making it very easy to overtake on highways, city’s traffic, the bike feels agile, though the turning radius is bit a wide. Mileage & Comfort When it comes to mileage, I am get a consistent 35- 38 kmpl in the city & around 42 kmpl on the long highways, which is good for a 200cc machine. Regarding comfort, the upright seating posture is great.Service Experience & Maintenance My service experience at authorised centres has been great.

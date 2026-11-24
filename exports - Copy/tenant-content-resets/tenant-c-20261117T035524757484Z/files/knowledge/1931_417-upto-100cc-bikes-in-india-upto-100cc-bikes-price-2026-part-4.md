@@ -1,6 +1,0 @@
-## Best Upto 100cc Bikes (417 results)
-
-- Compare Variants Ex-Showroom Price Splendor Plus Standard 97 cc | 70 kmplRs. 79,624Check On Road PriceSplendor Plus Black and Accent 97 cc | 70 kmplRs. 80,122Check On Road PriceSplendor Plus I3S 97 cc | 70 kmplRs. 80,452Check On Road PriceSplendor Plus Million Edition 97 cc | 70 kmplRs. 82,073Check On Road Price
-- Compare **Hero Splendor Plus XTEC** Rs. 82,946 - 85,98897.2 cc | 70 kmplView November OffersView All VariantsVariants Ex-Showroom Price Splendor Plus XTEC Drum 97 cc | 70 kmplRs. 82,946Check On Road PriceSplendor Plus XTEC 2.0 97 cc | 70 kmplRs. 84,876Check On Road PriceSplendor Plus XTEC Disc 97 cc | 70 kmplRs. 85,988Check On Road Price
-- Variants Ex-Showroom Price HF Deluxe Kick Cast OBD2B 97 cc | 70 kmplRs. 63,504Check On Road PriceHF Deluxe Self Cast OBD2B 97 cc | 70 kmplRs. 66,206Check On Road PriceHF Deluxe All Black OBD2B 97 cc | 70 kmplRs. 67,705Check On Road PriceHF Deluxe I3S Cast OBD2B 97 cc | 70 kmplRs. 68,041Check On Road Price
-- Compare **Ather Konarc** Rs.

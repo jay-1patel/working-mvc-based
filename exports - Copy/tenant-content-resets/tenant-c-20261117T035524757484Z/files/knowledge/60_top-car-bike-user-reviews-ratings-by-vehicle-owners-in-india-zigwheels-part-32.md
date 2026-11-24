@@ -1,4 +1,0 @@
-## Best Car User Reviews
-
--
-FRONXExperience Is Very Good The riding experience is fantastic. The car's look is very attractive, which catches one's attention, and it also has an antenna. I have driven this car for 20,000 km, and the cost of the service was less than 10,000, approximately 9,200. Its maintenance cost is just right and not much if your driving is not that fast. Mileage in the city is around 26 - 30 km/l, and on highways, if you are driving at around 75 - 80 km/h, you will get mileage of more than 32 km/l. Once I got mileage of around 35 km/l. Pros: these include a 360-degree camera, wireless charger, airbags, automatic headlamps, etc. Cons: there's some turbo lag below 2,500 rpm in the 1L engine, etc. My suggestion: it could have been made more stylish and comfortable.

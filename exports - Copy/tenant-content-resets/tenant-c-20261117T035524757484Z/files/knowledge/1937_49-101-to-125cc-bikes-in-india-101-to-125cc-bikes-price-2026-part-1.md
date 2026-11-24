@@ -1,3 +1,0 @@
-## 101 To 125cc Bikes in India
-
-There are 49 bikes under 125cc on sale in India with prices starting from Rs. 78,746. The most popular bikes in this bracket are the Honda Activa (109 cc), Honda SP125 (123 cc) and TVS Raider (124 cc). The top brands that manufacture bikes between 101cc and 125cc are Honda, TVS and Suzuki. Download the ZigWheels App to know latest prices and offers on bikes under 125cc in your city, pictures, mileage, reviews, variants, specifications and more. Choose the best bike model under 125cc that you’re interested from the options below.

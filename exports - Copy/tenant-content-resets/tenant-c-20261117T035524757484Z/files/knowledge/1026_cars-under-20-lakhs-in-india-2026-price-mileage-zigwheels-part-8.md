@@ -1,1 +1,0 @@
-## Cars Under 20 Lakhs FAQs

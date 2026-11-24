@@ -1,3 +1,0 @@
-## Suzuki Bikes Questions and Answers
-
-- The Suzuki V-Strom SX comes with a powerful 249cc engine that delivers smooth performance and makes it a great choice for both city rides and long-distance touring. It stands out for its reliability, comfort, and refined performance, making it a solid option in the adventure bike segment. To know more about its features and specifications, click on the link: https://www.zigwheels.com/suzuki-bikes/v-strom-sx/

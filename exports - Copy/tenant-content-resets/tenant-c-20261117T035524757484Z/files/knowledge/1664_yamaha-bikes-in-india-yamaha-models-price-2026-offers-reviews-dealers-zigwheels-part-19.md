@@ -1,3 +1,0 @@
-## About Yamaha
-
-In 2001, Escorts and Yamaha parted ways when Yamaha bought Escorts remaining stake, and Yamaha India Motor was born as owned subsidiary of Yamaha Motor Japan. After striking out on their own, the company didn’t enjoy a huge amount of success with any of their models until 2008, when they launched the FZ16 - a 160cc muscular naked that took India by storm. They quickly followed that up with the YZF-R15 - a true baby supersport with a 150cc 4-valve liquid-cooled engine (now a 155cc VVA unit) that properly paid homage to Yamaha’s greats such as the YZF-R6 and YZF-R1. Both the FZ and R15 have been among the company’s most popular models ever since and have seen multiple evolutions over the years.

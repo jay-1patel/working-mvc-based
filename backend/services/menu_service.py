@@ -188,6 +188,46 @@ def _real_brand_name(value: str | None) -> str:
     return name
 
 
+def resolve_menu_header(wa_id: str = "", tenant_id: str | None = None) -> str:
+    """WhatsApp list/menu header for the *active* tenant only.
+
+    Prefer the published profile's ``menu.header``, then bot_name / brand /
+    display_name. Never borrow a frozen env ``BRAND_NAME`` / ``MENU_HEADER``
+    from process import time — that leaks another tenant's brand (e.g. Apex
+    Horizon) onto spiritual rows after Active Test Tenant switches.
+    """
+    tid = None
+    profile = None
+    try:
+        from shared.tenancy.resolver import resolve_effective_tenant_id
+        from shared.tenancy.loader import get_tenant_profile
+
+        tid = resolve_effective_tenant_id(wa_id, tenant_id)
+        if tid:
+            profile = get_tenant_profile(tid)
+    except Exception:
+        logger.debug(
+            "MENU_HEADER_RESOLVE_SKIPPED | wa=%s tenant=%s",
+            wa_id, tenant_id, exc_info=True,
+        )
+
+    if profile is not None:
+        menu = getattr(profile, "menu", None)
+        for candidate in (
+            getattr(menu, "header", None),
+            getattr(getattr(profile, "brand", None), "bot_name", None),
+            getattr(getattr(profile, "brand", None), "name", None),
+            getattr(profile, "display_name", None),
+        ):
+            name = _real_brand_name(candidate)
+            if name:
+                return name[:LIST_HEADER_MAX]
+
+    if tid:
+        return str(tid)[:LIST_HEADER_MAX]
+    return "Options"
+
+
 def _get_brand_name(wa_id: str = "") -> str:
     """Brand name, from the tenant profile when one is available.
 
@@ -332,7 +372,7 @@ def get_greeting_menu(wa_id: str, tenant_id: str = None) -> Dict[str, Any]:
     from .menu_catalog import get_kb_main_menu, get_profile_for
 
     items = get_kb_main_menu(wa_id, user_type="b2c", tenant_id=tenant_id)
-    header = personalize_header(wa_id, "b2c")
+    header = resolve_menu_header(wa_id, tenant_id)
     body = "What would you like to explore today?"
     try:
         from database import get_menu_settings
@@ -348,8 +388,6 @@ def get_greeting_menu(wa_id: str, tenant_id: str = None) -> Dict[str, Any]:
             body = menu.body
         if menu.button_text:
             button_text = menu.button_text
-        if profile.brand and _real_brand_name(profile.brand.name):
-            header = _real_brand_name(profile.brand.name)
 
     if not items:
         return {

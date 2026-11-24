@@ -62,9 +62,9 @@ logger = logging.getLogger(__name__)
 # so keep labels short — long text gets cut mid-word on the phone.
 BUTTONS: dict[str, str] = {
     # general / navigation
-    "main_menu": "Main Menu",
+    "main_menu": "Menu",
     "contact_support": "Support",
-    "menu_human": "Talk to Human",
+    "menu_human": "Talk Human",
     # flows
     "book_callback": "Callback",
     "get_quote": "Get Quote",
@@ -115,6 +115,14 @@ BUTTONS: dict[str, str] = {
     "menu_test_drive": "Test Drive",
     "menu_onroad_price": "On-Road Price",
     "menu_customer_care": "Customer Care",
+    # Spiritual / temple (keep <= 12 chars — emoji must not be prepended)
+    "menu_prasad": "Prasad",
+    "menu_arti_time": "Arti",
+    "menu_how_to_reach": "Reach",
+    "menu_where_to_stay": "Stay",
+    "menu_advantage": "Benefit",
+    "menu_history": "History",
+    "menu_vehicle_type": "Parking",
     # policies / support legacy
     "privacy_policy": "Privacy",
     "terms_conditions": "Terms",
@@ -591,6 +599,29 @@ def registry_prompt_text(tenant_id: str | None = None) -> str:
     )
 
 
+_SPIRITUAL_MENU_IDS = frozenset({
+    "menu_prasad",
+    "menu_arti_time",
+    "menu_how_to_reach",
+    "menu_where_to_stay",
+    "menu_advantage",
+    "menu_history",
+    "menu_vehicle_type",
+})
+
+
+def _is_spiritual_tenant(profile, tenant_id: str | None) -> bool:
+    """Detect temple/spiritual tenants even when vertical stays 'generic'."""
+    tid = str(tenant_id or "").strip().lower()
+    if tid in {"spiritual", "temple", "aastha"}:
+        return True
+    if profile is not None and str(getattr(profile, "vertical", "") or "").lower() == "spiritual":
+        return True
+    buttons = getattr(getattr(profile, "menu", None), "buttons", None) or []
+    ids = {str(getattr(b, "id", "") or "") for b in buttons if getattr(b, "enabled", True)}
+    return bool(ids & _SPIRITUAL_MENU_IDS)
+
+
 def get_contextual_buttons(
     topic_or_query: str,
     tenant_id: str | None = None,
@@ -624,8 +655,43 @@ def get_contextual_buttons(
 
     picked_ids: list[str] = []
 
+    # 0. Spiritual / temple (may still use vertical=generic)
+    if _is_spiritual_tenant(profile, tid):
+        if any(k in q for k in ("prasad", "prasadam", "bhog", "menu_prasad", "prasad_info")):
+            picked_ids = ["menu_arti_time", "menu_how_to_reach", "main_menu"]
+        elif any(k in q for k in (
+            "arti", "aarti", "puja time", "menu_arti", "arti_time",
+            "timing", "timings", "schedule",
+        )):
+            picked_ids = ["menu_prasad", "menu_how_to_reach", "main_menu"]
+        elif any(k in q for k in (
+            "reach", "direction", "location", "address", "map", "route",
+            "menu_how_to_reach", "how_to_reach",
+        )):
+            picked_ids = ["menu_where_to_stay", "menu_vehicle_type", "main_menu"]
+        elif any(k in q for k in (
+            "stay", "lodge", "hotel", "dharamshala", "accommodation",
+            "menu_where_to_stay", "where_to_stay",
+        )):
+            picked_ids = ["menu_how_to_reach", "menu_vehicle_type", "main_menu"]
+        elif any(k in q for k in (
+            "vehicle", "parking", "car", "bike", "bus", "scooter",
+            "menu_vehicle", "vehicle_type",
+        )):
+            picked_ids = ["menu_how_to_reach", "menu_where_to_stay", "main_menu"]
+        elif any(k in q for k in (
+            "advantage", "benefit", "blessing", "seva", "menu_advantage", "advantage_info",
+        )):
+            picked_ids = ["menu_history", "menu_prasad", "main_menu"]
+        elif any(k in q for k in (
+            "history", "heritage", "origin", "legend", "menu_history", "history_info",
+        )):
+            picked_ids = ["menu_advantage", "menu_how_to_reach", "main_menu"]
+        else:
+            picked_ids = ["menu_prasad", "menu_arti_time", "menu_how_to_reach"]
+
     # 1. Healthcare Vertical
-    if vertical == "healthcare":
+    elif vertical == "healthcare":
         if any(k in q for k in ("appointment", "book", "slot", "doctor", "consult", "visit", "timing", "schedule")):
             if profile and profile.features.is_on("book_appointment"):
                 picked_ids.append("menu_appointment")
@@ -822,27 +888,30 @@ def get_contextual_buttons(
     except Exception:
         tenant_registry = None
 
-    # Filter to unique, valid buttons matching enabled features
+    # Filter to unique, valid buttons matching enabled features.
+    # Prefer tenant registry titles; allow tenant-only menu ids (e.g. spiritual).
     result = []
     seen = set()
     for bid in picked_ids:
-        if bid not in seen and bid in BUTTONS:
-            req_feat = BUTTON_FEATURE_REQUIREMENTS.get(bid)
-            if profile and req_feat and not profile.features.is_on(req_feat):
-                continue
-            seen.add(bid)
-            title = BUTTONS[bid]
-            if tenant_registry and bid in tenant_registry:
-                title = tenant_registry[bid].get("title") or title
-            result.append({"id": bid[:50], "title": title[:20]})
-            if len(result) >= limit:
-                break
-
-    # Honor the tenant's actual menu: a suggestion the tenant has tombstoned,
-    # disabled, or gated off (e.g. a removed "Get a Quote" row) must not surface.
-    allowed_ids = set(tenant_registry.keys()) if tenant_registry is not None else None
-    if allowed_ids is not None:
-        result = [b for b in result if b["id"] in allowed_ids]
+        if bid in seen:
+            continue
+        in_flat = bid in BUTTONS
+        in_tenant = bool(tenant_registry and bid in tenant_registry)
+        if not (in_flat or in_tenant):
+            continue
+        req_feat = BUTTON_FEATURE_REQUIREMENTS.get(bid)
+        if profile and req_feat and not profile.features.is_on(req_feat):
+            continue
+        # Honor the tenant's actual menu: tombstoned/disabled rows stay hidden.
+        if tenant_registry is not None and bid not in tenant_registry and bid != "main_menu":
+            continue
+        seen.add(bid)
+        title = BUTTONS.get(bid) or bid
+        if tenant_registry and bid in tenant_registry:
+            title = tenant_registry[bid].get("title") or title
+        result.append({"id": bid[:50], "title": str(title)[:20]})
+        if len(result) >= limit:
+            break
 
     # If still fewer than limit, ensure main_menu is present
     if not any(b["id"] == "main_menu" for b in result) and len(result) < limit:

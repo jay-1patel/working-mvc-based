@@ -1841,6 +1841,21 @@ async def synthesize_intent_answer(
         if price_answer:
             return _append_signature(price_answer, resolved_tenant)
 
+    # Substantial published profile answers (e.g. spiritual History from the
+    # onboarding PDF) must be delivered as-is. Re-running the LLM mixed in
+    # unrelated FAQ hits and produced empty WhatsApp bullets.
+    _stub_markers = (
+        "will be shared here",
+        "details will be shared",
+        "to be updated",
+        "coming soon",
+    )
+    if (
+        len(raw_content) >= 200
+        and not any(m in raw_content.lower() for m in _stub_markers)
+    ):
+        return _append_signature(_format_answer_lines(raw_content), resolved_tenant)
+
     try:
         from services.unified_retrieval import build_grounded_context
     except ImportError:

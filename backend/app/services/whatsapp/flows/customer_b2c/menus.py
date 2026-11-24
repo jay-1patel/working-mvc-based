@@ -6,7 +6,7 @@ and Smart Switch between Quick Reply buttons (<= 3 options) and List drawers (> 
 import logging
 from typing import Optional
 from services.menu_catalog import get_kb_main_menu
-from services.menu_service import MenuItem, build_list_menu, personalize_header
+from services.menu_service import MenuItem, build_list_menu, personalize_header, resolve_menu_header
 
 logger = logging.getLogger("b2c_menus")
 
@@ -29,35 +29,29 @@ def get_main_menu(wa_id: str = "", tenant_id: Optional[str] = None) -> dict:
 
     # 2. Extract tenant-specific profile menu
     items = []
-    header_title = "Options"
+    # Always from the resolved active tenant — never a frozen global brand.
+    header_title = resolve_menu_header(wa_id, resolved_tid)
     body_text = "What would you like to explore today?"
+    button_text = "Show Options"
 
     try:
         from shared.tenancy.loader import get_tenant_profile
         p = get_tenant_profile(resolved_tid)
         if p:
-            brand_name = (p.brand.name if p.brand else "") or ""
-            # Kit/placeholder names must not become the WhatsApp list header.
-            if brand_name.strip() and brand_name.strip().lower() not in (
-                "brand", "company", "name", "your company", "company name",
-            ):
-                header_title = brand_name.strip()
-            elif getattr(p, "display_name", None):
-                header_title = str(p.display_name).strip() or header_title
-            else:
-                header_title = resolved_tid
             if p.menu and p.menu.body:
                 body_text = p.menu.body
+            if p.menu and p.menu.button_text:
+                button_text = str(p.menu.button_text).strip() or button_text
             if p.menu and p.menu.buttons:
                 # Honor feature gates (and skip title-less kit leftovers). One
                 # section keeps WhatsApp under its 3-section limit.
                 visible = p.menu.visible_buttons(p.features)
                 for b in visible:
-                    title = (getattr(b, "title", None) or "").strip()[:24]
+                    # Plain short titles only — emoji in title gets cut on WhatsApp.
+                    title = (getattr(b, "title", None) or "").strip()[:20]
                     if not title:
                         continue
                     desc = (getattr(b, "description", None) or "").strip()[:72]
-                    icon = (getattr(b, "icon", None) or "").strip()
                     bid = getattr(b, "id", None) or f"menu_{title.lower().replace(' ', '_')}"
                     items.append(
                         MenuItem(
@@ -65,7 +59,7 @@ def get_main_menu(wa_id: str = "", tenant_id: Optional[str] = None) -> dict:
                             title=title,
                             description=desc,
                             section="Options",
-                            icon=icon,
+                            icon="",
                         )
                     )
     except Exception as e:
@@ -88,7 +82,8 @@ def get_main_menu(wa_id: str = "", tenant_id: Optional[str] = None) -> dict:
     if 1 <= len(items) <= 3:
         quick_buttons = []
         for it in items[:3]:
-            btn_title = (it.display_title() if it.icon else it.title)[:20]
+            # Never prepend icon — WhatsApp reply titles max 20 chars.
+            btn_title = (it.title or "")[:20]
             quick_buttons.append({"id": it.id, "title": btn_title})
         return {
             "type": "buttons",
@@ -101,7 +96,7 @@ def get_main_menu(wa_id: str = "", tenant_id: Optional[str] = None) -> dict:
     menu = build_list_menu(
         header=header_title[:60],
         body=body_text[:1024],
-        button_text="Show Options",
+        button_text=button_text[:20],
         items=items[:10],
     )
     menu["type"] = "list"

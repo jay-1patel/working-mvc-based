@@ -98,17 +98,14 @@ def _live_sender(kind: str, tenant_id: str = None):
                     if bid and btitle:
                         rows.append({"id": bid, "title": btitle, "description": ""})
                 if rows:
-                    header_title = "Options"
                     try:
-                        from shared.tenancy.resolver import resolve_tenant_for_user
-                        from shared.tenancy.loader import get_tenant_profile
-                        p = get_tenant_profile(resolve_tenant_for_user(wa_id))
-                        if p and p.brand and p.brand.name:
-                            header_title = p.brand.name
+                        from services.menu_service import resolve_menu_header
+                        header_title = resolve_menu_header(wa_id, tenant_id)
                     except Exception:
                         # deliberate: brand lookup is cosmetic — fall back
                         # to the generic "Options" header title.
                         logger.debug("BRAND_HEADER_LOOKUP_SKIPPED | wa=%s", wa_id, exc_info=True)
+                        header_title = "Options"
                     return send_whatsapp_list_menu(
                         to=wa_id,
                         header_text=header_title,

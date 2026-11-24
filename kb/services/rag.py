@@ -60,11 +60,16 @@ def _resolve_tenant_id(tenant_id=None) -> str:
     return tid
 
 
-def _safe_json_loads(value: str, default=None):
+def _safe_json_loads(value, default=None):
     if default is None:
         default = []
+    # MongoDB already returns list/dict; only decode JSON strings.
+    if isinstance(value, (list, dict)):
+        return value
+    if value is None or value == "":
+        return default
     try:
-        return json.loads(value) if value else default
+        return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return default
 

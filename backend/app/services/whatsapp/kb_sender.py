@@ -1678,9 +1678,14 @@ def send_menu(to: str) -> bool:
     if not buttons:
         return send_whatsapp_message(to, WELCOME_MESSAGE)
 
+    try:
+        from services.menu_service import resolve_menu_header
+        header_text = resolve_menu_header(to)
+    except Exception:
+        header_text = MENU_HEADER
     return send_interactive_buttons(
         to=to,
-        header_text=MENU_HEADER,
+        header_text=header_text,
         body_text=MENU_BODY,
         buttons=buttons[:3],
         footer_text=MENU_FOOTER,

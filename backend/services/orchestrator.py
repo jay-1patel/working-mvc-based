@@ -458,7 +458,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
             from services.whatsapp_sender import send_button_message
             buttons = get_contextual_buttons(message, tenant_id=tenant_id, wa_id=wa_id, limit=3)
             if buttons:
-                await send_button_message(wa_id, synthesized, buttons)
+                await send_button_message(wa_id, synthesized, buttons, tenant_id=tenant_id)
             else:
                 await send_text_message(wa_id, synthesized)
             return {
@@ -494,7 +494,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                 from services.whatsapp_sender import send_button_message
                 buttons = get_contextual_buttons("services", tenant_id=tenant_id, wa_id=wa_id, limit=3)
                 if buttons:
-                    await send_button_message(wa_id, synthesized, buttons)
+                    await send_button_message(wa_id, synthesized, buttons, tenant_id=tenant_id)
                 else:
                     await send_text_message(wa_id, synthesized)
                 return {

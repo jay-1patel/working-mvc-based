@@ -177,16 +177,52 @@ def get_menu_config(menu_type: str = "main") -> dict:
 
 def build_main_menu_list(wa_id: str = None) -> dict:
     """Build the main menu interactive list payload using the unified catalog."""
+    # Prefer the same tenant-aware B2C menu the orchestrator sends, so the
+    # header always matches the active tenant (never a frozen BUSINESS_NAME).
+    try:
+        from bots.customer_b2c.menus import get_main_menu
+        menu = get_main_menu(wa_id or "")
+        if menu and menu.get("type") == "list" and menu.get("sections"):
+            return menu
+        if menu and menu.get("type") == "buttons":
+            from services.menu_service import resolve_menu_header
+            rows = []
+            for b in menu.get("buttons") or []:
+                bid = (b.get("id") or "").strip()
+                title = (b.get("title") or "").strip()
+                if bid and title:
+                    rows.append({"id": bid, "title": title[:24], "description": ""})
+            raw = menu.get("text") or "What can I help you with?"
+            header = resolve_menu_header(wa_id or "")
+            body = raw
+            if raw.startswith("*") and "*\n\n" in raw:
+                left, right = raw.split("*\n\n", 1)
+                header = left.lstrip("*").strip() or header
+                body = right or raw
+            return {
+                "type": "list",
+                "header": header,
+                "body": body,
+                "button_text": "Show Options",
+                "sections": [{"title": "Options", "rows": rows}] if rows else [],
+            }
+    except Exception:
+        logger.debug("tenant get_main_menu unavailable for build_main_menu_list", exc_info=True)
+
     items = get_kb_main_menu(wa_id or "")
-    # Admin-editable style (falls back to defaults when not configured).
     settings = {}
     try:
         from database import get_menu_settings  # backend database (sys.path set by kb imports)
         settings = get_menu_settings("kb_main")
     except Exception:
         settings = {}
+    try:
+        from services.menu_service import resolve_menu_header
+        default_header = resolve_menu_header(wa_id or "")
+    except Exception:
+        default_header = BUSINESS_NAME
     return build_list_menu(
-        header=settings.get("header") or f"Hi there! 👋 Welcome to {BUSINESS_NAME}",
+        header=settings.get("header") or default_header,
         body=settings.get("body") or "What can I help you with?",
         button_text=settings.get("button_text") or "Main Menu",
         items=items,

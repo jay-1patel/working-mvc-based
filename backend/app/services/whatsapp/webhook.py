@@ -686,13 +686,21 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                         if response_text:
                             send_whatsapp_message(wa_id, response_text)
                         menu_body = "Please select an option below:"
+                    list_header = interactive.get("header") or ""
+                    if not str(list_header).strip():
+                        try:
+                            from services.menu_service import resolve_menu_header
+                            list_header = resolve_menu_header(wa_id, tenant_id)
+                        except Exception:
+                            list_header = ""
                     list_sent = send_whatsapp_list_menu(
                         wa_id,
-                        interactive.get("header", ""),
+                        list_header,
                         menu_body,
                         interactive.get("button_text") or interactive.get("button", "Menu"),
                         interactive.get("sections", []),
                         interactive.get("footer", ""),
+                        tenant_id=tenant_id,
                     )
                     send_status = "sent_list" if list_sent else "failed_list"
                     logger.info(f"CATALOG_LIST_SENT | {wa_id} | ok={list_sent}")
@@ -740,13 +748,21 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
                 # List body already carries the greeting/menu copy. Sending
                 # response_text first produced a second, different WhatsApp bubble.
                 menu_body = interactive.get("body", "") or response_text or "Please select an option below:"
+                list_header = interactive.get("header") or ""
+                if not str(list_header).strip():
+                    try:
+                        from services.menu_service import resolve_menu_header
+                        list_header = resolve_menu_header(wa_id, tenant_id)
+                    except Exception:
+                        list_header = ""
                 list_sent = send_whatsapp_list_menu(
                     wa_id,
-                    interactive.get("header", ""),
+                    list_header,
                     menu_body,
                     interactive.get("button_text") or interactive.get("button", "Menu"),
                     interactive.get("sections", []),
                     interactive.get("footer", ""),
+                    tenant_id=tenant_id,
                 )
                 send_status = "sent_list" if list_sent else "failed_list"
                 logger.info(f"Interactive list reply {'sent' if list_sent else 'failed'} to {wa_id}")

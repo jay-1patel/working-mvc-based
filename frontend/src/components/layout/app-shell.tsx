@@ -316,7 +316,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         </div>
 
         <div className="px-3">
-          {locked || impersonating ? null : can(TENANT_PERMISSION) || identity?.role === 'admin' ? (
+          {/* customer_care home is Onboarded users only — no Register. */}
+          {locked || impersonating || showOnboardingUsers ? null : can(TENANT_PERMISSION) || identity?.role === 'admin' ? (
             <button
               type="button"
               onClick={() => navigate('/register')}
@@ -373,9 +374,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           ) : showOnboardingUsers ? (
             <div className="space-y-0.5">
               <p className="px-3 text-xs leading-relaxed text-txmuted">
-                {route.view === 'onboarding-users'
-                  ? "Select a tenant user below to open that tenant's full support console."
-                  : 'Full superadmin tools below. Use Onboarded users to Login into any tenant.'}
+                Login into any tenant account. After Login you get full superadmin access inside that
+                tenant.
               </p>
             </div>
           ) : tenantScoped && route.tenantId ? (
@@ -404,8 +404,13 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </p>
           )}
 
-          {/* Full platform tools for every super admin, including customer_care. */}
-          {!locked && isSuperAdmin && (
+          {/*
+            Platform tools:
+            - Normal super admins: always
+            - customer_care: only AFTER Login into a tenant (impersonating) — home is
+              Onboarded users only
+          */}
+          {!locked && isSuperAdmin && !showOnboardingUsers && (
             <div className="space-y-0.5 border-t border-line pt-3">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Platform
@@ -419,7 +424,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
           )}
 
-          {/* customer_care only: Login into any tenant with full support privileges. */}
+          {/* customer_care home: the only page until they Login into a tenant. */}
           {!locked && showOnboardingUsers && (
             <div className="space-y-0.5 border-t border-line pt-3">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
@@ -515,12 +520,12 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-attline bg-attbg px-4 py-2.5 text-sm text-attink"
             >
               <p>
-                <strong>{identity?.username || 'Customercare'}</strong> (super admin) — full access in this
-                tenant
+                <strong>{identity?.username || 'Customercare'}</strong> (super admin) — full superadmin
+                privileges in this tenant
                 {impersonatedUsername ? (
                   <>
                     {' '}
-                    via <strong>{impersonatedUsername}</strong>&apos;s account
+                    (via <strong>{impersonatedUsername}</strong>)
                   </>
                 ) : null}
                 .

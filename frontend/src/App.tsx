@@ -55,6 +55,20 @@ function Router() {
   const { identity } = useAuth()
   const locked = isOnboardingLocked(identity, { impersonating })
 
+  // customer_care: home is Onboarded users only. Full superadmin tools unlock
+  // only after Login into a tenant (support session).
+  if (
+    isCustomerCareIdentity(identity) &&
+    !impersonating &&
+    route.view !== 'onboarding-users'
+  ) {
+    return (
+      <AppShell route={{ ...route, tenantId: null, view: 'onboarding-users' }}>
+        <OnboardingUsersPanel />
+      </AppShell>
+    )
+  }
+
   // First-login lock: until a super admin approves the tenant's registration,
   // the admin only gets the registration panel and their change requests. The
   // sidebar (AppShell) is trimmed to those two entries for the same reason.

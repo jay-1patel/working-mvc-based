@@ -145,10 +145,7 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
     (c) => c.first_seen && new Date(c.first_seen).toDateString() === todayStr,
   ).length
 
-  const openReviewQueue = () => {
-    if (impersonating) void exitImpersonation('/tenant-requests')
-    else navigate('/tenant-requests')
-  }
+  const openReviewQueue = () => navigate('/tenant-requests')
 
   /** Approve as customer_care, then leave support Login → full superadmin console. */
   const approveAndReturn = async () => {
@@ -192,11 +189,7 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
       <NeedRow
         key="tenant-requests"
         icon={<Send className="h-4 w-4" />}
-        action={
-          <PrimaryButton onClick={openReviewQueue}>
-            {impersonating ? 'Exit & review' : 'Review'}
-          </PrimaryButton>
-        }
+        action={<PrimaryButton onClick={openReviewQueue}>Review</PrimaryButton>}
       >
         <strong>{pendingForTenant.length}</strong> pending {parts.join(' and ')} for this business —
         waiting for your decision
@@ -288,7 +281,7 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
             {approving ? 'Approving…' : 'Approve and return to superadmin'}
           </PrimaryButton>
           <GhostButton disabled={approving} onClick={openReviewQueue}>
-            {impersonating ? 'Exit & review on Business requests' : 'Open Business requests'}
+            Open Business requests
           </GhostButton>
         </div>
       </Notice>

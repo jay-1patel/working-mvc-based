@@ -265,13 +265,9 @@ export function ProfileEditor({
             <GhostButton
               className={smallBtn}
               disabled={action.busy}
-              onClick={() =>
-                impersonating
-                  ? void exitImpersonation('/tenant-requests')
-                  : navigate('/tenant-requests')
-              }
+              onClick={() => navigate('/tenant-requests')}
             >
-              {impersonating ? 'Exit & review' : 'Open Business requests'}
+              Open Business requests
             </GhostButton>
           </div>
         </Notice>

@@ -73,7 +73,7 @@ export function OnboardingUsersPanel() {
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Onboarded users"
-        description="All tenant admins and sub-admins. Login opens that tenant as you (Customercare superadmin) with full access."
+        description="Your only home screen. Login into any tenant — you stay Customercare superadmin and get full platform + tenant privileges there."
         meta={<Pill tone="ok">{filtered.length} users</Pill>}
       />
 

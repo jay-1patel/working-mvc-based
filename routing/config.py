@@ -51,6 +51,12 @@ SEND2_SESSION_SEND_URL = os.getenv(
     "SEND2_SESSION_SEND_URL",
     "https://api.send2.digital/devdesk/session-msg-send",
 )
+SEND2_LOCATION_URL = os.getenv(
+    "SEND2_LOCATION_URL",
+    "https://api.send2.digital/whatsapp/attachment/location",
+)
+# Optional JWT / session token required by Send2 location attachment API.
+SEND2_AUTH_TOKEN = os.getenv("SEND2_AUTH_TOKEN", "")
 # ── Legacy path (not the application database) ─────────────────────────────
 # Application data lives in MongoDB (MONGODB_URI / MONGODB_DATABASE /
 # DATABASE_BACKEND=mongodb). faq.db and ROUTING_DB_PATH are legacy: no runtime

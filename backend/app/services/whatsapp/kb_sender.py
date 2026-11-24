@@ -1516,6 +1516,28 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
     import re
 
     # New button-based menu IDs
+    if selected_id in ("menu_how_to_reach", "how_to_reach") or (
+        selected_title and selected_title.strip().lower() in ("how to reach", "directions", "location")
+    ):
+        try:
+            from routing.whatsapp import send_whatsapp_location
+            from services.location_sender import brand_location_payload
+
+            meta = brand_location_payload(wa_id=wa_id)
+            return bool(
+                send_whatsapp_location(
+                    wa_id,
+                    meta.get("message") or "Here is our location.",
+                    tenant_id=meta.get("tenant_id"),
+                    latitude=meta.get("latitude"),
+                    longitude=meta.get("longitude"),
+                    name=meta.get("name") or None,
+                    address=meta.get("address") or None,
+                )
+            )
+        except Exception as e:
+            logger.error("MENU_LOCATION_SEND_FAILED | to=%s | error=%s", wa_id, e)
+            return False
     if selected_id in ("menu_catalogue", "menu_catalog", "menu_brochure"):
         try:
             from shared.tenancy.resolver import resolve_effective_tenant_id

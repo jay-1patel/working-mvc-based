@@ -437,6 +437,15 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
             or intent_answers.answer_for_intent(wa_id, message, tenant_id=tenant_id)
             or intent_answers.answer_for_text(wa_id, message, tenant_id=tenant_id)
         )
+        # How to Reach / location menu: send Send2 location pin first, then text.
+        location_sent = False
+        try:
+            from services.location_sender import maybe_send_location
+            location_sent = await maybe_send_location(
+                wa_id, message, tenant_id=tenant_id, message=intent_reply,
+            )
+        except Exception as loc_exc:
+            logger.debug("location pin send skipped for %s: %s", wa_id, loc_exc)
         if intent_reply:
             from faq.service import synthesize_intent_answer
             synthesized = await synthesize_intent_answer(
@@ -452,6 +461,15 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                 await send_button_message(wa_id, synthesized, buttons)
             else:
                 await send_text_message(wa_id, synthesized)
+            return {
+                "status": "processed",
+                "messages": drain_captured(),
+                "new_state": "B2C_MAIN_MENU",
+                "human_handover": False,
+                "user_type": "b2c",
+                "error": None,
+            }
+        if location_sent:
             return {
                 "status": "processed",
                 "messages": drain_captured(),

@@ -468,6 +468,11 @@ class Brand(_Base):
     bot_name: str = ""
     # Publicly hosted company logo, shown in the tenant's console header.
     logo_url: str = ""
+    # Optional WhatsApp location pin (Send2 /whatsapp/attachment/location).
+    location_name: str = ""
+    location_address: str = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     @field_validator("website")
     @classmethod

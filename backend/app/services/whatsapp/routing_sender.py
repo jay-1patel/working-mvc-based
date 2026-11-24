@@ -8,6 +8,8 @@ from routing.config import (
     SEND2_SESSION_SEND_URL,
     SEND2_LIST_MENU_URL,
     SEND2_QUICK_BUTTON_URL,
+    SEND2_LOCATION_URL,
+    SEND2_AUTH_TOKEN,
 )
 
 logger = logging.getLogger("chiki_webhook")
@@ -314,6 +316,63 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tena
         from routing.hookdeck import tee_outbound
         tee_outbound(SEND2_SESSION_SEND_URL, payload, None, f"exception: {last_err}", to=clean_to)
         logger.error(f"send2.digital send failed for {norm_type} after {retries} attempts: {last_err}")
+        return False
+
+
+def send_whatsapp_location(
+    to,
+    message: str = "",
+    *,
+    tenant_id=None,
+    auth_token: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    name: str | None = None,
+    address: str | None = None,
+    timeout: int = 30,
+) -> bool:
+    """Send a WhatsApp location pin via Send2 ``/whatsapp/attachment/location``.
+
+    Payload matches the Send2 location attachment API:
+    username, password, message, to, authToken — plus optional lat/lng/name/address
+    when the tenant brand has map coordinates.
+    """
+    username, password = get_tenant_send2_credentials(tenant_id)
+    clean_to = re.sub(r"[^\d]", "", str(to or "")).strip() or str(to)
+    token = (auth_token if auth_token is not None else SEND2_AUTH_TOKEN) or ""
+    payload = {
+        "username": username,
+        "password": password,
+        "message": str(message or "").strip() or " ",
+        "to": clean_to,
+        "authToken": token,
+    }
+    if latitude is not None:
+        payload["latitude"] = float(latitude)
+    if longitude is not None:
+        payload["longitude"] = float(longitude)
+    if name:
+        payload["name"] = str(name).strip()
+    if address:
+        payload["address"] = str(address).strip()
+
+    url = SEND2_LOCATION_URL or "https://api.send2.digital/whatsapp/attachment/location"
+    try:
+        resp = requests.post(url, json=payload, timeout=timeout)
+        logger.info(
+            "LOCATION_SEND | to=%s | status=%s | body=%s",
+            clean_to, resp.status_code, (resp.text or "")[:300],
+        )
+        from routing.hookdeck import tee_outbound
+        tee_outbound(url, payload, resp.status_code, resp.text, to=clean_to)
+        return _send2_response_ok(resp.status_code, resp.text)
+    except Exception as exc:
+        logger.error("LOCATION_SEND_FAILED | to=%s | error=%s", clean_to, exc)
+        try:
+            from routing.hookdeck import tee_outbound
+            tee_outbound(url, payload, None, f"exception: {exc}", to=clean_to)
+        except Exception:
+            pass
         return False
 
 

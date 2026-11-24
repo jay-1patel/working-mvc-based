@@ -196,6 +196,50 @@ async def send_document_message(wa_id: str, doc_url: str, filename: str = None) 
         return False
 
 
+async def send_location_message(
+    wa_id: str,
+    message: str = "",
+    *,
+    tenant_id: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    name: str | None = None,
+    address: str | None = None,
+) -> bool:
+    """Send (or capture) a WhatsApp location pin via Send2 location attachment API."""
+    _record({
+        "type": "location",
+        "text": message or "",
+        "latitude": latitude,
+        "longitude": longitude,
+        "name": name or "",
+        "address": address or "",
+        "tenant_id": tenant_id,
+    })
+    logger.info(
+        "SEND_LOCATION | to=%s | lat=%s | lng=%s | name=%s",
+        wa_id, latitude, longitude, name,
+    )
+    if _capture_only.get():
+        return True
+    try:
+        from routing.whatsapp import send_whatsapp_location
+        return bool(
+            send_whatsapp_location(
+                wa_id,
+                message or "",
+                tenant_id=tenant_id,
+                latitude=latitude,
+                longitude=longitude,
+                name=name,
+                address=address,
+            )
+        )
+    except Exception as e:
+        logger.error("SEND_LOCATION_FAILED | to=%s | error=%s", wa_id, e)
+        return False
+
+
 async def send_catalogue_message(wa_id: str, tenant_id: str | None = None) -> bool:
     """Send (or capture) the product catalogue PDF as an interactive document
     with a single reply button (send2.digital "interactive" type=button body).

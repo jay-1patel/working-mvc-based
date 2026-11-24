@@ -25,18 +25,86 @@ from contextlib import contextmanager
 logger = logging.getLogger("brochure_service")
 
 
+def _tenant_admin_file_filter(tenant_id: str | None) -> dict:
+    """Scope admin_files to one tenant (id + slug aliases). Never cross tenants.
+
+    Matches ``list_admin_files``: always compare string tenant ids via ``$in``.
+    When ``tenant_id`` is omitted, only legacy unscoped rows (null/empty tenant)
+    are returned — never every tenant's brochures.
+    """
+    if not tenant_id:
+        return {"$or": [{"tenant_id": None}, {"tenant_id": ""}]}
+    try:
+        from db.products import _resolve_tenant_ids
+
+        ids = [str(x) for x in _resolve_tenant_ids(tenant_id) if x is not None and str(x).strip() != ""]
+    except Exception:
+        ids = [str(tenant_id)]
+    if not ids:
+        ids = [str(tenant_id)]
+    # Include the raw key as well (active-test id "c", slug, etc.).
+    raw = str(tenant_id).strip()
+    if raw and raw not in ids:
+        ids.append(raw)
+    return {"tenant_id": {"$in": ids}}
+
+
+def _resolve_brochure_url(url: str | None, file_path: str | None = None) -> str:
+    """Turn a stored brochure url/path into a sendable public URL."""
+    candidates = [c for c in ((url or "").strip(), (file_path or "").strip()) if c]
+    if not candidates:
+        return ""
+    try:
+        from kb.services.whatsapp import resolve_public_media_url
+    except Exception:
+        try:
+            from backend.app.services.whatsapp.kb_sender import resolve_public_media_url
+        except Exception:
+            resolve_public_media_url = None
+    try:
+        from services.media_host import absolutize_upload_url
+    except Exception:
+        try:
+            from backend.services.media_host import absolutize_upload_url
+        except Exception:
+            absolutize_upload_url = None
+
+    for candidate in candidates:
+        if candidate.startswith(("http://", "https://")):
+            if resolve_public_media_url:
+                try:
+                    rebased = resolve_public_media_url(candidate)
+                    if rebased:
+                        return rebased
+                except Exception:
+                    logger.debug("BROCHURE_URL_REBASE_SKIPPED | url=%s", candidate, exc_info=True)
+            return candidate
+        if resolve_public_media_url:
+            try:
+                resolved = resolve_public_media_url(candidate)
+                if resolved:
+                    return resolved
+            except Exception:
+                logger.debug("BROCHURE_URL_RESOLVE_SKIPPED | path=%s", candidate, exc_info=True)
+        if absolutize_upload_url:
+            try:
+                abs_url = absolutize_upload_url(candidate)
+                if abs_url:
+                    return abs_url
+            except Exception:
+                logger.debug("BROCHURE_URL_ABSOLUTIZE_SKIPPED | path=%s", candidate, exc_info=True)
+    return ""
+
+
 def _fetch_admin_brochure_rows(tenant_id: str | None, modules: tuple) -> list:
-    """Rows from admin_files for brochure modules (SQLite + Mongo)."""
+    """Rows from admin_files for brochure modules (Mongo)."""
     from db.core import use_mongodb
 
     if use_mongodb():
         from db.mongo import Repository
 
         flt: dict = {"module": {"$in": list(modules)}}
-        if tenant_id:
-            flt["tenant_id"] = tenant_id
-        else:
-            flt["$or"] = [{"tenant_id": None}, {"tenant_id": ""}]
+        flt.update(_tenant_admin_file_filter(tenant_id))
         return Repository("admin_files").find_all(
             flt, sort=[("created_at", -1), ("id", -1)]
         )
@@ -49,11 +117,8 @@ def _fetch_brochure_by_module_row(module: str, tenant_id: str | None) -> dict | 
     if use_mongodb():
         from db.mongo import Repository
 
-        flt = {"module": module}
-        if tenant_id:
-            flt["tenant_id"] = tenant_id
-        else:
-            flt["$or"] = [{"tenant_id": None}, {"tenant_id": ""}]
+        flt: dict = {"module": module}
+        flt.update(_tenant_admin_file_filter(tenant_id))
         rows = Repository("admin_files").find(flt, sort=[("created_at", -1)], limit=1)
         return rows[0] if rows else None
     raise RuntimeError("admin_files brochure lookup requires MongoDB")
@@ -164,16 +229,20 @@ class Brochure:
         
         # Add module-based keywords
         module_keywords = {
-            'catalogue': ['catalog', 'catalogue', 'products', 'product list', 'offerings'],
+            'catalogue': [
+                'catalog', 'catalogue', 'brochure', 'brochures', 'pdf',
+                'products', 'product list', 'offerings', 'price list',
+            ],
+            'brochure': ['brochure', 'brochures', 'catalog', 'catalogue', 'pdf'],
             'new_arrival': ['new arrivals', 'new products', 'latest', 'recent', 'new'],
-            'product_brochure': ['product brochure', 'product info', 'product details'],
-            'service_brochure': ['services', 'service info', 'service details'],
+            'product_brochure': ['product brochure', 'product info', 'product details', 'brochure'],
+            'service_brochure': ['services', 'service info', 'service details', 'brochure'],
             'company_profile': ['company', 'profile', 'about us', 'overview'],
             'technical_brochure': ['technical', 'specifications', 'specs', 'tech'],
             'pricing': ['pricing', 'price list', 'rates', 'cost'],
             'customer_case_study': ['case study', 'testimonial', 'customer story'],
             'industry_brochure': ['industry', 'sector', 'vertical'],
-            'general': ['brochure', 'information', 'details'],
+            'general': ['brochure', 'information', 'details', 'catalogue', 'catalog', 'pdf'],
         }
         
         if self.module in module_keywords:
@@ -292,14 +361,28 @@ class BrochureService:
                 except Exception:
                     raw_filename = ""
                 display = raw_name or raw_filename or "Brochure.pdf"
+                raw_url = ""
+                raw_path = ""
+                try:
+                    raw_url = row["url"] or ""
+                except Exception:
+                    raw_url = ""
+                try:
+                    raw_path = row["file_path"] or ""
+                except Exception:
+                    raw_path = ""
+                public_url = _resolve_brochure_url(raw_url, raw_path)
+                if not public_url:
+                    # Skip rows we cannot deliver over WhatsApp.
+                    return
                 brochures.append(Brochure(
                     file_id=row["id"],
                     tenant_id=row["tenant_id"] or "",
                     module=row["module"] or "general",
                     name=raw_name or display,
                     filename=display,
-                    url=row["url"] or "",
-                    file_path=row["file_path"] or "",
+                    url=public_url,
+                    file_path=raw_path,
                     ext=row["ext"] or "",
                     size=row["size"] or 0,
                     doc_id=row["doc_id"] or None,
@@ -317,15 +400,15 @@ class BrochureService:
             if not brochures and tenant_id:
                 try:
                     from shared.tenancy.loader import get_tenant_profile
-                    from shared.tenancy.resolver import resolve_tenant_for_user
-                    tid = resolve_tenant_for_user(tenant_id) or tenant_id
-                    profile = get_tenant_profile(tid)
+
+                    # tenant_id is a tenant key here — never treat it as a wa_id.
+                    profile = get_tenant_profile(tenant_id)
                     url = (getattr(getattr(profile, "notifications", None), "brochure_url", "") or "").strip()
                     label = (getattr(getattr(profile, "notifications", None), "brochure_label", "") or "").strip() or "Brochure.pdf"
                     if url:
                         brochures.append(Brochure(
                             file_id=0,
-                            tenant_id=tid,
+                            tenant_id=str(tenant_id),
                             module="catalogue",
                             name=label,
                             filename=label if label.endswith(".pdf") else f"{label}.pdf",
@@ -363,18 +446,31 @@ class BrochureService:
             module = self._button_id_to_module(button_id)
             if module:
                 brochure = self.get_brochure_by_module(module, tenant_id)
-                if brochure:
+                if brochure and brochure.url:
                     return brochure
-        
-        # Get all brochures for this tenant
+
+        # Typed "brochure" / "catalogue" / "catalog" / "pdf" — prefer the
+        # catalogue module PDF for THIS tenant before fuzzy scoring.
+        needle = (query or "").strip().lower()
+        if needle in {
+            "brochure", "brochures", "catalogue", "catalog", "pdf",
+            "brochure pdf", "catalogue pdf", "catalog pdf", "send brochure",
+            "share brochure", "send pdf", "price list",
+        } or (button_id and self._button_id_to_module(button_id) == "catalogue"):
+            for module in ("catalogue", "brochure", "general", "new_arrival"):
+                brochure = self.get_brochure_by_module(module, tenant_id)
+                if brochure and brochure.url:
+                    return brochure
+
+        # Strictly this tenant only. Never fall back to another brand's PDFs —
+        # that used to send e.g. a travel brochure while active tenant was automotive.
         brochures = self.get_all_brochures(tenant_id)
-        
+
         if not brochures:
-            # Fallback to global brochures
-            brochures = self.get_all_brochures()
-        
-        if not brochures:
-            logger.warning(f"No brochures found for tenant {tenant_id}")
+            logger.warning(
+                "No brochures found for tenant %s (no cross-tenant fallback)",
+                tenant_id,
+            )
             return None
         
         # Find the best match based on query
@@ -388,11 +484,14 @@ class BrochureService:
                 best_brochure = brochure
         
         # If we have a good match, return it
-        if best_score >= 0.4:
+        if best_score >= 0.4 and best_brochure and best_brochure.url:
             return best_brochure
         
-        # If no good match found, return the most recent brochure
-        return brochures[0] if brochures else None
+        # If no good match found, return the most recent brochure for this tenant
+        for brochure in brochures:
+            if brochure.url:
+                return brochure
+        return None
 
     @staticmethod
     def categorize_query(query: str) -> str:
@@ -408,13 +507,16 @@ class BrochureService:
             if row:
                 rd = dict(row)
                 display = rd.get("name") or f"{module}_brochure.pdf"
+                public_url = _resolve_brochure_url(rd.get("url") or "", rd.get("file_path") or "")
+                if not public_url:
+                    return None
                 return Brochure(
                     file_id=rd.get("id"),
                     tenant_id=rd.get("tenant_id") or "",
                     module=rd.get("module") or module,
                     name=rd.get("name") or display,
                     filename=display,
-                    url=rd.get("url") or "",
+                    url=public_url,
                     file_path=rd.get("file_path") or "",
                     ext=rd.get("ext") or "",
                     size=rd.get("size") or 0,
@@ -735,9 +837,11 @@ def send_relevant_brochure(wa_id: str, query: str = None, tenant_id: str = None,
     """
     # Always re-read after uploads; empty caches used to hide new PDFs.
     brochure_service.clear_cache(tenant_id)
+    if tenant_id:
+        brochure_service.clear_cache(str(tenant_id))
     brochure = get_relevant_brochure(query, tenant_id, button_id)
 
-    # Last-resort fallback used by older catalogue helpers.
+    # Last-resort fallback used by older catalogue helpers (same tenant only).
     if (not brochure or not brochure.url) and tenant_id:
         try:
             from kb.services.whatsapp import get_catalogue_doc
@@ -749,11 +853,14 @@ def send_relevant_brochure(wa_id: str, query: str = None, tenant_id: str = None,
                     module="catalogue",
                     name=doc.get("filename") or "Catalogue.pdf",
                     filename=doc.get("filename") or "Catalogue.pdf",
-                    url=doc["url"],
+                    url=_resolve_brochure_url(doc.get("url"), None) or doc["url"],
                 )
         except Exception as exc:
             logger.debug("get_catalogue_doc fallback failed: %s", exc)
-    
+
+    if brochure and not brochure.url:
+        brochure.url = _resolve_brochure_url(None, brochure.file_path)
+
     if brochure and brochure.url:
         try:
             from kb.services.whatsapp import send_document_with_caption

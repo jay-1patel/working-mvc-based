@@ -196,7 +196,7 @@ async def send_document_message(wa_id: str, doc_url: str, filename: str = None) 
         return False
 
 
-async def send_catalogue_message(wa_id: str) -> bool:
+async def send_catalogue_message(wa_id: str, tenant_id: str | None = None) -> bool:
     """Send (or capture) the product catalogue PDF as an interactive document
     with a single reply button (send2.digital "interactive" type=button body).
 
@@ -212,7 +212,17 @@ async def send_catalogue_message(wa_id: str) -> bool:
         CATALOGUE_BUTTON_TITLE,
         CATALOGUE_BODY_TEXT,
     )
-    doc = get_catalogue_doc()
+    tid = tenant_id
+    if not tid:
+        try:
+            from shared.tenancy.resolver import resolve_effective_tenant_id
+            tid = resolve_effective_tenant_id(wa_id=wa_id)
+        except Exception:
+            tid = None
+    doc = get_catalogue_doc(tenant_id=tid)
+    if not doc or not doc.get("url"):
+        logger.warning("SEND_CATALOGUE_SKIPPED | to=%s | tenant=%s | no catalogue doc", wa_id, tid)
+        return False
     header_media = {
         "type": "document",
         "document": {"link": doc["url"], "filename": doc["filename"]},

@@ -77,6 +77,7 @@ VERTICAL_ACTION_IDS = {
     "finance": "menu_services",
     "it_software": "menu_services",
     "ecommerce": "menu_products",
+    "automotive": "menu_models",
     "generic": "menu_offerings",
 }
 
@@ -88,6 +89,7 @@ VERTICAL_CTA_TITLES = {
     "finance": "Request Proposal",
     "it_software": "Get a Quote",
     "ecommerce": "Buy / Enquire",
+    "automotive": "Book Test Drive",
     "generic": "Enquire Now",
 }
 
@@ -99,6 +101,7 @@ VERTICAL_CTA_URL_LABELS = {
     "finance": "Learn More",
     "it_software": "Learn More",
     "ecommerce": "View Product",
+    "automotive": "View Car",
     "generic": "Learn More",
 }
 
@@ -110,13 +113,14 @@ LIST_BUTTON_TEXT = {
     "finance": "Services",
     "it_software": "Services",
     "ecommerce": "Products",
+    "automotive": "Cars",
     "generic": "Offerings",
 }
 
 ENQUIRY_BUTTON_ALIASES = {
     "book this package", "book this tour", "schedule site visit", "enquire property",
     "apply now", "request proposal", "get a quote", "buy / enquire", "enquire now",
-    "enquire this product", "book now", "site visit",
+    "enquire this product", "book now", "site visit", "book test drive",
 }
 
 ENQUIRY_VERBS = (
@@ -775,11 +779,12 @@ _OFFERING_MENU_IDS = {
     "browse_offerings", "menu_offerings", "menu_packages", "menu_tour_packages",
     "menu_destinations", "menu_products", "menu_properties", "menu_projects",
     "menu_services", "menu_banking_products", "explore_properties",
+    "menu_models",
 }
 # Intents on the *main* browse row only (not Cards/Loans/Technologies sub-rows).
 _OFFERING_MENU_INTENTS = {
     "offerings", "package_details", "service_enquiry",
-    "property_listings", "destination_details",
+    "property_listings", "destination_details", "model_enquiry",
 }
 # Feature flags on the main browse row (not brochure_pdf / offering_details sub-rows).
 _OFFERING_FEATURES = {
@@ -802,6 +807,8 @@ _OFFERING_TITLE_PHRASES = {
     "our services", "services", "show services", "browse services", "solutions",
     # banking
     "banking products", "bank products",
+    # automotive
+    "our cars", "our models", "show cars", "browse cars", "cars", "models",
 }
 
 

@@ -342,7 +342,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                     "error": None,
                 }
         except Exception as exc:
-            logger.debug(f"brochure request failed for {wa_id}: {exc}")
+            logger.warning("brochure request failed for %s: %s", wa_id, exc, exc_info=True)
 
         # 1b2. Stale WhatsApp list rows from a previous brand / old menu publish.
         # Must run *before* offerings browse — otherwise a foreign \"Our Services\"

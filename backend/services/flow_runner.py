@@ -619,11 +619,12 @@ def flow_for_button(wa_id: str, button_id: str, tenant_id=None):
             or (len(b_clean) >= 4 and b_clean in clean_target)
             or (getattr(b, "flow", None) and _clean_title(b.flow) == clean_target)
         )
-        # Talk-to-human must escalate / hand over — never open book_callback.
+        # Talk-to-human / sales must escalate / hand over — never open book_callback.
         is_human_btn = (
-            (b.id or "") in ("menu_human", "human_handover", "talk_to_human")
+            (b.id or "") in ("menu_human", "human_handover", "talk_to_human", "menu_talk_sales")
             or "talk to human" in (b.title or "").lower()
             or "talk to a human" in (b.title or "").lower()
+            or "talk to sales" in (b.title or "").lower()
         )
         if matched and is_human_btn:
             handover = profile.flow("human_handover")
@@ -691,24 +692,27 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
         if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
             return "book_appointment"
 
-    # Callback & Meeting triggers
+    # Callback & Meeting triggers (includes automotive test-drive booking)
     callback_phrases = (
         "book a callback", "book callback", "request a callback", "request callback",
         "call me back", "call back", "callback", "schedule a call", "schedule call",
         "schedule a meeting", "schedule meeting", "book a meeting", "book meeting",
         "google meet", "google meeting", "arrange a call", "arrange call",
         "callback request", "meeting request", "book a google meet", "need a callback",
+        "book a test drive", "book test drive", "test drive", "schedule test drive",
     )
     if any(p in clean or clean == p for p in callback_phrases):
         flow = profile.flow("book_callback")
         if flow and (not flow.requires_feature or profile.feature_on(flow.requires_feature)):
             return "book_callback"
 
-    # Quote & Proposal triggers (IT, Finance, Travel, etc.)
+    # Quote & Proposal triggers (IT, Finance, Travel, automotive on-road, etc.)
     quote_phrases = (
         "get a quote", "get quote", "request a quote", "request quote",
         "need a quote", "project quote", "quote",
         "request proposal", "request a proposal", "proposal", "get proposal",
+        "get on-road price", "get on road price", "on-road price", "on road price",
+        "onroad price", "get onroad price",
     )
     if any(p in clean or clean == p for p in quote_phrases):
         flow = profile.flow("get_quote")
@@ -719,7 +723,8 @@ def flow_for_text(wa_id: str, text: str, tenant_id=None):
     human_phrases = (
         "talk to human", "speak to human", "talk to agent", "connect to agent",
         "human agent", "talk to a human", "speak to a person", "talk to person",
-        "i want to talk to a human", "human handover",
+        "i want to talk to a human", "human handover", "talk to sales",
+        "speak to sales", "connect to sales",
     )
     if any(p in clean or clean == p for p in human_phrases):
         flow = profile.flow("human_handover")

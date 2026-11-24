@@ -1517,7 +1517,12 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
 
     # New button-based menu IDs
     if selected_id in ("menu_catalogue", "menu_catalog", "menu_brochure"):
-        return send_catalogue_pdf(wa_id)
+        try:
+            from shared.tenancy.resolver import resolve_effective_tenant_id
+            tid = resolve_effective_tenant_id(wa_id=wa_id)
+        except Exception:
+            tid = None
+        return send_catalogue_pdf(wa_id, tenant_id=tid)
     if selected_id == "menu_browse":
         return send_products_by_category(wa_id)
     if selected_id == "menu_products":
@@ -1552,7 +1557,12 @@ def _handle_menu_selection(wa_id: str, selected_id: str, selected_title: str) ->
     # Plain text menu commands (user typed "products", "faq", etc.)
     text_lower = selected_title.lower().strip()
     if text_lower in ("catalogue", "catalog", "product catalogue", "product catalog", "pdf", "catalogue pdf", "catalog pdf", "brochure", "brochure pdf"):
-        return send_catalogue_pdf(wa_id)
+        try:
+            from shared.tenancy.resolver import resolve_effective_tenant_id
+            tid = resolve_effective_tenant_id(wa_id=wa_id)
+        except Exception:
+            tid = None
+        return send_catalogue_pdf(wa_id, tenant_id=tid)
     if text_lower in ("products", "product", "browse products", "browse"):
         return send_products_by_category(wa_id)
     if text_lower in ("faq", "help", "faqs"):
@@ -1731,18 +1741,27 @@ def send_products_by_category(to: str) -> bool:
 def _get_admin_document(module: str, default_filename: str, tenant_id: str = None) -> dict | None:
     try:
         repo = _mongo_repo("admin_files")
+        flt: dict = {"module": module}
         if tenant_id:
-            rows = repo.find(
-                {"module": module, "tenant_id": tenant_id},
-                sort=[("created_at", -1), ("id", -1)],
-                limit=1,
-            )
+            try:
+                from db.products import _resolve_tenant_ids
+
+                ids = [str(x) for x in _resolve_tenant_ids(tenant_id) if x is not None and str(x).strip() != ""]
+            except Exception:
+                ids = [str(tenant_id)]
+            raw = str(tenant_id).strip()
+            if raw and raw not in ids:
+                ids.append(raw)
+            if not ids:
+                ids = [str(tenant_id)]
+            flt["tenant_id"] = {"$in": ids}
         else:
-            rows = repo.find(
-                {"module": module, "$or": [{"tenant_id": None}, {"tenant_id": ""}]},
-                sort=[("created_at", -1), ("id", -1)],
-                limit=1,
-            )
+            flt["$or"] = [{"tenant_id": None}, {"tenant_id": ""}]
+        rows = repo.find(
+            flt,
+            sort=[("created_at", -1), ("id", -1)],
+            limit=1,
+        )
         row = rows[0] if rows else None
         if row:
             name = row.get("name") or default_filename
@@ -1764,9 +1783,9 @@ def get_catalogue_doc(tenant_id: str = None) -> dict | None:
     if tenant_id:
         try:
             from shared.tenancy.loader import get_tenant_profile
-            from shared.tenancy.resolver import resolve_tenant_for_user
-            tid = resolve_tenant_for_user(tenant_id)
-            profile = get_tenant_profile(tid)
+
+            # tenant_id is a tenant key — do not resolve it as a WhatsApp user id.
+            profile = get_tenant_profile(tenant_id)
             url = (profile.notifications.brochure_url or "").strip()
             if url:
                 return {
@@ -1785,7 +1804,6 @@ def get_catalogue_doc(tenant_id: str = None) -> dict | None:
         return None
     from routing.config import CATALOGUE_PDF_URL, CATALOGUE_PDF_FILENAME
     return {"url": CATALOGUE_PDF_URL, "filename": CATALOGUE_PDF_FILENAME}
-
 
 def get_new_arrivals_doc() -> dict | None:
     return _get_admin_document("new_arrival", "New Releases.pdf")

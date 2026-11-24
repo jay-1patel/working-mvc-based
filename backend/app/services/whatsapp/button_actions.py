@@ -771,7 +771,32 @@ def get_contextual_buttons(
             picked_ids = ["menu_products", "menu_catalogue", "menu_discounts"]
         picked_ids.append("main_menu")
 
-    # 7. Generic Fallback
+    # 7. Automotive / dealer
+    elif vertical == "automotive":
+        if any(k in q for k in ("brochure", "catalogue", "catalog", "pdf", "specs")):
+            if profile and profile.features.is_on("brochure_pdf"):
+                picked_ids.append("menu_brochure")
+            picked_ids.append("menu_models")
+        elif any(k in q for k in ("test drive", "testdrive", "demo drive", "trial")):
+            picked_ids.append("menu_test_drive")
+            picked_ids.append("menu_models")
+        elif any(k in q for k in ("on road", "on-road", "onroad", "ex showroom", "price", "quote")):
+            if profile and profile.features.is_on("quote"):
+                picked_ids.append("menu_onroad_price")
+            picked_ids.append("menu_test_drive")
+        elif any(k in q for k in ("sales", "talk to", "human", "advisor", "executive")):
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
+            picked_ids.append("menu_customer_care")
+        elif any(k in q for k in ("care", "support", "service desk", "helpline", "contact")):
+            picked_ids.append("menu_customer_care")
+            if profile and profile.features.is_on("human_handover"):
+                picked_ids.append("menu_human")
+        else:
+            picked_ids = ["menu_models", "menu_test_drive", "menu_onroad_price"]
+        picked_ids.append("main_menu")
+
+    # 8. Generic Fallback
     else:
         if any(k in q for k in ("quote", "cost", "price")):
             if profile and profile.features.is_on("quote"):

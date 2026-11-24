@@ -143,6 +143,17 @@ def build_profile(tenant_id: str, *, db_layer: Optional[Dict[str, Any]] = None,
     # tenant after a bad bifurcate/publish (e.g. Leeway Technologies on MMT).
     scrub_foreign_vertical_artifacts(merged, vertical)
 
+    # PDF extract writes sort_order 0..n; keyed merge keeps default positions.
+    # Re-sort so the published WhatsApp menu matches the reviewed extract order.
+    menu = merged.get("menu")
+    if isinstance(menu, dict) and isinstance(menu.get("buttons"), list) and menu["buttons"]:
+        buttons = menu["buttons"]
+        if all(isinstance(b, dict) and "sort_order" in b for b in buttons):
+            menu["buttons"] = sorted(
+                buttons,
+                key=lambda b: (int(b.get("sort_order") or 0), str(b.get("id") or "")),
+            )
+
     try:
         return TenantProfile(**merged)
     except Exception as exc:  # pydantic ValidationError and friends

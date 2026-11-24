@@ -206,7 +206,6 @@ def _sanitize_menu_buttons(
 
     menu_buttons: List[Dict[str, Any]] = []
     seen_ids: set = set()
-    seen_titles: set = set()
 
     for i, item in enumerate(menu_items_raw or []):
         if not isinstance(item, dict):
@@ -226,23 +225,32 @@ def _sanitize_menu_buttons(
         id_key = _normalize_menu_button_key(b_id)
 
         # Prefer the vertical default id when title or normalized id already exists.
+        # Only for the first row with that title — later PDF rows with the same
+        # title keep a unique id so all extracted menus survive publish.
         matched = default_by_norm_id.get(id_key) or default_by_title.get(title_key)
         if matched and matched.get("id"):
-            b_id = str(matched["id"])
-            id_key = _normalize_menu_button_key(b_id)
+            candidate = str(matched["id"])
+            candidate_key = _normalize_menu_button_key(candidate)
+            if candidate_key not in seen_ids:
+                b_id = candidate
+                id_key = candidate_key
+                matched = matched
+            else:
+                matched = None
 
-        if id_key in seen_ids or (title_key and title_key in seen_titles):
+        if id_key in seen_ids:
+            # True id clone (menu-products vs menu_products). Same-title PDF rows
+            # that could not claim the default id keep a distinct slug above and
+            # are not dropped here.
             continue
         seen_ids.add(id_key)
-        if title_key:
-            seen_titles.add(title_key)
 
         button_dict: Dict[str, Any] = {
             "id": b_id,
             "title": title,
             "description": desc,
             "section": sec,
-            "sort_order": len(menu_buttons) + 1,
+            "sort_order": len(menu_buttons),
             "enabled": True if item.get("enabled", True) else False,
         }
         if item.get("icon") or (matched and matched.get("icon")):

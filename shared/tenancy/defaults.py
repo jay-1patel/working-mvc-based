@@ -1411,23 +1411,21 @@ def scrub_company_info_pages(layer: Dict[str, Any]) -> Dict[str, Any]:
 
     Used when resolving non-IT tenants so a prior kit upload or global ensure
     cannot leave Technologies / Careers on a banking menu.
+
+    Only the standard IT menu row ids are dropped — never every button whose
+    intent happens to be ``benefits`` / ``careers`` (PDF rows like "Why Us"
+    with action ``benefits`` must survive publish).
     """
-    drop = {p["name"] for p in _COMPANY_INFO_PAGES}
     if "intents" in layer and isinstance(layer["intents"], list):
         layer["intents"] = strip_company_info_page_intents(list(layer["intents"]))
     menu = layer.get("menu")
     if isinstance(menu, dict) and isinstance(menu.get("buttons"), list):
+        _it_menu_ids = {
+            "menu_technologies", "menu_projects", "menu_careers", "menu_benefits",
+        }
         menu["buttons"] = [
             b for b in menu["buttons"]
-            if not (
-                isinstance(b, dict)
-                and (
-                    b.get("intent") in drop
-                    or str(b.get("id") or "") in {
-                        "menu_technologies", "menu_projects", "menu_careers", "menu_benefits",
-                    }
-                )
-            )
+            if not (isinstance(b, dict) and str(b.get("id") or "") in _it_menu_ids)
         ]
     return layer
 
@@ -1470,6 +1468,29 @@ def foreign_vertical_menu_button_ids(vertical: str | None) -> set[str]:
             if bid not in own:
                 foreign_only.add(bid)
     return foreign_only
+
+
+def foreign_vertical_default_button_titles(vertical: str | None) -> Dict[str, str]:
+    """Foreign default button id → its canned title (for contamination checks)."""
+    own = _vertical_default_button_ids(vertical or "generic")
+    out: Dict[str, str] = {}
+    for other, layer in VERTICAL_DEFAULTS.items():
+        if other == (vertical or "generic"):
+            continue
+        menu = (layer.get("menu") or {}) if isinstance(layer, dict) else {}
+        buttons = menu.get("buttons") if isinstance(menu, dict) else None
+        if not isinstance(buttons, list):
+            continue
+        for b in buttons:
+            if not isinstance(b, dict) or not b.get("id"):
+                continue
+            bid = str(b["id"])
+            if bid in own:
+                continue
+            title = str(b.get("title") or "").strip()
+            if title and bid not in out:
+                out[bid] = title
+    return out
 
 
 def foreign_vertical_intent_names(vertical: str | None) -> set[str]:
@@ -1521,11 +1542,26 @@ def scrub_foreign_vertical_artifacts(layer: Dict[str, Any], vertical: str | None
     MakeMyTrip draft that once absorbed Leeway Softech / real-estate rows)
     can leave Technologies, Careers, Explore Properties on a tours menu.
     This runs after merge so runtime WhatsApp menus stay vertical-scoped.
-    Also drops unused location / nearest-branch interactive rows.
+
+    PDF-extracted rows that reuse a foreign id but keep a custom title
+    (e.g. dealer "Why Us") are kept — only canned foreign titles are
+    treated as contamination. Location / nearest-branch rows are always dropped.
     """
     vert = str(vertical or layer.get("vertical") or "generic")
     drop_buttons = foreign_vertical_menu_button_ids(vert)
+    foreign_titles = foreign_vertical_default_button_titles(vert)
     drop_intents = foreign_vertical_intent_names(vert) | _LOCATION_MENU_INTENT_NAMES
+
+    def _is_foreign_contamination(button: Dict[str, Any]) -> bool:
+        bid = str(button.get("id") or "")
+        if bid not in drop_buttons:
+            return False
+        canned = (foreign_titles.get(bid) or "").strip().casefold()
+        title = str(button.get("title") or "").strip().casefold()
+        # Custom PDF title on a reused id → keep. Exact canned kit title → drop.
+        if canned and title and title != canned:
+            return False
+        return True
 
     menu = layer.get("menu")
     if isinstance(menu, dict) and isinstance(menu.get("buttons"), list):
@@ -1535,7 +1571,7 @@ def scrub_foreign_vertical_artifacts(layer: Dict[str, Any], vertical: str | None
             if not (
                 isinstance(b, dict)
                 and (
-                    str(b.get("id") or "") in drop_buttons
+                    _is_foreign_contamination(b)
                     or _is_unused_location_menu_button(b)
                 )
             )

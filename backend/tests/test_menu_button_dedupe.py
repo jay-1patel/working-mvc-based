@@ -329,6 +329,49 @@ class MenuButtonDedupeTests(unittest.TestCase):
             [f"Banking option {index}" for index in range(1, 11)],
         )
 
+    def test_automotive_pdf_keeps_all_ten_extracted_menus_through_publish(self):
+        """Extracted WhatsApp Menu (10) must still be 10 after sanitize/merge/scrub."""
+        from shared.tenancy.defaults import (
+            scrub_company_info_pages,
+            scrub_foreign_vertical_artifacts,
+        )
+        from shared.tenancy.schemas import MenuSpec
+
+        raw = [
+            {"title": "Explore Offerings", "description": "Browse new and used cars catalog", "action": "offerings"},
+            {"title": "Brochure", "description": "Download model brochure", "action": "brochure"},
+            {"title": "Book Test Drive", "description": "Free test drive at showroom or home", "action": "book_callback"},
+            {"title": "Get On-Road Price", "description": "Written quote for your variant", "action": "quote"},
+            {"title": "Finance Options", "description": "Loan & insurance desk help", "action": "faq"},
+            {"title": "Why Us", "description": "Warranty, safety & trust benefits", "action": "benefits"},
+            {"title": "FAQs", "description": "Quick answers to common questions", "action": "faq"},
+            {"title": "Talk to Sales", "description": "Callback from our sales team", "action": "book_callback"},
+            {"title": "Customer Care", "description": "Support for existing owners", "action": "raise_ticket"},
+            {"title": "Talk to Sales", "description": "Enquire about new or used cars", "action": "sales_enquiry"},
+        ]
+        buttons = _sanitize_menu_buttons(raw, vertical="automotive")
+        self.assertEqual(len(buttons), 10)
+        self.assertEqual(sum(1 for b in buttons if b["title"] == "Talk to Sales"), 2)
+        self.assertTrue(any(b["title"] == "Why Us" for b in buttons))
+
+        defaults = get_vertical_defaults("automotive")
+        default_buttons = defaults["menu"]["buttons"]
+        removals = _menu_replacement_tombstones(buttons, default_buttons, default_buttons)
+        published = merge_layers(
+            defaults,
+            {"menu": {"buttons": [*buttons, *removals]}, "vertical": "automotive"},
+        )
+        scrub_company_info_pages(published)
+        scrub_foreign_vertical_artifacts(published, "automotive")
+        published_buttons = published["menu"]["buttons"]
+        self.assertEqual(len(published_buttons), 10)
+        titles = [b["title"] for b in published_buttons]
+        self.assertIn("Why Us", titles)
+        self.assertIn("FAQs", titles)
+        self.assertIn("Finance Options", titles)
+        self.assertEqual(titles.count("Talk to Sales"), 2)
+        self.assertEqual(len(MenuSpec(buttons=published_buttons).buttons), 10)
+
     def test_vertical_defaults_are_kept_when_extract_has_no_custom_options(self):
         defaults = get_vertical_defaults("banking")
         default_buttons = defaults["menu"]["buttons"]

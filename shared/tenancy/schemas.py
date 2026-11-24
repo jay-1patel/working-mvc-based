@@ -669,7 +669,12 @@ def _prefer_menu_button(existing: Dict[str, Any], challenger: Dict[str, Any]) ->
 
 
 def _dedupe_menu_button_dicts(buttons: List[Any]) -> List[Any]:
-    """Collapse same-title menu rows (e.g. menu_services vs our_services)."""
+    """Collapse kit/default clones that share a title (menu_services vs our_services).
+
+    Intentional PDF rows that share a display title but have distinct ids
+    (e.g. two "Talk to Sales" lines from an uploaded menu) are kept so an
+    extracted 10-item WhatsApp menu still publishes as 10 items.
+    """
     if not isinstance(buttons, list) or len(buttons) < 2:
         return buttons
     kept: List[Any] = []
@@ -692,7 +697,28 @@ def _dedupe_menu_button_dicts(buttons: List[Any]) -> List[Any]:
             index[title_key] = len(kept)
             kept.append(raw)
             continue
-        kept[pos] = _prefer_menu_button(kept[pos], raw)
+        existing = kept[pos]
+        ex_id = str(existing.get("id") or "")
+        ch_id = str(raw.get("id") or "")
+        # Default↔kit clone (menu_services ↔ our_services) → collapse.
+        # Two intentional PDF rows that only share a title stay separate.
+        try:
+            from shared.tenancy.merge import _menu_ids_are_clones
+
+            same_family = _menu_ids_are_clones(ex_id, ch_id, title_key)
+        except Exception:
+            ex_slug = _menu_button_title_key(ex_id[5:] if ex_id.startswith("menu_") else ex_id)
+            ch_slug = _menu_button_title_key(ch_id[5:] if ch_id.startswith("menu_") else ch_id)
+            same_family = (
+                ex_id == ch_id
+                or (ex_slug and ex_slug == ch_slug)
+                or (ex_id.startswith("menu_") and ex_slug and ex_slug in ch_id)
+                or (ch_id.startswith("menu_") and ch_slug and ch_slug in ex_id)
+            )
+        if same_family:
+            kept[pos] = _prefer_menu_button(existing, raw)
+        else:
+            kept.append(raw)
     return kept
 
 

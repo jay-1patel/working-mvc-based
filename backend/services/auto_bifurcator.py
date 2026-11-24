@@ -188,6 +188,25 @@ def _menu_replacement_tombstones(
         for button in menu_buttons
         if isinstance(button, dict) and button.get("id")
     }
+    # PDF slugs like book_test_drive merge onto menu_test_drive by stem. Treat
+    # those default ids as active so a tombstone does not delete the merged row.
+    try:
+        from shared.tenancy.merge import _menu_ids_are_clones, _menu_title_key
+    except Exception:
+        _menu_ids_are_clones = None  # type: ignore[assignment]
+        _menu_title_key = None  # type: ignore[assignment]
+    if _menu_ids_are_clones and _menu_title_key:
+        for button in menu_buttons:
+            if not isinstance(button, dict):
+                continue
+            bid = str(button.get("id") or "")
+            title_key = _menu_title_key(button)
+            for default in defaults:
+                if not isinstance(default, dict) or not default.get("id"):
+                    continue
+                did = str(default["id"])
+                if _menu_ids_are_clones(did, bid, title_key):
+                    active_ids.add(_normalize_menu_button_key(did))
     removals: List[Dict[str, Any]] = []
     seen_ids = set(active_ids)
     for button in [*defaults, *previous_buttons]:

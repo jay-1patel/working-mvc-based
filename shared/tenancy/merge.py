@@ -119,6 +119,43 @@ def _menu_title_key(item: Mapping) -> str:
     ).strip("_")
 
 
+def _menu_ids_are_clones(existing_id: str, incoming_id: str, title_key: str) -> bool:
+    """True when incoming is a kit/PDF slug of the same default row.
+
+    Collapses ``menu_properties`` ↔ ``explore_properties`` and
+    ``menu_services`` ↔ ``our_services``, but keeps two intentional PDF rows
+    that only share a display title (e.g. two "Talk to Sales" with ids
+    ``menu_human`` and ``talk_to_sales``).
+    """
+    ex = _normalize_keyed_name(existing_id, ("menu", "buttons"), "id")
+    ch = _normalize_keyed_name(incoming_id, ("menu", "buttons"), "id")
+    if not ex or not ch:
+        return False
+    if ex == ch:
+        return True
+    title_key = _normalize_keyed_name(title_key, ("menu", "buttons"), "id")
+
+    def _stem(mid: str) -> str:
+        return mid[5:] if mid.startswith("menu_") else mid
+
+    def _slug_matches_default(default_id: str, slug: str) -> bool:
+        if not default_id.startswith("menu_"):
+            return False
+        stem = _stem(default_id)
+        if not stem:
+            return False
+        # menu_properties ↔ properties / explore_properties
+        # menu_services ↔ our_services (stem appears in slug)
+        # menu_human ↔ talk_to_sales must NOT match ("human" not in slug)
+        return stem == slug or stem in slug or (stem in title_key and slug == title_key and stem in slug)
+
+    if ex.startswith("menu_") and not ch.startswith("menu_"):
+        return _slug_matches_default(ex, ch)
+    if ch.startswith("menu_") and not ex.startswith("menu_"):
+        return _slug_matches_default(ch, ex)
+    return False
+
+
 def _merge_named(base: List[Any], override: List[Any], key_field: str, path: tuple) -> List[Any]:
     """Per-item override by name. Base order is preserved, new items appended."""
     merged: List[Any] = []
@@ -131,11 +168,27 @@ def _merge_named(base: List[Any], override: List[Any], key_field: str, path: tup
         if match_titles and title_key:
             title_index[title_key] = pos
 
-    def _lookup(name: str, title_key: str) -> int | None:
+    def _lookup(name: str, title_key: str, incoming_id: str = "") -> int | None:
         if name in index:
             return index[name]
         if match_titles and title_key and title_key in title_index:
-            return title_index[title_key]
+            pos = title_index[title_key]
+            existing = merged[pos] if pos < len(merged) and merged[pos] else None
+            if existing is None:
+                return pos
+            ex_id = str(existing.get(key_field) or "")
+            if incoming_id and not _menu_ids_are_clones(ex_id, incoming_id, title_key):
+                return None
+            return pos
+        # Slug clone of a menu_* default even when the PDF title differs
+        # (Explore Properties → menu_properties / Properties).
+        if match_titles and incoming_id:
+            for ex_name, pos in index.items():
+                existing = merged[pos] if pos < len(merged) else None
+                if not existing:
+                    continue
+                if _menu_ids_are_clones(ex_name, incoming_id, title_key):
+                    return pos
         return None
 
     for item in base:
@@ -144,7 +197,7 @@ def _merge_named(base: List[Any], override: List[Any], key_field: str, path: tup
         cleaned = _canonicalize_keyed_item(_strip_remove(item), path, key_field)
         name = _normalize_keyed_name(str(cleaned.get(key_field, "")), path, key_field)
         title_key = _menu_title_key(cleaned) if match_titles else ""
-        if _lookup(name, title_key) is not None:
+        if _lookup(name, title_key, name) is not None:
             # Same layer listed menu_products and menu-products / same title twice.
             continue
         _remember(name, title_key, len(merged))
@@ -154,7 +207,7 @@ def _merge_named(base: List[Any], override: List[Any], key_field: str, path: tup
         title_key = _menu_title_key(item) if match_titles else ""
         if item.get(REMOVE_KEY):
             name = _normalize_keyed_name(str(item.get(key_field, "")), path, key_field)
-            pos = _lookup(name, title_key)
+            pos = _lookup(name, title_key, name)
             if pos is not None:
                 merged[pos] = None  # tombstone
             continue
@@ -163,7 +216,7 @@ def _merge_named(base: List[Any], override: List[Any], key_field: str, path: tup
         # synthesized id here, so two such buttons never collide on "".
         name = _normalize_keyed_name(str(cleaned.get(key_field, "")), path, key_field)
         title_key = _menu_title_key(cleaned) if match_titles else title_key
-        pos = _lookup(name, title_key)
+        pos = _lookup(name, title_key, name)
         if pos is not None:
             current = merged[pos]
             if current:
@@ -246,18 +299,32 @@ def _merge_named_drafts(base: List[Any], override: List[Any], key_field: str, pa
         if match_titles and title_key:
             title_index[title_key] = pos
 
-    def _lookup(name: str, title_key: str):
+    def _lookup(name: str, title_key: str, incoming_id: str = ""):
         if name in index:
             return index[name]
         if match_titles and title_key and title_key in title_index:
-            return title_index[title_key]
+            pos = title_index[title_key]
+            existing = out[pos] if pos < len(out) else None
+            if existing is None:
+                return pos
+            ex_id = str(existing.get(key_field) or "")
+            if incoming_id and not _menu_ids_are_clones(ex_id, incoming_id, title_key):
+                return None
+            return pos
+        if match_titles and incoming_id:
+            for ex_name, pos in index.items():
+                existing = out[pos] if pos < len(out) else None
+                if not existing:
+                    continue
+                if _menu_ids_are_clones(ex_name, incoming_id, title_key):
+                    return pos
         return None
 
     for item in base:
         cleaned = _canonicalize_keyed_item(dict(item), path, key_field)
         name = _normalize_keyed_name(str(cleaned.get(key_field, "")), path, key_field)
         title_key = _menu_title_key(cleaned) if match_titles else ""
-        if _lookup(name, title_key) is not None:
+        if _lookup(name, title_key, name) is not None:
             continue
         _remember(name, title_key, len(out))
         out.append(cleaned)
@@ -267,7 +334,7 @@ def _merge_named_drafts(base: List[Any], override: List[Any], key_field: str, pa
         name = _normalize_keyed_name(str(cleaned.get(key_field, "")), path, key_field)
         title_key = _menu_title_key(cleaned) if match_titles else ""
         marker = bool(cleaned.get(REMOVE_KEY))
-        pos = _lookup(name, title_key)
+        pos = _lookup(name, title_key, name)
         if pos is not None:
             current = out[pos]
             # A marker replaces the pending item; re-adding a tombstoned id

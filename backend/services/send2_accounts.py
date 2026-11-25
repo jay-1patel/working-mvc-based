@@ -1,10 +1,7 @@
 """Shared Send2 CPaaS login + phone→tenant bindings from the tenants table.
 
 One Send2 username/password serves every business number. Routing is only by
-``tenants.waba_phone_id``:
-
-  15559227148 → tenant ``c`` (automobile)
-  15558072955 → tenant ``spiritual``
+``tenants.waba_phone_id`` (set in DB / admin — never hardcoded in this module).
 """
 from __future__ import annotations
 
@@ -14,40 +11,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger("send2_accounts")
 
-# Canonical bindings for this deployment (idempotent upsert into tenants).
-DEFAULT_PHONE_BINDINGS: tuple[tuple[str, str], ...] = (
-    ("c", "15559227148"),
-    ("spiritual", "15558072955"),
-)
-
 
 def _digits(value: str) -> str:
     return re.sub(r"\D", "", str(value or ""))
-
-
-def ensure_default_phone_bindings() -> list[dict[str, str]]:
-    """Idempotently bind known WABA numbers on tenants ``c`` and ``spiritual``."""
-    from shared.tenancy import store as tenancy_store
-
-    applied: list[dict[str, str]] = []
-    for tenant_id, phone in DEFAULT_PHONE_BINDINGS:
-        tid = str(tenant_id).strip()
-        number = _digits(phone)
-        if not tid or not number:
-            continue
-        if not tenancy_store.get_tenant(tid):
-            logger.warning(
-                "SEND2_BIND_SKIP | tenant=%s missing — create tenant before binding %s",
-                tid, number,
-            )
-            continue
-        try:
-            tenancy_store.set_waba_phone_id(tid, number)
-            applied.append({"tenant_id": tid, "waba_phone_id": number})
-            logger.info("SEND2_BIND_OK | tenant=%s | number=%s", tid, number)
-        except Exception:
-            logger.exception("SEND2_BIND_FAILED | tenant=%s | number=%s", tid, number)
-    return applied
 
 
 def shared_send2_credentials() -> Optional[tuple[str, str]]:

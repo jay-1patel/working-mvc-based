@@ -173,9 +173,18 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
 
     tenant_id = effective_tenant
     try:
-        from database import set_request_tenant, touch_customer
+        from database import set_request_tenant, set_request_waba_phone, touch_customer
 
         set_request_tenant(effective_tenant)
+        # Prefer already-set inbound display_phone_number; else tenant DB binding.
+        try:
+            from database import get_request_waba_phone
+            if not (get_request_waba_phone() or "").strip():
+                from shared.tenancy import store as tenancy_store
+                row = tenancy_store.get_tenant(effective_tenant) or {}
+                set_request_waba_phone(row.get("waba_phone_id") or "")
+        except Exception:
+            logger.debug("ORCH_WABA_PHONE_SKIP | tenant=%s", effective_tenant, exc_info=True)
         touch_customer(effective_tenant, wa_id, "")
         try:
             from shared.tenancy.resolver import active_test_tenant_id

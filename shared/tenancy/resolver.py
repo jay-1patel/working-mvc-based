@@ -1,11 +1,7 @@
 """Resolve inbound WhatsApp traffic by business phone → tenants.waba_phone_id.
 
-Example:
-  15559227148 → tenant ``c`` (automobile)
-  15558072955 → tenant ``spiritual``
-
-There is no Active Test Tenant / app_settings override — every active tenant
-with a bound number receives its own traffic.
+Bindings live in the tenants table only (admin / DB). There is no Active Test
+Tenant override and no hardcoded phone→tenant map in code.
 """
 
 from __future__ import annotations

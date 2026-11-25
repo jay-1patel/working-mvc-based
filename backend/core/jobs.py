@@ -39,17 +39,16 @@ async def lifespan(app: FastAPI):
     logger.info("[STARTUP] tenant data dir OK: %s", _tenant_data_dir)
     init_db()
     logger.info("[STARTUP] init_db done")
-    # Dual WhatsApp numbers: keep phone → tenant bindings stable
-    # (15559227148 → c, 15558072955 → spiritual).
+    # Phone → tenant routing uses tenants.waba_phone_id from DB only (no hardcoded binds).
     try:
         try:
-            from services.send2_accounts import ensure_default_phone_bindings
+            from services.send2_accounts import list_bound_business_numbers
         except ImportError:
-            from backend.services.send2_accounts import ensure_default_phone_bindings
-        bound = ensure_default_phone_bindings()
-        logger.info("[STARTUP] whatsapp phone bindings ok: %s", bound)
+            from backend.services.send2_accounts import list_bound_business_numbers
+        bound = list_bound_business_numbers()
+        logger.info("[STARTUP] whatsapp phone bindings from DB: %s", bound)
     except Exception as bind_exc:
-        logger.warning("[STARTUP] phone binding ensure skipped: %s", bind_exc, exc_info=True)
+        logger.warning("[STARTUP] phone binding list skipped: %s", bind_exc, exc_info=True)
     # Crawls run as in-process BackgroundTasks. Anything still queued/running
     # after a restart is orphaned — clear it so the UI is not stuck forever.
     try:

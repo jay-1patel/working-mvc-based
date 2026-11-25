@@ -22,7 +22,8 @@ try:  # backend/ on sys.path (the normal import mode)
     from db.core import (
         DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
         _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-        get_request_tenant, set_audit_request_context, clear_audit_request_context,
+        get_request_tenant, set_request_waba_phone, get_request_waba_phone,
+        set_audit_request_context, clear_audit_request_context,
         trusted_client_ip, _resolve_db_path,
     )
     from db.audit import (  # noqa: F401
@@ -101,7 +102,8 @@ except ImportError:  # imported as part of the `backend` package
     from backend.db.core import (
         DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
         _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
-        get_request_tenant, set_audit_request_context, clear_audit_request_context,
+        get_request_tenant, set_request_waba_phone, get_request_waba_phone,
+        set_audit_request_context, clear_audit_request_context,
         trusted_client_ip, _resolve_db_path,
     )
     from backend.db.audit import (  # noqa: F401

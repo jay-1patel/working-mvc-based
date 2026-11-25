@@ -17,6 +17,50 @@ logger = logging.getLogger("chiki_webhook")
 VALID_MSG_TYPES = ("text", "image", "video", "audio", "document")
 
 
+def _digits_phone(value: str | None) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def resolve_outbound_from_number(tenant_id: str | None = None) -> str:
+    """Business line to send from: inbound display_phone_number, else tenants.waba_phone_id."""
+    try:
+        from database import get_request_waba_phone
+        cur = _digits_phone(get_request_waba_phone() or "")
+        if len(cur) >= 10:
+            return cur
+    except Exception:
+        logger.debug("OUTBOUND_FROM_CTX_SKIP", exc_info=True)
+
+    tid = str(tenant_id or "").strip()
+    if not tid:
+        try:
+            from database import get_request_tenant
+            tid = str(get_request_tenant() or "").strip()
+        except Exception:
+            tid = ""
+    if not tid:
+        return ""
+    try:
+        from shared.tenancy import store as tenancy_store
+        row = tenancy_store.get_tenant(tid) or {}
+        return _digits_phone(row.get("waba_phone_id") or "")
+    except Exception:
+        logger.debug("OUTBOUND_FROM_DB_SKIP | tenant=%s", tid, exc_info=True)
+        return ""
+
+
+def _with_from_number(payload: dict, tenant_id: str | None = None) -> dict:
+    """Stamp Send2 payload so the reply leaves from the inbound business number."""
+    from_no = resolve_outbound_from_number(tenant_id)
+    if from_no:
+        payload["from_number"] = from_no
+        payload["display_phone_number"] = from_no
+        logger.info("OUTBOUND_FROM_NUMBER | from=%s | tenant=%s", from_no, tenant_id or "")
+    else:
+        logger.warning("OUTBOUND_FROM_NUMBER_MISSING | tenant=%s", tenant_id or "")
+    return payload
+
+
 def _send2_response_ok(status_code: int, body_text: str | None) -> bool:
     """Treat common Send2 success shapes as OK.
 
@@ -171,14 +215,14 @@ def send_whatsapp_typing(to: str, tenant_id: str = None) -> bool:
         if not username or not password:
             return False
         clean_to = re.sub(r"[^\d]", "", str(to or "")).strip() or str(to)
-        payload = {
+        payload = _with_from_number({
             "user_name": username,
             "password": password,
             "contact_no": clean_to,
             "message_type": "action",
             "action": "typing",
             "messaging_product": "whatsapp",
-        }
+        }, tenant_id)
         requests.post(SEND2_SESSION_SEND_URL, json=payload, timeout=2)
         return True
     except Exception:
@@ -252,14 +296,14 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tena
             chunks = [" "]
         all_ok = True
         for chunk in chunks:
-            payload = {
+            payload = _with_from_number({
                 "user_name": username,
                 "password": password,
                 "contact_no": clean_to,
                 "message_type": "text",
                 "message": chunk,
                 "messaging_product": "whatsapp",
-            }
+            }, tenant_id)
             last_err = None
             sent_chunk = False
             for attempt in range(1, retries + 1):
@@ -287,7 +331,7 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tena
     else:
         media_url = _resolve_media_url(str(text or "").strip())
         logger.info(f"MEDIA_SEND | to={to} | type={norm_type} | url={media_url[:120]}")
-        payload = {
+        payload = _with_from_number({
             "user_name": username,
             "password": password,
             "contact_no": clean_to,
@@ -295,7 +339,7 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tena
             "media_url": media_url,
             "message": media_url,
             "messaging_product": "whatsapp",
-        }
+        }, tenant_id)
 
         last_err = None
         for attempt in range(1, retries + 1):
@@ -339,13 +383,13 @@ def send_whatsapp_location(
     username, password = get_tenant_send2_credentials(tenant_id)
     clean_to = re.sub(r"[^\d]", "", str(to or "")).strip() or str(to)
     token = (auth_token if auth_token is not None else SEND2_AUTH_TOKEN) or ""
-    payload = {
+    payload = _with_from_number({
         "username": username,
         "password": password,
         "message": str(message or "").strip() or " ",
         "to": clean_to,
         "authToken": token,
-    }
+    }, tenant_id)
     if latitude is not None:
         payload["latitude"] = float(latitude)
     if longitude is not None:
@@ -439,18 +483,19 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
     }
     if header:
         cloud_interactive["header"] = {"type": "text", "text": header}
-    cloud_payload = {
+    cloud_payload = _with_from_number({
         "user_name": username,
         "password": password,
         "contact_no": clean_to,
         "message_type": "interactive",
         "interactive": cloud_interactive,
         "messaging_product": "whatsapp",
-    }
+    }, tenant_id)
     try:
         logger.info(
-            "LIST_MENU_CLOUD_REQUEST | to=%s | sections=%d | rows=%d",
+            "LIST_MENU_CLOUD_REQUEST | to=%s | sections=%d | rows=%d | from=%s",
             clean_to, len(api_sections), row_count,
+            cloud_payload.get("from_number") or "",
         )
         with httpx.Client(trust_env=False, timeout=30) as client:
             resp = client.post(SEND2_SESSION_SEND_URL, json=cloud_payload)
@@ -471,7 +516,7 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
     except Exception as e:
         logger.warning("LIST_MENU_CLOUD_FAILED | to=%s | error=%s | trying legacy", clean_to, e)
 
-    payload = {
+    payload = _with_from_number({
         "username": username,
         "password": password,
         "number": clean_to,
@@ -482,7 +527,7 @@ def send_whatsapp_list_menu(to, header_text, body_text, button_text, sections, f
         "total_number_section": len(api_sections),
         "total_rows": row_count,
         "sections": api_sections,
-    }
+    }, tenant_id)
     try:
         logger.info(f"LIST_MENU_REQUEST | to={clean_to} | sections={len(api_sections)} | rows={row_count}")
         with httpx.Client(trust_env=False, timeout=30) as client:
@@ -601,13 +646,13 @@ def send_whatsapp_cta_url(
                 "image": {"link": image_link},
             }
 
-    payload = {
+    payload = _with_from_number({
         "user_name": username,
         "password": password,
         "contact_no": clean_to,
         "message_type": "interactive",
         "interactive": interactive,
-    }
+    }, tenant_id)
     try:
         logger.info(
             "CTA_URL_REQUEST | to=%s | has_image=%s | display=%r | url=%s",
@@ -711,18 +756,19 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
         "footer": {"text": footer_text},
         "action": {"buttons": formatted_buttons},
     }
-    cloud_payload = {
+    cloud_payload = _with_from_number({
         "user_name": username,
         "password": password,
         "contact_no": clean_to,
         "message_type": "interactive",
         "interactive": cloud_interactive,
         "messaging_product": "whatsapp",
-    }
+    }, tenant_id)
     try:
         logger.info(
-            "INTERACTIVE_CLOUD_REQUEST | to=%s | buttons=%d",
+            "INTERACTIVE_CLOUD_REQUEST | to=%s | buttons=%d | from=%s",
             clean_to, len(formatted_buttons),
+            cloud_payload.get("from_number") or "",
         )
         with httpx.Client(trust_env=False, timeout=30) as client:
             resp = client.post(SEND2_SESSION_SEND_URL, json=cloud_payload)
@@ -754,7 +800,7 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
     # explicit success phrase (same policy as list_messages).
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise
     # send2.digital rejects the whole request with {"error":"INVALID PARAMETER"}.
-    payload = {
+    payload = _with_from_number({
         "username": username,
         "password": password,
         "number": clean_to,
@@ -764,7 +810,7 @@ def send_whatsapp_interactive(to, text, buttons, footer=None, tenant_id=None):
         "footertext": footer_text,
         "total_buttons": len(formatted_buttons),
         "buttons": formatted_buttons,
-    }
+    }, tenant_id)
     try:
         resp = requests.post(
             SEND2_QUICK_BUTTON_URL,

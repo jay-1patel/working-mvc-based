@@ -77,6 +77,7 @@ def _loads_json(value, default=None):
 # call site. A contextvar (not a global) so concurrent requests cannot bleed.
 
 _current_tenant: contextvars.ContextVar = contextvars.ContextVar("current_tenant", default=None)
+_current_waba_phone: contextvars.ContextVar = contextvars.ContextVar("current_waba_phone", default=None)
 _audit_request_context: contextvars.ContextVar = contextvars.ContextVar("audit_request_context", default=None)
 
 
@@ -130,6 +131,19 @@ def set_request_tenant(tenant_id) -> None:
 
 def get_request_tenant():
     return _current_tenant.get()
+
+
+def set_request_waba_phone(phone: str | None) -> None:
+    """Business WhatsApp line that received this inbound (digits only).
+
+    Used so outbound Send2 replies leave from the same ``display_phone_number``.
+    """
+    digits = re.sub(r"\D", "", str(phone or ""))
+    _current_waba_phone.set(digits or None)
+
+
+def get_request_waba_phone() -> str | None:
+    return _current_waba_phone.get()
 
 
 # ── Connection helpers ───────────────────────────────────────────────────

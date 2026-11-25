@@ -3,11 +3,14 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import time
 from fastapi import APIRouter, Request, HTTPException, Query, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 import routing.config as config
-from routing.database import log_webhook, save_chat, set_request_tenant
+from routing.database import (
+    log_webhook, save_chat, set_request_tenant, set_request_waba_phone,
+)
 from routing.whatsapp import (
     send_whatsapp_message,
     send_whatsapp_interactive,
@@ -301,7 +304,9 @@ def _is_duplicate(msg_id: str, wa_id: str) -> bool:
     return is_duplicate(msg_id, wa_id)
 
 
-async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id=None):
+async def _process_and_reply(
+    wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id=None, waba_phone: str = "",
+):
     start_time = time.time()
     # Active Test Tenant from the admin console wins for single-number testing.
     try:
@@ -314,6 +319,21 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         logger.warning("No active tenant for inbound message from %s; dropping message", wa_id)
         return
     set_request_tenant(tenant_id)
+    # Reply must leave from the same business line as webhook display_phone_number
+    # (else tenants.waba_phone_id for this tenant).
+    from_phone = re.sub(r"\D", "", str(waba_phone or ""))
+    if len(from_phone) < 10:
+        try:
+            from shared.tenancy import store as tenancy_store
+            row = tenancy_store.get_tenant(tenant_id) or {}
+            from_phone = re.sub(r"\D", "", str(row.get("waba_phone_id") or ""))
+        except Exception:
+            logger.debug("WABA_PHONE_DB_LOOKUP_SKIP | tenant=%s", tenant_id, exc_info=True)
+    set_request_waba_phone(from_phone)
+    logger.info(
+        "OUTBOUND_REPLY_LINE | wa_id=%s | tenant=%s | from_number=%s",
+        wa_id, tenant_id, from_phone or "(none)",
+    )
     # D7: exactly ONE incoming-entry log per inbound message, here at the
     # top. receive_webhook's dedupe checks run before dispatch, so every
     # call into _process_and_reply is a genuine, non-duplicate message.
@@ -929,6 +949,21 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     entry = payload.get("entry") or [{}]
     changes = (entry[0].get("changes") or [{}])[0]
     value = changes.get("value") or {}
+    meta = value.get("metadata") or {}
+    business_display = str(meta.get("display_phone_number") or "")
+    business_phone_id = str(meta.get("phone_number_id") or "")
+    entry_id = str((entry[0] or {}).get("id") or "")
+    # Which business WhatsApp line this webhook hit (matched to tenants.waba_phone_id).
+    logger.info(
+        "WEBHOOK_BUSINESS_NUMBER | display_phone_number=%s | phone_number_id=%s | entry_id=%s | "
+        "has_messages=%s | has_statuses=%s | payload_preview=%s",
+        business_display or "(none)",
+        business_phone_id or "(none)",
+        entry_id or "(none)",
+        "messages" in value,
+        "statuses" in value,
+        raw_payload[:1500],
+    )
 
     if "statuses" in value:
         status = value["statuses"][0]
@@ -1024,6 +1059,16 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.error("Tenant resolution failed; dropping inbound message: %s", exc)
         tenant_id = None
 
+    logger.info(
+        "WEBHOOK_ROUTE | wa_id=%s | msg_id=%s | display_phone_number=%s | phone_number_id=%s | "
+        "resolved_tenant=%s",
+        wa_id or "?",
+        msg_id or "?",
+        business_display or "(none)",
+        business_phone_id or "(none)",
+        tenant_id or "(unrouted)",
+    )
+
     if not tenant_id:
         logger.warning(
             "WEBHOOK_UNROUTED | wa_id=%s | msg_id=%s | no active tenant is bound to the WABA phone id",
@@ -1045,7 +1090,9 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     if _handle_campaign_opt_out(user_text, wa_id, sender_name, tenant_id):
         return {"status": "ok", "type": "campaign_consent"}
 
+    waba_phone = re.sub(r"\D", "", business_display or business_phone_id or "")
     background_tasks.add_task(
-        _process_and_reply, wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id
+        _process_and_reply,
+        wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id, waba_phone,
     )
     return {"status": "ok", "type": "accepted"}

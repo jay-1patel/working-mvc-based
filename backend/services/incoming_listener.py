@@ -24,7 +24,6 @@ import httpx
 
 from routing.config import (
     SEND2_INCOMING_URL,
-    SEND2_NUMBER,
 )
 from routing.whatsapp import (
     send_whatsapp_message,
@@ -476,9 +475,7 @@ def _resolve_poll_tenant(msg: dict) -> tuple[Optional[str], str]:
     from shared.tenancy.resolver import resolve_tenant_for_phone
 
     business_number = business_number_from_poll_message(msg)
-    # Fallback: legacy single-number deployments may omit receiver fields.
-    if not business_number:
-        business_number = re.sub(r"\D", "", str(SEND2_NUMBER or ""))
+    # No SEND2_NUMBER / hardcoded fallback — receiver must be present and match DB.
     if not business_number:
         return None, ""
     tenant_id = resolve_tenant_for_phone(business_number, allow_test_override=False)
@@ -489,7 +486,7 @@ async def _handle_polled_batch(messages: list) -> int:
     """Process one inbound-report batch (shared CPaaS login, multi-number).
 
     Each row is routed by the receiving business number → ``tenants.waba_phone_id``
-    (``15559227148`` → ``c``, ``15558072955`` → ``spiritual``).
+    (from DB only).
     """
     skipped_known = 0
     for msg in messages:
@@ -564,12 +561,18 @@ async def _handle_polled_batch(messages: list) -> int:
 
         try:
             from services.orchestrator import process_incoming_message
+            try:
+                from database import set_request_waba_phone
+            except ImportError:
+                from backend.database import set_request_waba_phone
+            set_request_waba_phone(business_number)
 
             result = await process_incoming_message(
                 wa_id, text, capture_only=True, tenant_id=tenant_id,
             )
             outgoing = result.get("messages", [])
             if outgoing:
+                set_request_waba_phone(business_number)
                 await _send_reply(wa_id, outgoing, tenant_id=tenant_id)
                 logger.info(
                     "Processed and replied to %s (%s messages) tenant=%s",

@@ -87,6 +87,10 @@ try:  # backend/ on sys.path (the normal import mode)
     from db.distributors_ops import (  # noqa: F401
         count_distributors, delete_distributor, distributor_exists_globally, get_distributor, insert_distributor, list_distributors, update_distributor,
     )
+    from db.event_facilities import (  # noqa: F401
+        create_event_facility, delete_event_facility, get_event_facility,
+        list_event_facilities, update_event_facility,
+    )
     from db.complaints_ops import (  # noqa: F401
         delete_complaint, get_complaint, list_complaints, resolve_complaint, update_complaint,
     )
@@ -161,6 +165,10 @@ except ImportError:  # imported as part of the `backend` package
     )
     from backend.db.distributors_ops import (  # noqa: F401
         count_distributors, delete_distributor, distributor_exists_globally, get_distributor, insert_distributor, list_distributors, update_distributor,
+    )
+    from backend.db.event_facilities import (  # noqa: F401
+        create_event_facility, delete_event_facility, get_event_facility,
+        list_event_facilities, update_event_facility,
     )
     from backend.db.complaints_ops import (  # noqa: F401
         delete_complaint, get_complaint, list_complaints, resolve_complaint, update_complaint,

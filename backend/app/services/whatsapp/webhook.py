@@ -348,6 +348,44 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
         # deliberate: the typing indicator is cosmetic — it must never
         # affect message processing.
         logger.debug("TYPING_INDICATOR_SKIPPED | wa=%s tenant=%s", wa_id, tenant_id, exc_info=True)
+
+    # ── SPIRITUAL: user shared WhatsApp location → nearest help pin ─────
+    if str(msg_type or "") == "location":
+        try:
+            loc = (message or {}).get("location") or {}
+            lat = loc.get("latitude")
+            lng = loc.get("longitude")
+            if lat is not None and lng is not None:
+                from backend.services import spiritual_menu_flow
+                loc_result = await spiritual_menu_flow.handle_shared_location(
+                    wa_id,
+                    float(lat),
+                    float(lng),
+                    tenant_id=tenant_id,
+                    name=str(loc.get("name") or ""),
+                    address=str(loc.get("address") or ""),
+                )
+                if loc_result and loc_result.get("handled"):
+                    action = loc_result.get("action")
+                    save_chat(
+                        wa_id, sender_name, user_text,
+                        f"[spiritual] {action}", "spiritual_location",
+                    )
+                    logger.info(
+                        "SPIRITUAL_LOCATION | %s | action=%s | facility=%s | km=%s",
+                        wa_id, action, loc_result.get("facility"), loc_result.get("km"),
+                    )
+                    response_time_ms = int((time.time() - start_time) * 1000)
+                    log_webhook(
+                        "outgoing", "/webhook/spiritual-location",
+                        json.dumps({"to": wa_id, "action": action}),
+                        200, f"Spiritual {action}",
+                        response_time_ms=response_time_ms, wa_id=wa_id,
+                        tenant_id=tenant_id, message_id=msg_id,
+                    )
+                    return
+        except Exception as e:
+            logger.error("Spiritual location handling failed for %s: %s", wa_id, e)
     
     # ── CHECK SESSION TIMEOUT ──────────────────────────────────────────
     # If a user has been idle in a flow for >30 minutes, auto-reset to main menu
@@ -949,6 +987,12 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         else:
             user_text = f"[{msg_type}:{interactive_type}]"
         logger.info(f"Interactive reply: type={interactive_type} text={user_text[:100]}")
+    elif msg_type == "location":
+        loc = message.get("location") or {}
+        user_text = (
+            f"[location {loc.get('latitude')},{loc.get('longitude')}"
+            f" {loc.get('name') or loc.get('address') or ''}]".strip()
+        )
     else:
         user_text = f"[{msg_type} message]"
 

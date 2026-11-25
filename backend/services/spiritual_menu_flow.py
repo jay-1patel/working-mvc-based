@@ -116,208 +116,16 @@ DETAIL_TOPICS: list[dict[str, str]] = [
     },
 ]
 
-# Placeholder official pins per event (replace with organiser-verified coords).
-# Approximate public reference points — not a substitute for live emergency services.
-EVENT_HELP_PINS: dict[str, dict[str, dict[str, Any]]] = {
-    "gangasagar": {
-        "medical": {
-            "name": "Gangasagar Medical Camp",
-            "address": "Near Kapil Muni Temple, Gangasagar",
-            "latitude": 21.6525,
-            "longitude": 88.0752,
-            "message": (
-                "🚨 *Nearest Medical Camp — Gangasagar*\n\n"
-                "If this is life-threatening, call emergency services first.\n"
-                "Location pin for the medical camp area is shared above."
-            ),
-        },
-        "police": {
-            "name": "Gangasagar Mela Control / Police",
-            "address": "Mela control room, Gangasagar",
-            "latitude": 21.6530,
-            "longitude": 88.0760,
-            "message": (
-                "👮 *Police / Helpdesk — Gangasagar*\n\n"
-                "Mela control / police booth pin is shared above.\n"
-                "For immediate danger call local police emergency number."
-            ),
-        },
-        "ambulance": {
-            "name": "Gangasagar Ambulance Point",
-            "address": "Ambulance stand, Gangasagar Mela",
-            "latitude": 21.6518,
-            "longitude": 88.0745,
-            "message": (
-                "🚑 *Ambulance Point — Gangasagar*\n\n"
-                "Ambulance stand pin is shared above.\n"
-                "Call emergency services if someone needs urgent care."
-            ),
-        },
-        "women": {
-            "name": "Women & Child Helpdesk",
-            "address": "Women/child helpdesk, Gangasagar Mela",
-            "latitude": 21.6522,
-            "longitude": 88.0758,
-            "message": (
-                "👩 *Women / Child Helpdesk — Gangasagar*\n\n"
-                "Helpdesk pin is shared above. Ask staff for immediate assistance."
-            ),
-        },
-        "reunion": {
-            "name": "Lost & Found / Reunion Centre",
-            "address": "Family reunion & lost-found centre, Gangasagar",
-            "latitude": 21.6528,
-            "longitude": 88.0755,
-            "message": (
-                "🧭 *Reunion / Lost-Found Centre — Gangasagar*\n\n"
-                "Official reunion centre pin is shared above."
-            ),
-        },
-        "lost_counter": {
-            "name": "Lost & Found Counter",
-            "address": "Lost-found counter, Gangasagar Mela",
-            "latitude": 21.6528,
-            "longitude": 88.0755,
-            "message": (
-                "🧳 *Lost & Found Counter — Gangasagar*\n\n"
-                "Counter pin is shared above. Carry a case description when you visit."
-            ),
-        },
-    },
-    "kumbh": {
-        "medical": {
-            "name": "Kumbh Medical Camp",
-            "address": "Mela medical camp near Sangam",
-            "latitude": 25.4295,
-            "longitude": 81.8848,
-            "message": (
-                "🚨 *Nearest Medical Camp — Kumbh*\n\n"
-                "If life-threatening, call emergency services first.\n"
-                "Medical camp pin is shared above."
-            ),
-        },
-        "police": {
-            "name": "Kumbh Police / Control Room",
-            "address": "Mela police control room",
-            "latitude": 25.4300,
-            "longitude": 81.8855,
-            "message": (
-                "👮 *Police / Helpdesk — Kumbh*\n\n"
-                "Control room pin is shared above."
-            ),
-        },
-        "ambulance": {
-            "name": "Kumbh Ambulance Point",
-            "address": "Ambulance stand, Kumbh Mela",
-            "latitude": 25.4290,
-            "longitude": 81.8840,
-            "message": (
-                "🚑 *Ambulance Point — Kumbh*\n\n"
-                "Ambulance stand pin is shared above."
-            ),
-        },
-        "women": {
-            "name": "Women & Child Helpdesk",
-            "address": "Women/child helpdesk, Kumbh Mela",
-            "latitude": 25.4298,
-            "longitude": 81.8852,
-            "message": (
-                "👩 *Women / Child Helpdesk — Kumbh*\n\n"
-                "Helpdesk pin is shared above."
-            ),
-        },
-        "reunion": {
-            "name": "Lost & Found / Reunion Centre",
-            "address": "Family reunion centre, Kumbh Mela",
-            "latitude": 25.4302,
-            "longitude": 81.8850,
-            "message": (
-                "🧭 *Reunion / Lost-Found Centre — Kumbh*\n\n"
-                "Official reunion centre pin is shared above."
-            ),
-        },
-        "lost_counter": {
-            "name": "Lost & Found Counter",
-            "address": "Lost-found counter, Kumbh Mela",
-            "latitude": 25.4302,
-            "longitude": 81.8850,
-            "message": (
-                "🧳 *Lost & Found Counter — Kumbh*\n\n"
-                "Counter pin is shared above."
-            ),
-        },
-    },
-    "rath_yatra": {
-        "medical": {
-            "name": "Puri Medical / First Aid",
-            "address": "Near Jagannath Temple / Bada Danda, Puri",
-            "latitude": 19.8047,
-            "longitude": 85.8180,
-            "message": (
-                "🚨 *Nearest Medical Help — Rath Yatra (Puri)*\n\n"
-                "If life-threatening, call emergency services first.\n"
-                "Medical / first-aid area pin is shared above."
-            ),
-        },
-        "police": {
-            "name": "Puri Police / Yatra Helpdesk",
-            "address": "Police / yatra helpdesk near Bada Danda, Puri",
-            "latitude": 19.8052,
-            "longitude": 85.8185,
-            "message": (
-                "👮 *Police / Helpdesk — Rath Yatra*\n\n"
-                "Helpdesk / police point pin is shared above."
-            ),
-        },
-        "ambulance": {
-            "name": "Puri Ambulance Point",
-            "address": "Ambulance stand near temple approach, Puri",
-            "latitude": 19.8040,
-            "longitude": 85.8175,
-            "message": (
-                "🚑 *Ambulance Point — Rath Yatra*\n\n"
-                "Ambulance point pin is shared above."
-            ),
-        },
-        "women": {
-            "name": "Women & Child Helpdesk",
-            "address": "Women/child helpdesk, Puri Rath Yatra",
-            "latitude": 19.8049,
-            "longitude": 85.8182,
-            "message": (
-                "👩 *Women / Child Helpdesk — Rath Yatra*\n\n"
-                "Helpdesk pin is shared above."
-            ),
-        },
-        "reunion": {
-            "name": "Lost & Found / Reunion Centre",
-            "address": "Family reunion centre, Puri",
-            "latitude": 19.8055,
-            "longitude": 85.8190,
-            "message": (
-                "🧭 *Reunion / Lost-Found Centre — Rath Yatra*\n\n"
-                "Official reunion centre pin is shared above."
-            ),
-        },
-        "lost_counter": {
-            "name": "Lost & Found Counter",
-            "address": "Lost-found counter, Puri",
-            "latitude": 19.8055,
-            "longitude": 85.8190,
-            "message": (
-                "🧳 *Lost & Found Counter — Rath Yatra*\n\n"
-                "Counter pin is shared above."
-            ),
-        },
-    },
-}
+# Facilities live in Mongo ``event_facilities`` (tenant_id, event, type, name,
+# lat/lng, address, message). Seed via scripts/seed_event_facilities.py and
+# manage via POST /api/admin/tenants/{tenant_id}/event-facilities/{list|create|update|delete}.
 
 EMERGENCY_ACTIONS: list[dict[str, str]] = [
-    {"key": "medical", "title": "Medical Camp", "description": "Nearest medical camp pin"},
-    {"key": "police", "title": "Police Desk", "description": "Police / mela control pin"},
-    {"key": "ambulance", "title": "Ambulance", "description": "Ambulance stand pin"},
-    {"key": "women", "title": "Women Child", "description": "Women & child helpdesk pin"},
-    {"key": "sharearea", "title": "Share My Area", "description": "Tell your ghat / area"},
+    {"key": "medical", "title": "Medical Camp", "description": "Share GPS for nearest camp"},
+    {"key": "police", "title": "Police Desk", "description": "Share GPS for nearest desk"},
+    {"key": "ambulance", "title": "Ambulance", "description": "Share GPS for ambulance"},
+    {"key": "women", "title": "Women Child", "description": "Share GPS for helpdesk"},
+    {"key": "sharearea", "title": "Share Location", "description": "WhatsApp location → nearest help"},
 ]
 
 LOSTFOUND_ACTIONS: list[dict[str, str]] = [
@@ -481,6 +289,107 @@ def _clear_pending(wa_id: str, *, tenant_id: str | None) -> None:
     _set_pending(wa_id, {}, tenant_id=tenant_id)
 
 
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    from math import asin, cos, radians, sin, sqrt
+
+    r = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = (
+        sin(dlat / 2) ** 2
+        + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    )
+    return 2 * r * asin(sqrt(a))
+
+
+def _normalize_facility_row(row: dict) -> dict[str, Any]:
+    """Map DB row → pin shape used by send/nearest helpers."""
+    return {
+        "id": row.get("id"),
+        "key": str(row.get("type") or row.get("key") or ""),
+        "name": str(row.get("name") or ""),
+        "address": str(row.get("address") or ""),
+        "latitude": row.get("latitude"),
+        "longitude": row.get("longitude"),
+        "message": str(row.get("message") or ""),
+        "event": str(row.get("event") or ""),
+        "tenant_id": str(row.get("tenant_id") or ""),
+    }
+
+
+def _facilities_for(
+    event_slug: str,
+    category: str | None = None,
+    *,
+    tenant_id: str | None = None,
+) -> list[dict[str, Any]]:
+    tid = str(tenant_id or "spiritual").strip() or "spiritual"
+    try:
+        from db.event_facilities import list_event_facilities
+    except ImportError:
+        from backend.db.event_facilities import list_event_facilities
+    try:
+        rows = list_event_facilities(
+            tid,
+            event=str(event_slug or "").strip(),
+            facility_type=str(category).strip() if category else None,
+            active_only=True,
+        )
+    except Exception:
+        logger.exception("event_facilities load failed | tenant=%s event=%s", tid, event_slug)
+        return []
+    return [_normalize_facility_row(r) for r in rows]
+
+
+def find_nearest_facility(
+    event_slug: str,
+    latitude: float,
+    longitude: float,
+    *,
+    category: str | None = None,
+    tenant_id: str | None = None,
+) -> Optional[tuple[dict[str, Any], float]]:
+    best = None
+    best_km = None
+    for fac in _facilities_for(event_slug, category, tenant_id=tenant_id):
+        try:
+            km = _haversine_km(
+                float(latitude),
+                float(longitude),
+                float(fac["latitude"]),
+                float(fac["longitude"]),
+            )
+        except (TypeError, ValueError, KeyError):
+            continue
+        if best_km is None or km < best_km:
+            best = fac
+            best_km = km
+    if best is None or best_km is None:
+        return None
+    return best, best_km
+
+
+async def _send_facility_pin(
+    wa_id: str,
+    facility: dict[str, Any],
+    *,
+    tenant_id: str | None,
+    distance_km: float | None = None,
+) -> bool:
+    msg = str(facility.get("message") or "Location pin")
+    if distance_km is not None:
+        msg = f"{msg}\n\n_Approx. {distance_km:.1f} km from your shared location._"
+    return await _sender().send_location_message(
+        wa_id,
+        msg,
+        tenant_id=tenant_id,
+        latitude=facility.get("latitude"),
+        longitude=facility.get("longitude"),
+        name=facility.get("name"),
+        address=facility.get("address"),
+    )
+
+
 async def _send_pin(
     wa_id: str,
     *,
@@ -488,8 +397,9 @@ async def _send_pin(
     event_slug: str,
     pin_key: str,
 ) -> bool:
-    pin = (EVENT_HELP_PINS.get(event_slug) or {}).get(pin_key) or {}
-    if not pin:
+    """Send first matching facility pin (fallback when no user GPS)."""
+    rows = _facilities_for(event_slug, pin_key, tenant_id=tenant_id)
+    if not rows:
         await _sender().send_button_message(
             wa_id,
             "Location pin will appear once organisers publish verified coordinates.",
@@ -497,15 +407,118 @@ async def _send_pin(
             tenant_id=tenant_id,
         )
         return False
-    return await _sender().send_location_message(
+    return await _send_facility_pin(wa_id, rows[0], tenant_id=tenant_id)
+
+
+async def _ask_share_whatsapp_location(
+    wa_id: str,
+    *,
+    tenant_id: str | None,
+    event_slug: str,
+    place_slug: str,
+    category: str,
+) -> None:
+    labels = {
+        "medical": "nearest medical camp",
+        "police": "nearest police / helpdesk",
+        "ambulance": "nearest ambulance point",
+        "women": "nearest women & child helpdesk",
+        "reunion": "nearest reunion centre",
+        "lost_counter": "nearest lost & found counter",
+        "any": "nearest emergency help",
+    }
+    label = labels.get(category, "nearest help point")
+    _set_pending(
         wa_id,
-        str(pin.get("message") or "Location pin"),
+        {
+            "kind": "await_location",
+            "event_slug": event_slug,
+            "place_slug": place_slug,
+            "category": category,
+        },
         tenant_id=tenant_id,
-        latitude=pin.get("latitude"),
-        longitude=pin.get("longitude"),
-        name=pin.get("name"),
-        address=pin.get("address"),
     )
+    await _sender().send_button_message(
+        wa_id,
+        (
+            f"📍 *Share your WhatsApp location*\n\n"
+            f"To find the *{label}* for this event:\n"
+            "1. Tap 📎 (attach)\n"
+            "2. Choose *Location*\n"
+            "3. Send your current location\n\n"
+            "If this is life-threatening, call local emergency services first."
+        ),
+        [{"id": "main_menu", "title": "Main Menu"}],
+        tenant_id=tenant_id,
+    )
+
+
+async def handle_shared_location(
+    wa_id: str,
+    latitude: float,
+    longitude: float,
+    *,
+    tenant_id: str | None = None,
+    name: str = "",
+    address: str = "",
+) -> Optional[dict]:
+    """Handle inbound WhatsApp location share → nearest facility pin."""
+    if not is_spiritual_tenant(tenant_id):
+        return None
+    pending = _get_pending(wa_id, tenant_id=tenant_id)
+    if str(pending.get("kind") or "") != "await_location":
+        return None
+
+    event_slug = str(pending.get("event_slug") or "")
+    place_slug = str(pending.get("place_slug") or "")
+    category = str(pending.get("category") or "any")
+    if not event_slug:
+        return None
+
+    cat = None if category in {"", "any"} else category
+    found = find_nearest_facility(
+        event_slug, latitude, longitude, category=cat, tenant_id=tenant_id,
+    )
+    if not found and cat:
+        # Fall back to any help point for this event
+        found = find_nearest_facility(
+            event_slug, latitude, longitude, category=None, tenant_id=tenant_id,
+        )
+    if not found:
+        await _sender().send_button_message(
+            wa_id,
+            "Could not find a help point for this event yet. Please contact the mela helpdesk.",
+            [{"id": "main_menu", "title": "Main Menu"}],
+            tenant_id=tenant_id,
+        )
+        _clear_pending(wa_id, tenant_id=tenant_id)
+        return {"handled": True, "action": "spiritual_location_no_facility"}
+
+    facility, km = found
+    _clear_pending(wa_id, tenant_id=tenant_id)
+    where = f"{name or address}".strip()
+    preface = (
+        f"📍 Got your location"
+        + (f" ({where})" if where else "")
+        + f".\nNearest: *{facility.get('name')}* (~{km:.1f} km).\n"
+        "Pin is shared above."
+    )
+    await _send_facility_pin(
+        wa_id, facility, tenant_id=tenant_id, distance_km=km,
+    )
+    buttons = (
+        _followup_buttons(event_slug, place_slug)
+        if place_slug
+        else [{"id": "main_menu", "title": "Main Menu"}]
+    )
+    await _sender().send_button_message(wa_id, preface, buttons, tenant_id=tenant_id)
+    return {
+        "handled": True,
+        "action": "spiritual_nearest_pin",
+        "facility": facility.get("name"),
+        "km": km,
+        "category": facility.get("key"),
+    }
 
 
 async def _send_places(wa_id: str, category_id: str, *, tenant_id: str | None) -> bool:
@@ -814,6 +827,29 @@ async def handle_spiritual_menu_action(
     if pending_result:
         return pending_result
 
+    # Waiting for WhatsApp location share — remind if user typed instead.
+    pending_now = _get_pending(wa_id, tenant_id=tenant_id)
+    if (
+        str(pending_now.get("kind") or "") == "await_location"
+        and not _match_event(text)
+        and not _match_place(text)
+        and not _parse_detail(text)
+        and not _parse_sea(text)
+        and not _parse_slf(text)
+        and text not in {"main_menu", "spiritual_main"}
+    ):
+        await _sender().send_button_message(
+            wa_id,
+            (
+                "Please share your *WhatsApp location* (📎 → Location) "
+                "so I can send the nearest help pin.\n\n"
+                "If urgent, call local emergency services first."
+            ),
+            [{"id": "main_menu", "title": "Main Menu"}],
+            tenant_id=tenant_id,
+        )
+        return {"handled": True, "action": "spiritual_await_location_reminder"}
+
     if text in {"spiritual_back_categories", "spiritual_main"} or _norm(text) in {
         "all categories", "main spiritual menu",
     }:
@@ -882,61 +918,36 @@ async def handle_spiritual_menu_action(
     sea = _parse_sea(text)
     if sea:
         event_slug, place_slug, action = sea
-        if action == "sharearea":
-            _set_pending(
-                wa_id,
-                {
-                    "kind": "share_area",
-                    "event_slug": event_slug,
-                    "place_slug": place_slug,
-                },
-                tenant_id=tenant_id,
-            )
-            await _sender().send_button_message(
-                wa_id,
-                (
-                    "📍 *Share My Area*\n\n"
-                    "Type your current ghat / area / landmark "
-                    "(example: *Kapil Muni gate* or *Bada Danda north*).\n\n"
-                    "I will send the nearest help pin for this event."
-                ),
-                [{"id": "main_menu", "title": "Main Menu"}],
-                tenant_id=tenant_id,
-            )
-            return {"handled": True, "action": "spiritual_share_area_prompt"}
-        pin_map = {
+        category_map = {
             "medical": "medical",
             "police": "police",
             "ambulance": "ambulance",
             "women": "women",
+            "sharearea": "any",
         }
-        pin_key = pin_map.get(action)
-        if pin_key:
-            await _send_pin(
-                wa_id, tenant_id=tenant_id, event_slug=event_slug, pin_key=pin_key,
-            )
-            await _sender().send_button_message(
+        category = category_map.get(action)
+        if category:
+            await _ask_share_whatsapp_location(
                 wa_id,
-                "Need anything else?",
-                _followup_buttons(event_slug, place_slug),
                 tenant_id=tenant_id,
+                event_slug=event_slug,
+                place_slug=place_slug,
+                category=category,
             )
-            return {"handled": True, "action": f"spiritual_emergency_{action}"}
+            return {"handled": True, "action": f"spiritual_ask_location_{action}"}
 
     slf = _parse_slf(text)
     if slf:
         event_slug, place_slug, action = slf
         if action == "reunion":
-            await _send_pin(
-                wa_id, tenant_id=tenant_id, event_slug=event_slug, pin_key="reunion",
-            )
-            await _sender().send_button_message(
+            await _ask_share_whatsapp_location(
                 wa_id,
-                "Need anything else?",
-                _followup_buttons(event_slug, place_slug),
                 tenant_id=tenant_id,
+                event_slug=event_slug,
+                place_slug=place_slug,
+                category="reunion",
             )
-            return {"handled": True, "action": "spiritual_reunion_pin"}
+            return {"handled": True, "action": "spiritual_ask_location_reunion"}
         prompts = {
             "missing": (
                 "🧭 *Missing Person*\n\n"

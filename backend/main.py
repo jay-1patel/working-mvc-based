@@ -65,6 +65,7 @@ from routes.complaints import router as complaints_router
 from routes.tenants import router as tenants_router
 from routes.crawl import router as crawl_router
 from routes.offerings import router as offerings_router
+from routes.event_facilities import router as event_facilities_router
 from routes.conversations import router as conversations_router
 from routes.conversations import flat_router as conversations_flat_router
 from routes.tenant_files import router as tenant_files_router
@@ -209,6 +210,7 @@ app.include_router(complaints_router, tags=["complaints"])
 app.include_router(tenants_router, tags=["tenants"])
 app.include_router(crawl_router, tags=["crawl"])
 app.include_router(offerings_router, tags=["offerings"])
+app.include_router(event_facilities_router, tags=["event-facilities"])
 # Flat session APIs first — otherwise path routes like
 # POST /tenants/{tenant_id}/conversations/{wa_id} steal
 # POST /tenants/conversations/detail (tenant_id="conversations").

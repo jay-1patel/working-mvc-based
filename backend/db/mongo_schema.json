@@ -10218,71 +10218,446 @@
     },
     "tenant_kb": {
       "columns": [
-        {"name": "id", "kind": "scalar", "integer": true, "required": false, "default": null},
-        {"name": "tenant_id", "kind": "scalar", "integer": false, "required": true, "default": null},
-        {"name": "industry", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "source_file", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "category", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "content_type", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "page_number", "kind": "scalar", "integer": true, "required": false, "default": null},
-        {"name": "content", "kind": "scalar", "integer": false, "required": true, "default": null},
-        {"name": "content_hash", "kind": "scalar", "integer": false, "required": true, "default": null},
-        {"name": "confidence", "kind": "scalar", "integer": true, "required": false, "default": null},
-        {"name": "method", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "created_at", "kind": "datetime", "integer": false, "required": false, "default": {"factory": "utcnow"}}
+        {
+          "name": "id",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "tenant_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "industry",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "source_file",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "category",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "content_type",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "page_number",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "content",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "content_hash",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "confidence",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "method",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        }
       ],
-      "primary_key": ["id"],
+      "primary_key": [
+        "id"
+      ],
       "indexes": [
         {
-          "keys": [["id", 1]],
+          "keys": [
+            [
+              "id",
+              1
+            ]
+          ],
           "options": {
             "name": "mongo_primary_key",
             "unique": true,
-            "partialFilterExpression": {"id": {"$type": "number"}}
+            "partialFilterExpression": {
+              "id": {
+                "$type": "number"
+              }
+            }
           }
         },
         {
-          "keys": [["tenant_id", 1], ["content_hash", 1]],
-          "options": {"name": "uq_tenant_kb_content_hash", "unique": true}
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ],
+            [
+              "content_hash",
+              1
+            ]
+          ],
+          "options": {
+            "name": "uq_tenant_kb_content_hash",
+            "unique": true
+          }
         },
         {
-          "keys": [["tenant_id", 1], ["category", 1]],
-          "options": {"name": "idx_kb_tenant", "unique": false}
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ],
+            [
+              "category",
+              1
+            ]
+          ],
+          "options": {
+            "name": "idx_kb_tenant",
+            "unique": false
+          }
         }
       ]
     },
     "tenant_faq": {
       "columns": [
-        {"name": "id", "kind": "scalar", "integer": true, "required": false, "default": null},
-        {"name": "tenant_id", "kind": "scalar", "integer": false, "required": true, "default": null},
-        {"name": "industry", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "source_file", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "category", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "content_type", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "page_number", "kind": "scalar", "integer": true, "required": false, "default": null},
-        {"name": "content", "kind": "scalar", "integer": false, "required": true, "default": null},
-        {"name": "content_hash", "kind": "scalar", "integer": false, "required": true, "default": null},
-        {"name": "confidence", "kind": "scalar", "integer": true, "required": false, "default": null},
-        {"name": "method", "kind": "scalar", "integer": false, "required": false, "default": null},
-        {"name": "created_at", "kind": "datetime", "integer": false, "required": false, "default": {"factory": "utcnow"}}
+        {
+          "name": "id",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "tenant_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "industry",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "source_file",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "category",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "content_type",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "page_number",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "content",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "content_hash",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "confidence",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "method",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "created_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        }
       ],
-      "primary_key": ["id"],
+      "primary_key": [
+        "id"
+      ],
       "indexes": [
         {
-          "keys": [["id", 1]],
+          "keys": [
+            [
+              "id",
+              1
+            ]
+          ],
           "options": {
             "name": "mongo_primary_key",
             "unique": true,
-            "partialFilterExpression": {"id": {"$type": "number"}}
+            "partialFilterExpression": {
+              "id": {
+                "$type": "number"
+              }
+            }
           }
         },
         {
-          "keys": [["tenant_id", 1], ["content_hash", 1]],
-          "options": {"name": "uq_tenant_faq_content_hash", "unique": true}
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ],
+            [
+              "content_hash",
+              1
+            ]
+          ],
+          "options": {
+            "name": "uq_tenant_faq_content_hash",
+            "unique": true
+          }
         },
         {
-          "keys": [["tenant_id", 1], ["category", 1]],
-          "options": {"name": "idx_faq_tenant", "unique": false}
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ],
+            [
+              "category",
+              1
+            ]
+          ],
+          "options": {
+            "name": "idx_faq_tenant",
+            "unique": false
+          }
+        }
+      ]
+    },
+    "event_facilities": {
+      "columns": [
+        {
+          "name": "id",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "tenant_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "event",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "type",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "name",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "address",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": ""
+        },
+        {
+          "name": "latitude",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "longitude",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "message",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": ""
+        },
+        {
+          "name": "is_active",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": 1
+        },
+        {
+          "name": "sort_order",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": 0
+        },
+        {
+          "name": "created_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        },
+        {
+          "name": "updated_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "keys": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "mongo_primary_key",
+            "unique": true,
+            "partialFilterExpression": {
+              "id": {
+                "": "int"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ],
+            [
+              "event",
+              1
+            ],
+            [
+              "type",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ix_event_facilities_tenant_event_type",
+            "unique": false
+          }
+        },
+        {
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ],
+            [
+              "is_active",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ix_event_facilities_tenant_active",
+            "unique": false
+          }
         }
       ]
     }

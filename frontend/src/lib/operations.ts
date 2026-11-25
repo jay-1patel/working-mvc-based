@@ -7,7 +7,7 @@
  * one-file change.
  */
 
-import { api, apiCallStart, apiUrl, authHeaders, getSessionId, getUsername, logApiCall, logApiError } from './api'
+import { api, apiCallStart, apiUrl, authHeaders, getSessionId, getUserId, logApiCall, logApiError } from './api'
 
 const tenantBase = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -56,7 +56,7 @@ export async function downloadCustomerExport(tenantId: string, format: 'csv' | '
       },
       body: JSON.stringify({
         format,
-        ...(getUsername() ? { username: getUsername() } : {}),
+        ...(getUserId() ? { user_id: getUserId() } : {}),
         ...(getSessionId() ? { session_id: getSessionId() } : {}),
       }),
     })

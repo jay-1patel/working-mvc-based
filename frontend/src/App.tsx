@@ -70,10 +70,11 @@ function Router() {
   }
 
   // First-login lock: admin with no tenant_id must finish WhatsApp → company
-  // setup before the console opens.
+  // setup before the console opens. Drop any stale tenantId from the URL so
+  // chrome does not poll inbox / tenant APIs against an unbound session.
   if (locked) {
     return (
-      <AppShell route={{ ...route, view: 'register' }}>
+      <AppShell route={{ ...route, tenantId: null, view: 'register' }}>
         <RegisterWizard />
       </AppShell>
     )

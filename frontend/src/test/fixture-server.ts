@@ -55,11 +55,31 @@ function routeDefault(
 ): { status?: number; body: unknown } {
   // ── auth ──────────────────────────────────────────────────────────────
   if (path === '/api/auth/status') return json({ has_admins: true })
-  if (path === '/api/auth/login' && method === 'POST') return json({ token: 'test-token' })
+  if (path === '/api/auth/login' && method === 'POST') {
+    // Login body is username + session_id; later calls use user_id + session_id.
+    if (!body?.username || !body?.session_id) {
+      return json({ detail: 'Invalid credentials' }, 401)
+    }
+    return json({
+      token: 'test-token',
+      id: fixtures.identity.id,
+      user_id: fixtures.identity.id,
+      username: body.username || fixtures.identity.username,
+      session_id: 'test-session',
+      role: fixtures.identity.role,
+      permissions: fixtures.identity.permissions,
+      tenant_id: fixtures.identity.tenant_id,
+    })
+  }
   if (path === '/api/auth/me')
     return json(fixtures.identity)
   if (path === '/api/auth/first-admin' && method === 'POST')
-    return json({ token: 'test-token' })
+    return json({
+      token: 'test-token',
+      id: fixtures.identity.id,
+      user_id: fixtures.identity.id,
+      session_id: 'test-session',
+    })
   if (path === '/api/auth/create' && method === 'POST')
     return json({ status: 'created', username: body?.username, role: body?.role ?? 'sub_admin', permissions: body?.permissions ?? {} })
   if (path === '/api/auth/admins') return json({ admins: fixtures.admins })

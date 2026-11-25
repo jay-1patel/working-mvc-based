@@ -73,7 +73,7 @@ _TENANT_TOKEN_ROUTES = (
 
 
 async def _load_body_credentials(request: Request) -> None:
-    """Pull lowercase username + session_id from JSON/form body into request.state."""
+    """Pull user_id + session_id from JSON/form body into request.state."""
     content_type = (request.headers.get("content-type") or "").lower()
     try:
         body_bytes = await request.body()
@@ -85,21 +85,26 @@ async def _load_body_credentials(request: Request) -> None:
 
     request._receive = receive
 
-    username = ""
+    user_id = ""
     session_id = ""
+
+    def _from_mapping(payload: dict) -> None:
+        nonlocal user_id, session_id
+        user_id = user_id or str(payload.get("user_id") or "").strip()
+        session_id = session_id or str(payload.get("session_id") or "").strip()
+
     if body_bytes and "application/json" in content_type:
         try:
             payload = json.loads(body_bytes)
         except Exception:
             payload = None
         if isinstance(payload, dict):
-            username = str(payload.get("username") or "").strip()
-            session_id = str(payload.get("session_id") or "").strip()
+            _from_mapping(payload)
     elif body_bytes and (
         "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type
     ):
         form = await request.form()
-        username = str(form.get("username") or "").strip()
+        user_id = str(form.get("user_id") or "").strip()
         session_id = str(form.get("session_id") or "").strip()
         # Re-inject raw body so downstream can still parse multipart/form.
         async def receive_again():
@@ -107,19 +112,18 @@ async def _load_body_credentials(request: Request) -> None:
 
         request._receive = receive_again
 
-    # Robust fallback: if body_bytes is present and username/session_id not yet
+    # Robust fallback: if body_bytes is present and credentials not yet
     # resolved, attempt JSON decode (e.g. curl -d without explicit Content-Type).
-    if body_bytes and not (username and session_id):
+    if body_bytes and not (user_id and session_id):
         try:
             payload = json.loads(body_bytes)
             if isinstance(payload, dict):
-                username = username or str(payload.get("username") or "").strip()
-                session_id = session_id or str(payload.get("session_id") or "").strip()
+                _from_mapping(payload)
         except Exception:
             pass
 
-    if username:
-        request.state.auth_username = username
+    if user_id:
+        request.state.auth_user_id = user_id
     if session_id:
         request.state.auth_session_id = session_id
 
@@ -127,7 +131,7 @@ async def _load_body_credentials(request: Request) -> None:
 async def admin_session_auth_middleware(request: Request, call_next):
     """Require a live admin session on every protected /api request.
 
-    Preferred credentials: headers or JSON/form fields ``username`` + ``session_id``.
+    Credentials: headers or JSON/form fields ``user_id`` + ``session_id`` only.
     No Authorization header is required.
     """
     path = request.url.path
@@ -140,15 +144,14 @@ async def admin_session_auth_middleware(request: Request, call_next):
         pattern.match(path) for pattern in _TENANT_TOKEN_ROUTES
     ):
         return await call_next(request)
-    # Prefer lowercase header credentials when present.
-    header_user = str(request.headers.get("username") or "").strip()
+    header_user_id = str(request.headers.get("user_id") or "").strip()
     header_session = str(request.headers.get("session_id") or "").strip()
-    if header_user:
-        request.state.auth_username = header_user
+    if header_user_id:
+        request.state.auth_user_id = header_user_id
     if header_session:
         request.state.auth_session_id = header_session
     if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not (
-        header_user and header_session
+        header_session and header_user_id
     ):
         await _load_body_credentials(request)
     try:
@@ -299,7 +302,7 @@ async def request_id_middleware(request: Request, call_next):
     except ImportError:
         from backend.routes.auth import BODY_TENANT_POST_PATHS
     if request.method == "POST" and request.url.path in BODY_TENANT_POST_PATHS:
-        # Tenant comes from username/session_id auth — never from the JSON body.
+        # Tenant comes from user_id/session_id auth — never from the JSON body.
         tenant = None
         try:
             try:

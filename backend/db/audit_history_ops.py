@@ -88,6 +88,56 @@ def _format_audit_event(row: dict) -> dict:
     return event
 
 
+def _admin_audit_mongo_filter(
+    *,
+    start_date: Optional[date],
+    end_date: Optional[date],
+    actor: Optional[str],
+    action: Optional[str],
+    category_actions: Optional[list[str]],
+    tenant_id: Optional[str],
+    outcome: Optional[str],
+    search: Optional[str],
+    actor_roles: Optional[list[str]],
+) -> dict:
+    """Push list filters into Mongo instead of loading the whole collection."""
+    flt: dict[str, Any] = {}
+    created: dict[str, str] = {"$gte": _year_cutoff_iso()}
+    if start_date:
+        start_s = start_date.isoformat()
+        if start_s > created["$gte"][:10]:
+            created["$gte"] = start_s
+    if end_date:
+        created["$lt"] = (end_date + timedelta(days=1)).isoformat()
+    flt["created_at"] = created
+    if tenant_id:
+        flt["tenant_id"] = str(tenant_id).strip()
+    if action:
+        flt["action"] = action.strip()
+    if category_actions:
+        flt["action"] = {"$in": list(category_actions)}
+    if outcome:
+        flt["outcome"] = outcome.strip()
+    if actor and actor.strip():
+        flt["actor_username"] = {"$regex": re.escape(actor.strip()), "$options": "i"}
+    if actor_roles is not None:
+        # Case-insensitive role match without scanning unrelated rows.
+        role_regex = [f"^{re.escape(str(r).strip())}$" for r in actor_roles if str(r).strip()]
+        if role_regex:
+            flt["actor_role"] = {"$regex": "|".join(role_regex), "$options": "i"}
+        else:
+            flt["actor_role"] = {"$in": []}
+    if search and search.strip():
+        term = re.escape(search.strip())
+        fields = (
+            "actor_username", "actor_label", "target_username", "resource_type",
+            "resource_id", "action", "tenant_id", "tenant_name", "tenant_slug",
+            "ip_address", "user_agent", "details_json",
+        )
+        flt["$or"] = [{field: {"$regex": term, "$options": "i"}} for field in fields]
+    return flt
+
+
 def list_admin_audit_events(
     *,
     start_date: Optional[date] = None,
@@ -108,28 +158,27 @@ def list_admin_audit_events(
     if use_mongodb():
         from .mongo import Repository
 
-        rows = Repository("admin_audit_events").find_all(
-            {}, sort=[("created_at", -1), ("id", -1)], limit=None,
+        flt = _admin_audit_mongo_filter(
+            start_date=start_date,
+            end_date=end_date,
+            actor=actor,
+            action=action,
+            category_actions=category_actions,
+            tenant_id=tenant_id,
+            outcome=outcome,
+            search=search,
+            actor_roles=actor_roles,
         )
-        filtered = [
-            r for r in rows
-            if _matches_admin_audit_row(
-                r,
-                start_date=start_date,
-                end_date=end_date,
-                actor=actor,
-                action=action,
-                category_actions=category_actions,
-                tenant_id=tenant_id,
-                outcome=outcome,
-                search=search,
-                actor_roles=actor_roles,
-            )
-        ]
-        if sort_by:
-            filtered.sort(key=lambda r: (r.get(sort_by), r.get("id")), reverse=reverse)
-        total = len(filtered)
-        page = filtered[offset: offset + limit]
+        repo = Repository("admin_audit_events")
+        sort_column = sort_by or "created_at"
+        sort_dir = -1 if reverse else 1
+        total = repo.count(flt)
+        page = repo.find_all(
+            flt,
+            sort=[(sort_column, sort_dir), ("id", -1)],
+            limit=max(0, int(limit or 50)),
+            offset=max(0, int(offset or 0)),
+        )
         events = [_format_audit_event(dict(r)) for r in page]
         return {"events": events, "total": total, "limit": limit, "offset": offset}
 
@@ -190,8 +239,33 @@ def list_admin_audit_events(
 
 def admin_audit_statistics(**kwargs) -> dict:
     category_map = kwargs.pop("category_map", None) or {}
-    result = list_admin_audit_events(limit=100000, offset=0, **kwargs)
-    events = result["events"]
+    if use_mongodb():
+        from .mongo import Repository
+
+        flt = _admin_audit_mongo_filter(
+            start_date=kwargs.get("start_date"),
+            end_date=kwargs.get("end_date"),
+            actor=kwargs.get("actor"),
+            action=kwargs.get("action"),
+            category_actions=kwargs.get("category_actions"),
+            tenant_id=kwargs.get("tenant_id"),
+            outcome=kwargs.get("outcome"),
+            search=kwargs.get("search"),
+            actor_roles=kwargs.get("actor_roles"),
+        )
+        repo = Repository("admin_audit_events")
+        # Cap stats scan so Activity log cannot pull the entire collection.
+        rows = repo.find_all(
+            flt,
+            sort=[("created_at", -1), ("id", -1)],
+            limit=5000,
+        )
+        events = [_format_audit_event(dict(r)) for r in rows]
+        total_events = repo.count(flt)
+    else:
+        result = list_admin_audit_events(limit=5000, offset=0, **kwargs)
+        events = result["events"]
+        total_events = result.get("total", len(events))
     by_outcome = {"success": 0, "failure": 0}
     by_action: dict[str, int] = {}
     by_date: dict[str, int] = {}
@@ -211,7 +285,7 @@ def admin_audit_statistics(**kwargs) -> dict:
         cat = category_map.get(act, "other")
         by_category[cat] = by_category.get(cat, 0) + 1
     return {
-        "total_events": len(events),
+        "total_events": total_events,
         "by_outcome": by_outcome,
         "by_action": by_action,
         "by_date": by_date,
@@ -271,21 +345,27 @@ def list_audit_logs(
     if use_mongodb():
         from .mongo import Repository
 
-        rows = Repository("audit_logs").find_all({}, sort=[("created_at", -1), ("id", -1)])
-        filtered = [
-            r for r in rows
-            if _audit_log_matches(
-                r,
-                start_iso=start_iso,
-                end_iso=end_iso,
-                search=search,
-                actor=actor,
-                action=action,
-                category=category,
-            )
-        ]
-        total = len(filtered)
-        page = filtered[offset: offset + limit]
+        flt: dict[str, Any] = {"created_at": {"$gte": start_iso, "$lte": end_iso}}
+        if actor and actor.strip():
+            flt["actor"] = actor.strip()
+        if action and action.strip():
+            flt["action"] = action.strip()
+        if category and category.strip():
+            flt["category"] = category.strip()
+        if search and search.strip():
+            term = re.escape(search.strip())
+            flt["$or"] = [
+                {"description": {"$regex": term, "$options": "i"}},
+                {"metadata": {"$regex": term, "$options": "i"}},
+            ]
+        repo = Repository("audit_logs")
+        total = repo.count(flt)
+        page = repo.find_all(
+            flt,
+            sort=[("created_at", -1), ("id", -1)],
+            limit=max(0, int(limit or 100)),
+            offset=max(0, int(offset or 0)),
+        )
         events = []
         for row in page:
             event = dict(row)
@@ -345,10 +425,11 @@ def audit_logs_statistics(*, start_iso: str, end_iso: str) -> dict:
     if use_mongodb():
         from .mongo import Repository
 
-        rows = [
-            r for r in Repository("audit_logs").find_all({})
-            if start_iso <= str(r.get("created_at") or "") <= end_iso
-        ]
+        rows = Repository("audit_logs").find_all(
+            {"created_at": {"$gte": start_iso, "$lte": end_iso}},
+            sort=[("created_at", -1), ("id", -1)],
+            limit=5000,
+        )
         by_status: dict = {}
         by_category: dict = {}
         by_action: dict = {}

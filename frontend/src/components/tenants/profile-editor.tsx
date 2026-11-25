@@ -49,10 +49,9 @@ export function ProfileEditor({
   const isSuperAdmin = identity?.role === 'super_admin'
   // View-only super admin, or customer_care after Onboarded users → Login.
   const canReviewPending = isSuperAdmin || impersonating
-  // Decided role rule (flipped from the old model): the tenant's own admin
-  // edits the profile here — saving writes a draft and publishing routes
-  // through super-admin approval for non-menu changes. The super admin is
-  // VIEW-ONLY inside a tenant, so for them this page is a read-only mirror.
+  // Tenant admin edits the profile here — saving writes a draft and every
+  // publish (profile, menu, hours, intents) goes to super-admin approval.
+  // The super admin is VIEW-ONLY inside a tenant (read-only mirror).
   // Support Login keeps write access (impersonating as the tenant admin).
   const readOnly = isSuperAdmin && !impersonating
   const action = useAction()

@@ -23,12 +23,15 @@ export function LoginView() {
         setError(problem)
         return
       }
+    } else if (!username.trim()) {
+      setError('Username is required.')
+      return
     }
     setBusy(true)
     setError(null)
     try {
       if (needsSetup) await setup(username, password, email)
-      else await login(username, sessionId)
+      else await login(username.trim(), sessionId)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message)
     } finally {
@@ -58,7 +61,6 @@ export function LoginView() {
             autoComplete="username"
             autoFocus
             required
-            hint={needsSetup ? undefined : 'Plain username only, e.g. test_support_ (Base64 login is rejected).'}
           />
           {needsSetup ? (
             <FieldInput
@@ -77,7 +79,7 @@ export function LoginView() {
               value={sessionId}
               onChange={(e) => setSessionId(e.target.value)}
               autoComplete="current-password"
-              hint="Use the live session_id for this admin from the database."
+              hint="Live session_id for this username from the database."
               required
             />
           )}

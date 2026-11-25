@@ -10,15 +10,16 @@ import sys
 import unittest
 from pathlib import Path
 
-from mongo_test_support import MongomockSession
-
 ROOT = Path(__file__).resolve().parents[2]
+TESTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "backend"))
+sys.path.insert(0, str(TESTS_DIR))
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mongo_test_support import MongomockSession
 import database
 from core.send2_auth import encode_send2_username
 from routes import auth as auth_routes
@@ -30,7 +31,7 @@ class Section1AuthLive(unittest.TestCase):
         self.mongo = MongomockSession().start()
         database.init_db()
         self.session = "seed-session"
-        database.create_admin(
+        self.admin_id = database.create_admin(
             encode_send2_username("qa-admin"),
             role="super_admin",
             permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
@@ -51,7 +52,7 @@ class Section1AuthLive(unittest.TestCase):
     def test_login_wrong_password_generic(self):
         r = self.client.post(
             "/api/auth/login",
-            json={"username": "definitely-not-a-user-xyz", "session_id": "wrong-session"},
+            json={"username": "nobody-qa", "session_id": "wrong-session"},
         )
         body = r.text.lower()
         self.assertEqual(r.status_code, 401)
@@ -96,7 +97,7 @@ class Section1AuthLive(unittest.TestCase):
         for i in range(8):
             r = self.client.post(
                 "/api/auth/login",
-                json={"username": "rate-limit-probe", "session_id": f"bad-{i}"},
+                json={"username": f"bad-user-{i}", "session_id": f"bad-{i}"},
             )
             codes.append(r.status_code)
         self.assertTrue(codes)

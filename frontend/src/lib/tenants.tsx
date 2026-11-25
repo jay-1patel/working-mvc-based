@@ -31,6 +31,20 @@ export const tenantsApi = {
       { tenant_id: tenantId },
     ),
 
+  /** Masked Send2 vault status for the session tenant — never returns secrets. */
+  send2CredentialsStatus: () =>
+    api.post<{ configured: boolean; last_synced_at: string | null }>(
+      '/api/admin/tenants/send2-credentials/status',
+      {},
+    ),
+
+  /** Super-admin only: re-pull credentials from Send2 after a rotation. */
+  resyncSend2Credentials: (tenantId: string) =>
+    api.post<{ ok: boolean; configured: boolean; last_synced_at: string | null }>(
+      `/api/admin/tenants/${encodeURIComponent(tenantId)}/send2-credentials/resync`,
+      {},
+    ),
+
   create: (body: {
     tenant_id: string
     slug?: string

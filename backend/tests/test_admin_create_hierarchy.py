@@ -23,8 +23,8 @@ from routes import auth as auth_routes
 from routes import tenants as tenants_routes
 
 
-def _headers(username: str, session_id: str) -> dict:
-    return {"username": username, "session_id": session_id}
+def _headers(user_id: int | str, session_id: str) -> dict:
+    return {"user_id": str(user_id), "session_id": session_id}
 
 
 class AdminCreateHierarchyTests(unittest.TestCase):
@@ -42,13 +42,13 @@ class AdminCreateHierarchyTests(unittest.TestCase):
         self.client = TestClient(self.app, raise_server_exceptions=False)
 
         self.root_session = "root-session"
-        database.create_admin(
+        root_id = database.create_admin(
             encode_send2_username("root"),
             role="super_admin",
             permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
             session_id=self.root_session,
         )
-        self.root = _headers("root", self.root_session)
+        self.root = _headers(root_id, self.root_session)
 
         created = self.client.post(
             "/api/admin/tenants",
@@ -63,14 +63,14 @@ class AdminCreateHierarchyTests(unittest.TestCase):
         self.assertEqual(created.status_code, 200, created.text)
 
         self.admin_session = "acme-admin-session"
-        database.create_admin(
+        admin_id = database.create_admin(
             encode_send2_username("acme-admin"),
             role="admin",
             permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
             tenant_id="acme",
             session_id=self.admin_session,
         )
-        self.acme_admin = _headers("acme-admin", self.admin_session)
+        self.acme_admin = _headers(admin_id, self.admin_session)
 
     def tearDown(self):
         self.mongo.stop()

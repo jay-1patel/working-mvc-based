@@ -43,8 +43,8 @@ from routes import tenants as tenants_routes
 from services import error_reporter
 
 
-def _headers(username: str, session_id: str) -> dict:
-    return {"username": username, "session_id": session_id}
+def _headers(user_id: int | str, session_id: str) -> dict:
+    return {"user_id": str(user_id), "session_id": session_id}
 
 
 class RolePanelTests(unittest.TestCase):
@@ -66,13 +66,13 @@ class RolePanelTests(unittest.TestCase):
         self.client = TestClient(self.app, raise_server_exceptions=False)
 
         self.root_session = "root-session"
-        database.create_admin(
+        root_id = database.create_admin(
             encode_send2_username("root"),
             role="super_admin",
             permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
             session_id=self.root_session,
         )
-        self.root = _headers("root", self.root_session)
+        self.root = _headers(root_id, self.root_session)
 
         created = self.client.post(
             "/api/admin/tenants",
@@ -108,7 +108,8 @@ class RolePanelTests(unittest.TestCase):
             headers=headers,
         )
         assert res.status_code == 200, res.text
-        return _headers(username, res.json()["session_id"])
+        payload = res.json()
+        return _headers(payload["user_id"] or payload["id"], payload["session_id"])
 
     # ── the guard, as pure path classification ─────────────────────────
 

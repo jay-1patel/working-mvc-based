@@ -117,11 +117,14 @@ export function OnboardingKitWidget({
     ? getVertical(tenantVertical).label
     : currentTemplate?.title || 'Select Industry'
 
-  const handleDownload = (format: 'docx' | 'pdf') => {
+  const handleDownload = async (format: 'docx' | 'pdf') => {
     const slug = currentTemplate?.vertical || selectedVertical || tenantVertical || 'generic'
-    const url = `/api/admin/onboarding-kits/${slug}/${format}`
-    window.open(url, '_blank')
-    toast.push(`Downloading ${currentTemplate?.title || slug} ${format.toUpperCase()} template...`)
+    try {
+      await onboardingKitsApi.downloadKit(slug, format)
+      toast.push(`Downloading ${currentTemplate?.title || slug} ${format.toUpperCase()} template…`)
+    } catch (err: any) {
+      toast.push(`Download failed: ${err?.message || 'try again'}`, 'error')
+    }
   }
 
   const handleFileUpload = async (file: File, lane: UploadLane) => {
@@ -185,63 +188,145 @@ export function OnboardingKitWidget({
     }
   }
 
+  const demoTemplate =
+    (currentTemplate?.has_pdf ? currentTemplate : null) ||
+    templates.find((t) => t.vertical === 'generic' && t.has_pdf) ||
+    currentTemplate
+
+  const handleDownloadDemoPdf = async () => {
+    const slug = demoTemplate?.vertical || selectedVertical || tenantVertical || 'generic'
+    try {
+      await onboardingKitsApi.downloadKit(slug, 'pdf')
+      toast.push(`Downloading tenant demo PDF (${demoTemplate?.title || slug})…`)
+    } catch (err: any) {
+      toast.push(`Download failed: ${err?.message || 'try again'}`, 'error')
+    }
+  }
+
+  // First-login wizard: one upload + one demo PDF download (no Option A/B split).
+  if (!ongoing && !kitOnly) {
+    return (
+      <>
+        <div className="rounded-panel border border-acc/30 bg-accsoft/40 p-4 sm:p-5">
+          <div className="flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accsoft text-acc">
+                  <FolderUp className="h-4 w-4" />
+                </span>
+                <h3 className="text-sm font-semibold text-tx">Upload company document</h3>
+                <span className="inline-flex rounded-full border border-acc/40 bg-accsoft px-2 py-0.5 text-2xs font-medium text-acc">
+                  PDF / Word / Excel
+                </span>
+              </div>
+              <p className="max-w-xl text-xs leading-relaxed text-txmuted">
+                Download the tenant demo PDF for {verticalLabel}, fill in your details, then upload
+                it here — or upload any brochure / company PDF you already have. We extract offerings,
+                FAQs and knowledge for this setup.
+              </p>
+              {templatesError && (
+                <Notice tone="bad" title="Demo PDF list failed to load" className="max-w-xl">
+                  {templatesError}
+                  <div className="mt-2">
+                    <GhostButton
+                      className="px-2.5 py-1.5 text-xs"
+                      disabled={loadingTemplates}
+                      onClick={() => setTemplatesAttempt((n) => n + 1)}
+                    >
+                      {loadingTemplates && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                      Retry
+                    </GhostButton>
+                  </div>
+                </Notice>
+              )}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="inline-flex items-center gap-2 rounded-lg border border-line bg-card px-3 py-1.5 text-xs font-medium text-tx">
+                  <span>{demoTemplate?.icon || currentTemplate?.icon || '🏢'}</span>
+                  <span>{demoTemplate?.title || verticalLabel}</span>
+                </span>
+                <GhostButton
+                  className="px-2.5 py-1.5 text-xs"
+                  onClick={handleDownloadDemoPdf}
+                  disabled={loadingTemplates && !demoTemplate}
+                >
+                  <Download className="h-3.5 w-3.5 text-acc" />
+                  Download tenant demo PDF
+                </GhostButton>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center justify-center rounded-panel border border-dashed border-acc/40 bg-card p-4 text-center sm:min-w-[240px]">
+              <input
+                ref={anyFileRef}
+                type="file"
+                accept=".docx,.pdf,.doc,.xlsx,.csv,.txt,.md"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) handleFileUpload(f, 'any')
+                }}
+              />
+              <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accsoft text-acc">
+                {parsing ? <Loader2 className="h-5 w-5 animate-spin" /> : <FolderUp className="h-5 w-5" />}
+              </div>
+              <p className="text-xs font-medium text-tx">
+                {parsing ? 'Extracting…' : 'Upload filled demo or your PDF'}
+              </p>
+              <PrimaryButton
+                className="mt-2 px-2.5 py-1.5 text-xs"
+                disabled={parsing}
+                onClick={() => anyFileRef.current?.click()}
+              >
+                {parsing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Upload &amp; stage
+              </PrimaryButton>
+            </div>
+          </div>
+        </div>
+
+        {stagedDraft && (
+          <OnboardingReviewModal
+            draft={stagedDraft}
+            onClose={() => setStagedDraft(null)}
+            onConfirm={handleConfirmPublish}
+            publishing={publishing}
+          />
+        )}
+      </>
+    )
+  }
+
   return (
     <>
       <div className="space-y-4">
         {/* Any document — primary path after onboarding */}
         {!kitOnly && (
-        <div
-          className={
-            ongoing
-              ? 'rounded-panel border border-acc/35 bg-accsoft/50 p-4 sm:p-5'
-              : 'rounded-panel border border-chipwebink/30 bg-chipwebbg/40 p-4 sm:p-5'
-          }
-        >
+        <div className="rounded-panel border border-acc/35 bg-accsoft/50 p-4 sm:p-5">
             <div className="flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
               <div className="flex-1 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span
-                    className={
-                      ongoing
-                        ? 'flex h-7 w-7 items-center justify-center rounded-md bg-accsoft text-acc'
-                        : 'flex h-7 w-7 items-center justify-center rounded-md bg-chipwebbg text-chipwebink'
-                    }
-                  >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accsoft text-acc">
                     <Files className="h-4 w-4" />
                   </span>
                   <h3 className="text-sm font-semibold text-tx">
-                    {ongoing ? 'Upload a new or revised PDF / document' : 'Option A — Any document'}
+                    Upload a new or revised PDF / document
                   </h3>
-                  <span
-                    className={
-                      ongoing
-                        ? 'inline-flex rounded-full border border-acc/40 bg-accsoft px-2 py-0.5 text-2xs font-medium text-acc'
-                        : 'inline-flex rounded-full border border-chipwebink/30 bg-chipwebbg px-2 py-0.5 text-2xs font-medium text-chipwebink'
-                    }
-                  >
-                    {ongoing ? 'Add or update after onboarding' : 'Universal extract'}
+                  <span className="inline-flex rounded-full border border-acc/40 bg-accsoft px-2 py-0.5 text-2xs font-medium text-acc">
+                    Add or update after onboarding
                   </span>
                 </div>
                 <p className="max-w-xl text-xs leading-relaxed text-txmuted">
-                  {ongoing
-                    ? 'Upload another brochure, price list, FAQ sheet, or company document anytime. If a document changes, re-upload the revised file with the same filename. We extract its latest offerings, FAQs and knowledge, then let you review everything before publishing.'
-                    : 'Website scrape, PDF, Word, Markdown, or CSV. Fills brand, menu, offerings, FAQs, intents and KB for this tenant — no kit template required.'}
+                  Upload another brochure, price list, FAQ sheet, or company document anytime. If a
+                  document changes, re-upload the revised file with the same filename. We extract its
+                  latest offerings, FAQs and knowledge, then let you review everything before publishing.
                 </p>
-                {ongoing && (
-                  <div className="max-w-xl rounded-lg border border-line bg-card/80 px-3 py-2 text-2xs leading-relaxed text-txmuted">
-                    <strong className="font-semibold text-tx">How re-uploads work:</strong>{' '}
-                    matching offerings are updated, new items are added, and FAQ/knowledge extracted
-                    from the same filename is refreshed. FAQ/knowledge from other files stays in place.
-                  </div>
-                )}
+                <div className="max-w-xl rounded-lg border border-line bg-card/80 px-3 py-2 text-2xs leading-relaxed text-txmuted">
+                  <strong className="font-semibold text-tx">How re-uploads work:</strong>{' '}
+                  matching offerings are updated, new items are added, and FAQ/knowledge extracted
+                  from the same filename is refreshed. FAQ/knowledge from other files stays in place.
+                </div>
               </div>
-              <div
-                className={
-                  ongoing
-                    ? 'flex flex-col items-center justify-center rounded-panel border border-dashed border-acc/45 bg-card p-4 text-center sm:min-w-[240px]'
-                    : 'flex flex-col items-center justify-center rounded-panel border border-dashed border-chipwebink/40 bg-chipwebbg/40 p-4 text-center sm:min-w-[240px]'
-                }
-              >
+              <div className="flex flex-col items-center justify-center rounded-panel border border-dashed border-acc/45 bg-card p-4 text-center sm:min-w-[240px]">
                 <input
                   ref={anyFileRef}
                   type="file"
@@ -252,13 +337,7 @@ export function OnboardingKitWidget({
                     if (f) handleFileUpload(f, 'any')
                   }}
                 />
-                <div
-                  className={
-                    ongoing
-                      ? 'mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accsoft text-acc'
-                      : 'mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-chipwebbg text-chipwebink'
-                  }
-                >
+                <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accsoft text-acc">
                   {parsing && parsingLane === 'any' ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
                   ) : (
@@ -266,11 +345,7 @@ export function OnboardingKitWidget({
                   )}
                 </div>
                 <p className="text-xs font-medium text-tx">
-                  {parsing && parsingLane === 'any'
-                    ? 'Extracting…'
-                    : ongoing
-                      ? 'New or revised PDF / Word / Excel'
-                      : 'Upload any company file'}
+                  {parsing && parsingLane === 'any' ? 'Extracting…' : 'New or revised PDF / Word / Excel'}
                 </p>
                 <PrimaryButton
                   className="mt-2 px-2.5 py-1.5 text-xs"
@@ -280,21 +355,15 @@ export function OnboardingKitWidget({
                   {parsing && parsingLane === 'any' && (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   )}
-                  {ongoing ? 'Upload / re-upload & review' : 'Upload & stage'}
+                  Upload / re-upload &amp; review
                 </PrimaryButton>
               </div>
             </div>
         </div>
         )}
 
-        {/* Pre-defined formatted industry kit */}
-        <div
-          className={
-            ongoing
-              ? 'rounded-panel border border-line bg-card p-4 sm:p-5'
-              : 'rounded-panel border border-acc/30 bg-accsoft/40 p-4 sm:p-5'
-          }
-        >
+        {/* Pre-defined formatted industry kit (Knowledge / kitOnly) */}
+        <div className="rounded-panel border border-line bg-card p-4 sm:p-5">
             <div className="flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
               <div className="flex-1 space-y-2">
                 <div className="flex items-center gap-2">
@@ -302,11 +371,7 @@ export function OnboardingKitWidget({
                     <Sparkles className="h-4 w-4" />
                   </span>
                   <h3 className="text-sm font-semibold text-tx">
-                    {kitOnly
-                      ? 'Pre-defined formatted PDF / Word kit'
-                      : ongoing
-                        ? 'Or use a filled industry kit'
-                        : 'Option B — Filled industry kit'}
+                    {kitOnly ? 'Pre-defined formatted PDF / Word kit' : 'Or use a filled industry kit'}
                   </h3>
                   <span className="inline-flex rounded-full border border-acc/40 bg-accsoft px-2 py-0.5 text-2xs font-medium text-acc">
                     Structured sections

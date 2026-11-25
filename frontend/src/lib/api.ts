@@ -1,10 +1,10 @@
 /**
  * Single fetch wrapper for the whole app.
  *
- * After login, every API call passes the live admin session_id as:
- *   - Authorization: Basic base64(username:session_id)
- *   - X-Username / X-Session-Id headers
- *   - session_id field on JSON request bodies
+ * Login uses ``username`` + ``session_id`` only.
+ * After login, every API call passes the live admin session as:
+ *   - headers ``user_id`` + ``session_id`` (admins.id, e.g. 3047)
+ *   - the same fields on JSON / multipart bodies
  *
  * Every non-2xx response is normalised into an `ApiError` carrying the
  * server's `detail`, so screens can surface backend validation text.
@@ -13,6 +13,7 @@
 import { captureClientError } from './client-errors'
 
 const TOKEN_KEY = 'tenant-console.token'
+const USER_ID_KEY = 'tenant-console.user_id'
 const USERNAME_KEY = 'tenant-console.username'
 const SESSION_KEY = 'tenant-console.session_id'
 const TENANT_KEY = 'tenant-console.tenant'
@@ -98,6 +99,15 @@ export function getToken(): string | null {
   }
 }
 
+export function getUserId(): string | null {
+  try {
+    return localStorage.getItem(USER_ID_KEY)
+  } catch {
+    return null
+  }
+}
+
+/** Display / audit name only — not used for API auth after login. */
 export function getUsername(): string | null {
   try {
     return localStorage.getItem(USERNAME_KEY)
@@ -114,15 +124,25 @@ export function getSessionId(): string | null {
   }
 }
 
-/** Persist username + session_id and the Basic token derived from them. */
-export function setCredentials(username: string, sessionId: string) {
-  const user = username.trim()
+/**
+ * Persist session credentials. Prefer numeric ``userId`` (admins.id).
+ * ``username`` is optional display cache only.
+ */
+export function setCredentials(
+  userId: string | number,
+  sessionId: string,
+  username?: string | null,
+) {
+  const id = String(userId).trim()
   const session = sessionId.trim()
-  const token = btoa(`${user}:${session}`)
+  const token = btoa(`${id}:${session}`)
   try {
     localStorage.setItem(TOKEN_KEY, token)
-    localStorage.setItem(USERNAME_KEY, user)
+    localStorage.setItem(USER_ID_KEY, id)
     localStorage.setItem(SESSION_KEY, session)
+    if (username != null && String(username).trim()) {
+      localStorage.setItem(USERNAME_KEY, String(username).trim())
+    }
   } catch {
     /* private mode — the session simply does not persist */
   }
@@ -132,6 +152,7 @@ export function setToken(token: string | null) {
   try {
     if (!token) {
       localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USER_ID_KEY)
       localStorage.removeItem(USERNAME_KEY)
       localStorage.removeItem(SESSION_KEY)
       return
@@ -141,36 +162,43 @@ export function setToken(token: string | null) {
       const decoded = atob(token)
       const idx = decoded.indexOf(':')
       if (idx > 0) {
-        localStorage.setItem(USERNAME_KEY, decoded.slice(0, idx))
-        localStorage.setItem(SESSION_KEY, decoded.slice(idx + 1))
+        const left = decoded.slice(0, idx)
+        const right = decoded.slice(idx + 1)
+        localStorage.setItem(SESSION_KEY, right)
+        if (/^\d+$/.test(left)) {
+          localStorage.setItem(USER_ID_KEY, left)
+        } else {
+          // Legacy token username:session_id — keep username; user_id comes from /me later.
+          localStorage.setItem(USERNAME_KEY, left)
+        }
       }
     } catch {
-      /* keep whatever username/session keys already exist */
+      /* keep whatever keys already exist */
     }
   } catch {
     /* private mode — the session simply does not persist */
   }
 }
 
-/** Auth headers — lowercase username + session_id (no Authorization). */
+/** Auth headers — user_id + session_id (no Authorization). */
 export function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {}
-  const username = getUsername()
+  const userId = getUserId()
   const sessionId = getSessionId()
-  if (username) headers.username = username
+  if (userId) headers.user_id = userId
   if (sessionId) headers.session_id = sessionId
   return headers
 }
 
-/** Attach lowercase username + session_id on every JSON body. */
+/** Attach user_id + session_id on every JSON body (does not overwrite payload username). */
 function withSessionBody(body: unknown): unknown {
-  const username = getUsername()
+  const userId = getUserId()
   const sessionId = getSessionId()
-  if ((!username && !sessionId) || body === undefined || body === null) return body
+  if ((!userId && !sessionId) || body === undefined || body === null) return body
   if (typeof body === 'object' && !Array.isArray(body)) {
     return {
       ...(body as Record<string, unknown>),
-      ...(username ? { username } : {}),
+      ...(userId ? { user_id: userId } : {}),
       ...(sessionId ? { session_id: sessionId } : {}),
     }
   }
@@ -301,9 +329,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 export async function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
   const startedAt = timerNow()
   const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders() }
-  const username = getUsername()
+  const userId = getUserId()
   const sessionId = getSessionId()
-  if (username && !form.has('username')) form.append('username', username)
+  if (userId && !form.has('user_id')) form.append('user_id', userId)
   if (sessionId && !form.has('session_id')) form.append('session_id', sessionId)
 
   let res: Response

@@ -5,18 +5,17 @@ import os
 import sys
 import unittest
 
-from mongo_test_support import MongomockSession
-
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
-if BACKEND_DIR not in sys.path:
-    sys.path.insert(0, BACKEND_DIR)
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+for path in (BACKEND_DIR, PROJECT_ROOT, TESTS_DIR):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mongo_test_support import MongomockSession
 import database
 from core.send2_auth import encode_send2_username
 from db.mongo import Repository
@@ -33,14 +32,14 @@ class SessionCredentialTests(unittest.TestCase):
         self.app.include_router(auth_routes.router)
         self.client = TestClient(self.app, raise_server_exceptions=False)
         self.session = "root-session-secret"
-        database.create_admin(
+        self.root_id = database.create_admin(
             encode_send2_username("root"),
             role="super_admin",
             permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
             session_id=self.session,
             email="root@example.com",
         )
-        self.headers = {"username": "root", "session_id": self.session}
+        self.headers = {"user_id": str(self.root_id), "session_id": self.session}
 
     def tearDown(self):
         self.mongo.stop()
@@ -56,7 +55,7 @@ class SessionCredentialTests(unittest.TestCase):
         )
         unknown = self.client.post(
             "/api/auth/login",
-            json={"username": "nobody-xyz", "session_id": "not-the-session"},
+            json={"username": "nobody-here", "session_id": "not-the-session"},
         )
         self.assertEqual(wrong.status_code, 401)
         self.assertEqual(unknown.status_code, 401)
@@ -64,15 +63,13 @@ class SessionCredentialTests(unittest.TestCase):
         self.assertNotIn("user not found", wrong.text.lower())
         self.assertNotIn("not-the-session", wrong.text)
 
-    def test_base64_username_is_rejected(self):
-        encoded = encode_send2_username("root")
+    def test_user_id_login_is_rejected(self):
         res = self.client.post(
             "/api/auth/login",
-            json={"username": encoded, "session_id": self.session},
+            json={"user_id": self.root_id, "session_id": self.session},
         )
-        self.assertEqual(res.status_code, 401)
-        self.assertNotIn(self.session, res.text)
-        self.assertNotIn("user not found", res.text.lower())
+        self.assertEqual(res.status_code, 422)
+        self.assertNotIn("token", res.text.lower())
 
     def test_seeded_admin_can_login(self):
         res = self.client.post(
@@ -82,6 +79,7 @@ class SessionCredentialTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         body = res.json()
         self.assertEqual(body["username"], "root")
+        self.assertEqual(body["user_id"], self.root_id)
         self.assertEqual(body["session_id"], self.session)
         self.assertEqual(body["role"], "super_admin")
         self.assertIn("token", body)
@@ -93,8 +91,11 @@ class SessionCredentialTests(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(made.status_code, 200, made.text)
-        session_id = made.json()["session_id"]
+        payload = made.json()
+        session_id = payload["session_id"]
+        user_id = payload["user_id"] or payload["id"]
         self.assertTrue(session_id)
+        self.assertTrue(user_id)
         login = self.client.post(
             "/api/auth/login",
             json={"username": "helper", "session_id": session_id},
@@ -102,7 +103,7 @@ class SessionCredentialTests(unittest.TestCase):
         self.assertEqual(login.status_code, 200, login.text)
         me = self.client.get(
             "/api/auth/me",
-            headers={"username": "helper", "session_id": session_id},
+            headers={"user_id": str(user_id), "session_id": session_id},
         )
         self.assertEqual(me.status_code, 200, me.text)
         self.assertEqual(me.json()["username"], "helper")
@@ -114,6 +115,7 @@ class SessionCredentialTests(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(made.status_code, 200, made.text)
+        user_id = made.json()["user_id"] or made.json()["id"]
         old = made.json()["session_id"]
         regen = self.client.post(
             "/api/auth/admins/helper/regenerate-session",

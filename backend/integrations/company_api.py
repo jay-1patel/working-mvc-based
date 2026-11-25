@@ -21,14 +21,18 @@ import httpx
 logger = logging.getLogger("company_api")
 
 try:
-    from routing.config import SEND2_INCOMING_ENTRY_URL, SEND2_USERNAME, SEND2_PASSWORD
+    from routing.config import SEND2_INCOMING_ENTRY_URL
     _INCOMING_ENTRY_URL = SEND2_INCOMING_ENTRY_URL
-    _USER = SEND2_USERNAME
-    _PASS = SEND2_PASSWORD
 except Exception:
     _INCOMING_ENTRY_URL = None
-    _USER = None
-    _PASS = None
+
+
+def _send2_login(tenant_id=None):
+    try:
+        from services.credential_vault import resolve_send2_username_password
+    except ImportError:
+        from backend.services.credential_vault import resolve_send2_username_password
+    return resolve_send2_username_password(tenant_id)
 
 
 def _map_msg_type(msg_type):
@@ -58,9 +62,14 @@ async def log_message(wa_id, content, msg_type="text", direction="incoming"):
         logger.debug("AI_chatbot_API_incomingentry URL not configured - skip log")
         return True
 
+    try:
+        username, password = _send2_login()
+    except Exception as exc:
+        logger.warning("INCOMING_ENTRY_SKIPPED | to=%s | error=%s", wa_id, type(exc).__name__)
+        return False
     payload = {
-        "username": _USER,
-        "password": _PASS,
+        "username": username,
+        "password": password,
         "number": wa_id,
         "msg_type": _map_msg_type(msg_type),
         "msg": content or "",

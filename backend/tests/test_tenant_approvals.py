@@ -31,8 +31,8 @@ from routes import tenants as tenants_routes
 from shared.tenancy import store as tenancy_store
 
 
-def _headers(username: str, session_id: str) -> dict:
-    return {"username": username, "session_id": session_id}
+def _headers(user_id: int | str, session_id: str) -> dict:
+    return {"user_id": str(user_id), "session_id": session_id}
 
 
 class TenantApprovalTests(unittest.TestCase):
@@ -53,13 +53,13 @@ class TenantApprovalTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
         self.root_session = "root-session"
-        database.create_admin(
+        root_id = database.create_admin(
             encode_send2_username("root"),
             role="super_admin",
             permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
             session_id=self.root_session,
         )
-        self.root = _headers("root", self.root_session)
+        self.root = _headers(root_id, self.root_session)
 
     def tearDown(self):
         self.mongo.stop()
@@ -85,7 +85,8 @@ class TenantApprovalTests(unittest.TestCase):
             headers=headers,
         )
         assert res.status_code == 200, res.text
-        return _headers(username, res.json()["session_id"])
+        payload = res.json()
+        return _headers(payload["user_id"] or payload["id"], payload["session_id"])
 
     def _submit_create(self, headers, tenant_id="acme", **extra):
         return self.client.post(
@@ -194,6 +195,58 @@ class TenantApprovalTests(unittest.TestCase):
         )
         self.assertEqual(direct_pub.status_code, 403)
         self.assertEqual(self._current_version("acme"), 1)
+
+    def test_menu_only_publish_also_requires_super_admin_approval(self):
+        """Menu / intent edits used to go live immediately; they must queue now."""
+        admin = self._create_admin("menu-admin")
+        self.client.post(
+            "/api/admin/tenants",
+            json={
+                "tenant_id": "acme",
+                "vertical": "generic",
+                "mobile_number": "919800000041",
+                "auto_scrape": False,
+            },
+            headers=self.root,
+        )
+        # Seed a live baseline so a menu-only diff is possible.
+        tenancy_store.save_draft(
+            "acme",
+            {
+                "brand": {
+                    "support_email": "care@acme.example",
+                    "support_phone": "+91 98765 43210",
+                },
+                "menu": {"buttons": [{"id": "help", "title": "Help"}]},
+            },
+        )
+        # Super admin cannot publish via API; bootstrap live version via store.
+        tenancy_store.publish_version(
+            "acme",
+            tenancy_store.get_draft("acme"),
+            published_by="root",
+        )
+        self.assertEqual(self._current_version("acme"), 1)
+
+        tenancy_store.save_draft(
+            "acme",
+            {
+                "brand": {
+                    "support_email": "care@acme.example",
+                    "support_phone": "+91 98765 43210",
+                },
+                "menu": {"buttons": [{"id": "help", "title": "Get help"}]},
+            },
+        )
+        res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertEqual(body["status"], "pending_approval")
+        self.assertEqual(self._current_version("acme"), 1)
+
+        approved = self._decide(body["request"]["id"], "approved", "Menu ok")
+        self.assertEqual(approved.status_code, 200, approved.text)
+        self.assertEqual(self._current_version("acme"), 2)
 
     # ── contact-detail validation ───────────────────────────────
 

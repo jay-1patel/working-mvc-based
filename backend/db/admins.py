@@ -33,7 +33,7 @@ def count_admins() -> int:
 
 def create_admin(username: str, password_hash: str = "", salt: str = "", role: str = "sub_admin",
                  permissions: dict = None, recovery_key: str = None, tenant_id: str = None,
-                 session_id: str = None, email: str = None) -> int:
+                 session_id: str = None, email: str = None, krt_unique_id: str = None) -> int:
     if use_mongodb():
         from .mongo import Repository
         row = Repository("admins").insert({
@@ -46,6 +46,7 @@ def create_admin(username: str, password_hash: str = "", salt: str = "", role: s
             "tenant_id": tenant_id,
             "session_id": session_id,
             "email": email,
+            "krt_unique_id": krt_unique_id,
         })
         return int(row["id"])
     with get_db_context() as conn:
@@ -95,7 +96,7 @@ def update_admin(username: str, **kwargs) -> bool:
     """Update an admin row. Prefer ``admin_id=`` when the caller has it — username
     encoding mismatches otherwise look like a successful write that never landed.
     """
-    allowed = {"password_hash", "salt", "role", "permissions", "recovery_key", "session_id"}
+    allowed = {"password_hash", "salt", "role", "permissions", "recovery_key", "session_id", "krt_unique_id"}
     admin_id = kwargs.pop("admin_id", None)
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:

@@ -36,7 +36,7 @@ class AuditHistoryTests(unittest.TestCase):
         self.mongo = MongomockSession().start()
         database.init_db()
         self.staff_session = "staff-live-session"
-        Repository("admins").insert(
+        staff_row = Repository("admins").insert(
             {
                 "username": encode_send2_username("staff"),
                 "role": "sub_admin",
@@ -45,6 +45,7 @@ class AuditHistoryTests(unittest.TestCase):
                 "session_id": self.staff_session,
             }
         )
+        self.staff_id = int(staff_row["id"])
 
         self.current_admin = {"id": 1, "username": "root", "role": "super_admin", "tenant_id": None}
         app = FastAPI()
@@ -177,7 +178,7 @@ class AuditHistoryTests(unittest.TestCase):
         )
         self.assertNotEqual(again.status_code, 200)
 
-        database.create_admin(
+        root_id = database.create_admin(
             encode_send2_username("root"),
             role="super_admin",
             permissions=dict(auth.SUPER_ADMIN_PERMISSIONS),
@@ -186,7 +187,7 @@ class AuditHistoryTests(unittest.TestCase):
         created = self.client.post(
             "/api/auth/create",
             json={"username": "bootstrap", "role": "admin", "email": "root@example.test"},
-            headers={"username": "root", "session_id": "root-session"},
+            headers={"user_id": str(root_id), "session_id": "root-session"},
         )
         # The dependency override authenticates as the seeded super admin.
         self.assertEqual(created.status_code, 200, created.text)

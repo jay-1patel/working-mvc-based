@@ -11,7 +11,7 @@ import {
   api,
   authHeaders,
   getSessionId,
-  getUsername,
+  getUserId,
   ApiError,
   apiCallStart,
   apiUrl,
@@ -446,7 +446,7 @@ export const uploadsApi = {
         },
         body: JSON.stringify({
           filename,
-          ...(getUsername() ? { username: getUsername() } : {}),
+          ...(getUserId() ? { user_id: getUserId() } : {}),
           ...(getSessionId() ? { session_id: getSessionId() } : {}),
         }),
       })
@@ -488,6 +488,38 @@ export const onboardingKitsApi = {
   list: (signal?: AbortSignal) =>
     api.post<{ templates: OnboardingTemplate[] }>('/api/admin/onboarding-kits/list', {}, { signal }),
 
+  /** Authenticated download — window.open would 401 (no username/session headers). */
+  downloadKit: async (vertical: string, format: 'pdf' | 'docx') => {
+    const slug = (vertical || 'generic').trim() || 'generic'
+    const path = `/api/admin/onboarding-kits/${encodeURIComponent(slug)}/${format}`
+    const startedAt = apiCallStart()
+    let res: Response
+    try {
+      res = await fetch(apiUrl(path), {
+        method: 'GET',
+        headers: { Accept: 'application/pdf,application/octet-stream,*/*', ...authHeaders() },
+      })
+    } catch {
+      const detail = 'Cannot reach the backend to download the demo PDF.'
+      logApiError('GET', path, 0, detail, startedAt)
+      throw new ApiError(0, detail)
+    }
+    if (!res.ok) {
+      let detail = `Download failed (HTTP ${res.status})`
+      try {
+        const body = await res.json()
+        if (body?.detail) detail = String(body.detail)
+      } catch {
+        /* ignore */
+      }
+      logApiError('GET', path, res.status, detail, startedAt)
+      throw new ApiError(res.status, detail)
+    }
+    const blob = await res.blob()
+    logApiCall('GET', path, res.status, startedAt)
+    saveBlob(blob, `${slug}_onboarding_kit.${format}`)
+  },
+
   stageGlobal: async (file: File, lane: 'any' | 'kit' = 'any') => {
     assertValidUploadFile(file)
     const content = await readAsBase64(file)
@@ -521,9 +553,9 @@ export const onboardingKitsApi = {
 export async function uploadRecordImage(tenantId: string, file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file)
-  const username = getUsername()
+  const userId = getUserId()
   const sessionId = getSessionId()
-  if (username) form.append('username', username)
+  if (userId) form.append('user_id', userId)
   if (sessionId) form.append('session_id', sessionId)
   const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders() }
 

@@ -774,21 +774,9 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       'Escalate safety cases (brake failure, fire, steering) to a human',
       'Detect repeat complaints and topic surges across customers',
     ],
-    questions: [
-      {
-        key: 'models',
-        label: 'Models you support',
-        kind: 'chips',
-        suggestions: ['City', 'Amaze', 'Jazz', 'Elevate', 'WR-V', 'Civic'],
-      },
-      {
-        key: 'safety_rule',
-        label: 'Safety escalation rule',
-        kind: 'textarea',
-        placeholder: 'Brake failure, fire, smoke, steering loss → immediate human handover.',
-        required: true,
-      },
-    ],
+    // Models come from Offerings / brochure uploads; safety handoff is AI-driven
+    // from the customer message + intelligence defaults (no manual rule text).
+    questions: [],
   },
   {
     id: 'generic',

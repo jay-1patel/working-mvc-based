@@ -33,6 +33,40 @@ def _chat_belongs_tenant(row: dict, tenant_id: str, legacy_wa: Optional[set[str]
     return False
 
 
+def _chat_history_for_tenant_mongo(
+    tenant_id: str,
+    *,
+    sort=None,
+    limit=None,
+    extra: Optional[dict] = None,
+) -> tuple[list[dict], set[str]]:
+    """Load chat_history for one tenant — never scan the whole collection."""
+    from .mongo import Repository
+
+    legacy_wa = _state_wa_ids_mongo(tenant_id)
+    repo = Repository("chat_history")
+    eq_extra: dict[str, Any] = {}
+    op_extra: dict[str, Any] = {}
+    for key, value in (extra or {}).items():
+        if isinstance(value, dict) and any(str(op).startswith("$") for op in value):
+            op_extra[key] = value
+        else:
+            eq_extra[key] = value
+    flt: dict[str, Any] = {"tenant_id": str(tenant_id), **eq_extra, **op_extra}
+    rows = list(repo.find_all(flt, sort=sort, limit=limit))
+    seen = {r.get("id") for r in rows}
+    if legacy_wa:
+        legacy_flt: dict[str, Any] = {"wa_id": {"$in": list(legacy_wa)}, **eq_extra, **op_extra}
+        for row in repo.find_all(legacy_flt, sort=sort, limit=limit):
+            if row.get("id") in seen:
+                continue
+            if not _chat_belongs_tenant(row, tenant_id, legacy_wa):
+                continue
+            rows.append(row)
+            seen.add(row.get("id"))
+    return rows, legacy_wa
+
+
 def list_tenant_conversations(
     *,
     tenant_id: str,
@@ -42,11 +76,7 @@ def list_tenant_conversations(
     if use_mongodb():
         from .mongo import Repository
 
-        legacy_wa = _state_wa_ids_mongo(tenant_id)
-        rows = [
-            r for r in Repository("chat_history").find_all({})
-            if _chat_belongs_tenant(r, tenant_id, legacy_wa)
-        ]
+        rows, _legacy_wa = _chat_history_for_tenant_mongo(tenant_id)
         if search:
             needle = search.lower()
             rows = [
@@ -177,19 +207,20 @@ def tenant_chat_history(
     limit: int,
 ) -> dict:
     if use_mongodb():
-        from .mongo import Repository
-
-        legacy_wa = _state_wa_ids_mongo(tenant_id)
-        rows = Repository("chat_history").find_all({}, sort=[("created_at", -1), ("id", -1)])
-        cutoff = (datetime.utcnow().replace(microsecond=0)).isoformat()
-        # naive days filter via string compare on SQLite-style timestamps
         from datetime import timedelta
 
         min_ts = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        extra: dict[str, Any] = {"created_at": {"$gte": min_ts}}
+        if wa_id:
+            extra["wa_id"] = wa_id
+        rows, _legacy_wa = _chat_history_for_tenant_mongo(
+            tenant_id,
+            sort=[("created_at", -1), ("id", -1)],
+            limit=max(limit * 3, limit),
+            extra=extra,
+        )
         out = []
         for row in rows:
-            if not _chat_belongs_tenant(row, tenant_id, legacy_wa):
-                continue
             if str(row.get("created_at") or "") < min_ts:
                 continue
             if wa_id and str(row.get("wa_id") or "") != wa_id:
@@ -234,11 +265,7 @@ def tenant_inbox_queue(tenant_id: str, include_resolved: bool = False) -> dict:
     if use_mongodb():
         from .mongo import Repository
 
-        legacy_wa = _state_wa_ids_mongo(tenant_id)
-        chats = [
-            r for r in Repository("chat_history").find_all({})
-            if _chat_belongs_tenant(r, tenant_id, legacy_wa)
-        ]
+        chats, _legacy_wa = _chat_history_for_tenant_mongo(tenant_id)
         states = {
             str(r.get("wa_id")): r
             for r in Repository("user_states").find_all({"tenant_id": tenant_id})

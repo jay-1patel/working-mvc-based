@@ -75,10 +75,9 @@ RESOLVED_MESSAGE = (
 def resolve_handoff(wa_id: str, current_admin: dict = Depends(get_current_admin)):
     set_human_handover(wa_id, active=False)
     try:
-        from routing.config import SEND2_USERNAME, SEND2_PASSWORD
-        if SEND2_USERNAME and SEND2_PASSWORD:
-            from routing.whatsapp import send_whatsapp_message
-            send_whatsapp_message(wa_id, RESOLVED_MESSAGE)
+        from routing.whatsapp import send_whatsapp_message
+        from routes.auth import scoped_tenant_id
+        send_whatsapp_message(wa_id, RESOLVED_MESSAGE, tenant_id=scoped_tenant_id(current_admin))
     except Exception as e:
         logger.warning("Could not send resolve message to %s: %s", wa_id, e)
     logger.info("RESOLVED | %s | handoff cleared by admin", wa_id)

@@ -44,8 +44,8 @@ from services.auto_bifurcator import AutoBifurcator
 from shared.tenancy import store as tenancy_store
 
 
-def _headers(username: str, session_id: str) -> dict:
-    return {"username": username, "session_id": session_id}
+def _headers(user_id: int | str, session_id: str) -> dict:
+    return {"user_id": str(user_id), "session_id": session_id}
 
 STAGED = {
     "status": "staged",
@@ -96,13 +96,13 @@ class AdminOnboardingTests(unittest.TestCase):
         self.client = TestClient(self.app, raise_server_exceptions=False)
 
         self.root_session = "root-session"
-        database.create_admin(
+        root_id = database.create_admin(
             encode_send2_username("root"),
             role="super_admin",
             permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
             session_id=self.root_session,
         )
-        self.root = _headers("root", self.root_session)
+        self.root = _headers(root_id, self.root_session)
 
         created = self.client.post(
             "/api/admin/tenants",
@@ -138,7 +138,8 @@ class AdminOnboardingTests(unittest.TestCase):
             headers=self.root,
         )
         assert res.status_code == 200, res.text
-        return _headers(username, res.json()["session_id"])
+        payload = res.json()
+        return _headers(payload["user_id"] or payload["id"], payload["session_id"])
 
     # ── lock rule: no tenant_id → first-login incomplete ───────────────
 

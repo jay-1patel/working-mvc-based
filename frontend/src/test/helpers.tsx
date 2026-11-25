@@ -9,8 +9,8 @@ export function renderWithShell() {
 
 export function renderApp(hash = '#/tenants') {
   window.location.hash = hash
-  // Username + session_id auth — a bare opaque token no longer authenticates.
-  setCredentials('root', 'test-session')
+  // user_id + session_id auth — a bare opaque token no longer authenticates.
+  setCredentials(1, 'test-session', 'root')
   const utils = render(<App />)
   return utils
 }

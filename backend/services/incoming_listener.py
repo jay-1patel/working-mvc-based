@@ -21,11 +21,17 @@ from datetime import datetime, timedelta
 import httpx
 
 from routing.config import (
-    SEND2_USERNAME,
-    SEND2_PASSWORD,
     SEND2_INCOMING_URL,
     SEND2_NUMBER,
 )
+
+
+def _send2_login(tenant_id: str = None):
+    try:
+        from services.credential_vault import resolve_send2_username_password
+    except ImportError:
+        from backend.services.credential_vault import resolve_send2_username_password
+    return resolve_send2_username_password(tenant_id)
 from routing.whatsapp import (
     send_whatsapp_message,
     send_whatsapp_interactive,
@@ -405,8 +411,13 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
         logger.error("SEND2_INCOMING_URL not set — listener cannot start")
         return
 
-    if not SEND2_USERNAME or not SEND2_PASSWORD:
-        logger.error("SEND2_USERNAME or SEND2_PASSWORD not set — listener cannot start")
+    try:
+        _send2_login()
+    except Exception as exc:
+        logger.error(
+            "Send2 credentials unavailable — listener cannot start (%s)",
+            type(exc).__name__,
+        )
         return
 
     logger.info(
@@ -428,9 +439,10 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
             from_date = (now - timedelta(minutes=POLL_WINDOW_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
             to_date = now.strftime("%Y-%m-%d %H:%M:%S")
 
+            username, password = _send2_login()
             payload = {
-                "user_name": SEND2_USERNAME,
-                "password": SEND2_PASSWORD,
+                "user_name": username,
+                "password": password,
                 "from_date": from_date,
                 "to_date": to_date,
             }

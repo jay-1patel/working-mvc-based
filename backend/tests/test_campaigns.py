@@ -54,13 +54,13 @@ class CampaignTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
         root_session = "root-session"
-        database.create_admin(
+        root_id = database.create_admin(
             encode_send2_username("root"),
             role="super_admin",
             permissions=dict(auth_routes.SUPER_ADMIN_PERMISSIONS),
             session_id=root_session,
         )
-        super_headers = {"username": "root", "session_id": root_session}
+        super_headers = {"user_id": str(root_id), "session_id": root_session}
         # Super admins are view-only inside a tenant. Campaign writes belong
         # to the tenant's own admin.
         created = self.client.post(
@@ -86,9 +86,10 @@ class CampaignTests(unittest.TestCase):
             headers=super_headers,
         )
         assert made.status_code == 200, made.text
+        payload = made.json()
         self.headers = {
-            "username": "acme-admin",
-            "session_id": made.json()["session_id"],
+            "user_id": str(payload["user_id"] or payload["id"]),
+            "session_id": payload["session_id"],
         }
 
         # One approved template.

@@ -118,12 +118,7 @@ async function main() {
   await shot('onboarding-05-notifications.png')
   await page.getByRole('button', { name: /Continue/i }).click()
 
-  // 6 Guardrails
-  await page.waitForTimeout(400)
-  await shot('onboarding-06-guardrails.png')
-  await page.getByRole('button', { name: /Continue/i }).click()
-
-  // 7 Review
+  // 6 Review (guardrails step removed — defaults applied at publish)
   await page.waitForTimeout(400)
   await shot('onboarding-07-review.png')
 

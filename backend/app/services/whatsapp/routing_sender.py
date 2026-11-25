@@ -186,35 +186,34 @@ def send_whatsapp_typing(to: str, tenant_id: str = None) -> bool:
 
 
 def get_tenant_send2_credentials(tenant_id: str = None) -> tuple:
-    """Retrieve Send2 username/password for the given tenant, or fall back to default env."""
-    tid = tenant_id
-    if not tid:
-        try:
-            from routing.database import get_request_tenant
-            tid = get_request_tenant()
-        except Exception:
-            # deliberate: fall back to the default (env) credentials when
-            # no request tenant can be determined.
-            logger.debug("SEND2_TENANT_LOOKUP_FALLBACK | no request tenant — using env credentials", exc_info=True)
+    """Retrieve Send2 username/password for the given tenant from the vault.
 
-    if tid:
-        try:
-            import json
-            from db.integrations_ops import list_tenant_integrations
-            for row in list_tenant_integrations(tid):
-                prov = str(row.get("provider") or "").lower()
-                if prov not in ("send2", "whatsapp"):
-                    continue
-                raw = row.get("credentials_json") or row.get("credentials") or {}
-                creds = raw if isinstance(raw, dict) else json.loads(raw or "{}")
-                u = creds.get("username") or creds.get("send2_username") or creds.get("user_name")
-                p = creds.get("password") or creds.get("send2_password")
-                if u and p:
-                    return str(u), str(p)
-        except Exception as e:
-            logger.debug(f"Could not load custom credentials for tenant {tid}: {e}")
-
-    return SEND2_USERNAME, SEND2_PASSWORD
+    Prefers the encrypted per-tenant vault. The legacy global
+    SEND2_USERNAME / SEND2_PASSWORD pair is used only when
+    SEND2_VAULT_FALLBACK=true and the tenant has no vault record.
+    Decryption failures raise — never send garbage credentials to Send2.
+    """
+    try:
+        from services.credential_vault import (
+            CredentialVaultError,
+            resolve_send2_username_password,
+        )
+    except ImportError:
+        from backend.services.credential_vault import (
+            CredentialVaultError,
+            resolve_send2_username_password,
+        )
+    try:
+        return resolve_send2_username_password(tenant_id)
+    except CredentialVaultError:
+        raise
+    except Exception as exc:
+        logger.error(
+            "SEND2_CREDENTIAL_RESOLVE_FAILED | tenant=%s | error=%s",
+            tenant_id,
+            type(exc).__name__,
+        )
+        raise
 
 
 def _chunk_text(text: str, limit: int = 4000) -> list:

@@ -108,8 +108,13 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   )
 
   // Waiting-for-a-human count for the Chats badge. Polled gently; the
-  // inbox screen itself polls faster once open.
-  const canSeeInbox = tenantScoped && can('view_inbox')
+  // inbox screen itself polls faster once open. Skip during first-login
+  // lock — session has no tenant_id yet, so inbox returns 403.
+  const canSeeInbox =
+    !locked &&
+    tenantScoped &&
+    can('view_inbox') &&
+    Boolean(identity?.tenant_id || isSuperAdmin || impersonating)
   const [waitingChats, setWaitingChats] = useState(0)
   useEffect(() => {
     if (!canSeeInbox || !route.tenantId) {

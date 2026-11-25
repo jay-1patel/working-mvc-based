@@ -22,13 +22,12 @@ def _wa_set_from_tables(tables: tuple[str, ...], tenant_id: Optional[str] = None
         wa_ids: set[str] = set()
         flt = {"tenant_id": tenant_id} if tenant_id else {}
         for table in tables:
-            for row in Repository(table).find_all(flt if flt else {}):
-                wa = str(row.get("wa_id") or "").strip()
-                if wa:
-                    if tenant_id and table != "customers" and row.get("tenant_id") not in (None, "", tenant_id):
-                        if str(row.get("tenant_id") or "") != str(tenant_id):
-                            continue
-                    wa_ids.add(wa)
+            # distinct avoids pulling every chat/order row into Python
+            values = Repository(table).collection.distinct("wa_id", flt if flt else {})
+            for wa in values:
+                text = str(wa or "").strip()
+                if text:
+                    wa_ids.add(text)
         return wa_ids
     conn = get_db()
     try:
@@ -347,19 +346,63 @@ def list_global_customers(*, q: str = "", limit: int = 200) -> dict:
 
 def list_tenant_customers(*, tenant_id: str, q: str = "", limit: int = 200) -> dict:
     tables = ("orders", "complaints", "chat_history", "user_states", "customers")
-    wa_ids = sorted(_wa_set_from_tables(tables, tenant_id=tenant_id))
     needle = q.strip().lower()
+    limit = max(1, min(int(limit or 200), 500))
     customers = []
     if use_mongodb():
-        for wa_id in wa_ids:
-            row = build_tenant_customer(wa_id, tenant_id)
-            if needle and not any(
-                needle in str(value or "").lower()
-                for value in (wa_id, row.get("name"), row.get("mobile"))
-            ):
-                continue
-            customers.append(row)
+        from .mongo import Repository
+
+        # Prefer the customers collection (indexed by tenant) before N+1 aggregates.
+        seeded = list(
+            Repository("customers").find_all(
+                {"tenant_id": tenant_id},
+                sort=[("last_seen", -1), ("first_seen", -1)],
+                limit=limit * 3 if needle else limit,
+            )
+        )
+        if seeded:
+            for cust in seeded:
+                wa_id = str(cust.get("wa_id") or "").strip()
+                if not wa_id:
+                    continue
+                row = {
+                    "wa_id": wa_id,
+                    "name": cust.get("name") or wa_id,
+                    "mobile": cust.get("phone") or None,
+                    "email": cust.get("email") or None,
+                    "city": cust.get("city") or None,
+                    "state": cust.get("state") or None,
+                    "company": cust.get("company") or None,
+                    "language": cust.get("language") or None,
+                    "message_count": cust.get("message_count") or 0,
+                    "first_seen": cust.get("first_seen") or None,
+                    "last_active": cust.get("last_seen") or cust.get("first_seen") or None,
+                    "total_orders": 0,
+                    "total_complaints": 0,
+                    "open_complaints": 0,
+                    "total_spent": 0.0,
+                }
+                if needle and not any(
+                    needle in str(value or "").lower()
+                    for value in (wa_id, row.get("name"), row.get("mobile"))
+                ):
+                    continue
+                customers.append(row)
+                if len(customers) >= limit:
+                    break
+        else:
+            wa_ids = sorted(_wa_set_from_tables(tables, tenant_id=tenant_id))
+            # Hard cap builds — full per-wa_id aggregates are what made /customers take minutes.
+            for wa_id in wa_ids[: max(limit * 2, limit)]:
+                row = build_tenant_customer(wa_id, tenant_id)
+                if needle and not any(
+                    needle in str(value or "").lower()
+                    for value in (wa_id, row.get("name"), row.get("mobile"))
+                ):
+                    continue
+                customers.append(row)
     else:
+        wa_ids = sorted(_wa_set_from_tables(tables, tenant_id=tenant_id))
         conn = get_db()
         try:
             for wa_id in wa_ids:

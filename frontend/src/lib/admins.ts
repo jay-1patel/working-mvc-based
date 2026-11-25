@@ -22,6 +22,8 @@ export interface OnboardingUser {
 
 export interface ImpersonateResult {
   status: string
+  id?: number | null
+  user_id?: number | null
   username: string
   session_id: string
   token: string
@@ -55,8 +57,8 @@ export const adminsApi = {
       .then((r) => r.users),
 
   impersonate: (username: string) =>
-    // Path param — not body `username` — because every panel POST injects the
-    // caller's own username into the JSON body for session auth.
+    // Path param — not body `username` — so the target name is not confused
+    // with session auth (auth now uses user_id + session_id on the body).
     api.post<ImpersonateResult>(
       `/api/auth/impersonate/${encodeURIComponent(username)}`,
       {},

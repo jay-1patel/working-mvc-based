@@ -35,6 +35,15 @@ WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
 SEND2_USERNAME = os.getenv("SEND2_USERNAME")
 SEND2_PASSWORD = os.getenv("SEND2_PASSWORD")
 SEND2_NUMBER = os.getenv("SEND2_NUMBER")
+# Per-tenant Send2 credentials live in the encrypted vault. The global
+# SEND2_USERNAME / SEND2_PASSWORD pair is only used when this switch is on
+# AND the tenant has no vault record.
+SEND2_VAULT_FALLBACK = (os.getenv("SEND2_VAULT_FALLBACK") or "").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+SEND2_CREDENTIALS_API_URL = os.getenv("SEND2_CREDENTIALS_API_URL")
+SEND2_CREDENTIALS_API_KEY = os.getenv("SEND2_CREDENTIALS_API_KEY")
+SEND2_CREDENTIALS_API_SECRET = os.getenv("SEND2_CREDENTIALS_API_SECRET")
 SEND2_SESSION_MSG_URL = os.getenv("SEND2_SESSION_MSG_URL")
 # Inbound-logging endpoint (AI_chatbot_API_incomingentry): records an incoming
 # message on send2's side. Used by integrations/company_api.py — NOT for sends.

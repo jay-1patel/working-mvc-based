@@ -9,11 +9,11 @@ import {
   Loader2,
   MessageSquareText,
   Rocket,
-  ShieldAlert,
   Sparkles,
   Webhook,
 } from 'lucide-react'
 import {
+  applyStagedToDraft,
   applyVertical,
   draftToSnapshot,
   EMAIL_RE,
@@ -32,6 +32,7 @@ import { adminsApi } from '@/lib/admins'
 import { useTenants } from '@/lib/tenants'
 import { navigate } from '@/lib/router'
 import { VERTICAL_CATALOG, getVertical } from '@/lib/verticals'
+import { onboardingKitsApi } from '@/lib/uploads'
 import {
   Card,
   ErrorBanner,
@@ -48,6 +49,7 @@ import {
 import { VerticalGlyph } from '@/components/vertical-icon'
 import { PageHeader } from '@/components/layout/page-header'
 import { useToast } from '@/components/ui/toast'
+import { OnboardingKitWidget } from '@/components/onboarding/onboarding-kit-widget'
 
 const DAYS = [
   { value: 1, label: 'Mon' },
@@ -69,7 +71,6 @@ const ADMIN_STEPS = [
   { id: 'brand', label: 'Brand & voice' },
   { id: 'domain', label: 'Your business' },
   { id: 'notifications', label: 'Notifications' },
-  { id: 'guardrails', label: 'Guardrails' },
   { id: 'review', label: 'Review' },
 ] as const
 
@@ -78,6 +79,7 @@ type StepId = (typeof ADMIN_STEPS)[number]['id']
 export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {}) {
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<WizardDraft>(emptyDraft)
+  const [pdfFilled, setPdfFilled] = useState<string[]>([])
   const { reload, tenants } = useTenants()
   const { identity, refreshIdentity } = useAuth()
   const action = useAction()
@@ -88,6 +90,14 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
   const stepId = steps[step].id as StepId
 
   const patch = (values: Partial<WizardDraft>) => setDraft((d) => ({ ...d, ...values }))
+
+  const applyStaged = (staged: Parameters<typeof applyStagedToDraft>[1]) => {
+    setDraft((d) => {
+      const { draft: next, filled } = applyStagedToDraft(d, staged)
+      queueMicrotask(() => setPdfFilled(filled))
+      return next
+    })
+  }
 
   // Match registry id/slug only (same rules as backend find_registry_conflict).
   const tenantIdTaken = (() => {
@@ -125,6 +135,7 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
     const id = draft.tenantId.trim()
     const snapshot = draftToSnapshot(draft)
     const phone = draft.wabaPhoneId.trim()
+    const staged = draft.stagedUpload
     const completed = await action.run(() =>
       adminsApi.firstLoginComplete({
         tenant_id: id,
@@ -138,6 +149,23 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
       }),
     )
     if (!completed) return
+
+    // Publish brochure / kit extraction into the new tenant (offerings, FAQ, KB).
+    if (staged) {
+      try {
+        await onboardingKitsApi.publishTenant(completed.tenant_id, {
+          ...staged,
+          tenant_id: completed.tenant_id,
+        })
+        toast.push('Document catalog published into your tenant.')
+      } catch (err) {
+        console.error('Onboarding document publish failed:', err)
+        toast.push(
+          'Tenant is live, but the document could not be published — upload it again from Knowledge.',
+          'error',
+        )
+      }
+    }
 
     toast.push(`${draft.companyName} is live — your console is ready.`)
     await refreshIdentity()
@@ -203,11 +231,12 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
         {stepId === 'whatsapp' && <WhatsAppStep draft={draft} patch={patch} />}
         {stepId === 'company' && <CompanyStep draft={draft} patch={patch} />}
         {stepId === 'brand' && <BrandStep draft={draft} patch={patch} />}
-        {stepId === 'domain' && <DomainStep draft={draft} patch={patch} />}
+        {stepId === 'domain' && (
+          <DomainStep draft={draft} patch={patch} onStaged={applyStaged} pdfFilled={pdfFilled} />
+        )}
         {stepId === 'notifications' && <NotificationsStep draft={draft} patch={patch} />}
-        {stepId === 'guardrails' && <GuardrailsStep draft={draft} patch={patch} />}
         {stepId === 'review' && (
-          <ReviewStep draft={draft} onEdit={setStep} />
+          <ReviewStep draft={draft} onEdit={setStep} pdfFilled={pdfFilled} />
         )}
 
         {action.error && (
@@ -521,64 +550,120 @@ function BrandStep({ draft, patch }: StepProps) {
   )
 }
 
-function DomainStep({ draft, patch }: StepProps) {
+function DomainStep({
+  draft,
+  patch,
+  onStaged,
+  pdfFilled,
+}: StepProps & {
+  onStaged: (staged: Parameters<typeof applyStagedToDraft>[1]) => void
+  pdfFilled: string[]
+}) {
   const v = getVertical(draft.vertical)
+  const hasQuestions = v.questions.length > 0
   const missingRequired = v.questions.filter((q) => q.required && !answerValue(draft, q.key))
+  const staged = draft.stagedUpload
+  const offeringCount = staged?.offerings?.length ?? 0
+  const faqCount = staged?.faqs?.length ?? 0
 
   return (
     <StepShell
       title={`About your ${v.short.toLowerCase()} business`}
-      description="These answers become the words the bot recognises. The more specific you are, the fewer questions it gets wrong."
+      description={
+        hasQuestions
+          ? 'These answers become the words the bot recognises. The more specific you are, the fewer questions it gets wrong.'
+          : `Upload a brochure or company PDF to fill ${v.nouns.item}, FAQs and menu. Safety and handoff stay AI-driven from each customer message.`
+      }
       icon={<Sparkles className="h-4 w-4" />}
     >
-      <div className="space-y-5">
-        {v.questions.map((q) => {
-          const value = draft.answers[q.key]
-          return (
-            <div key={q.key}>
-              <p className={fieldLabelClass}>
-                {q.label}
-                {q.required && <span className="ml-1 text-badink">*</span>}
+      <Panel title="Company document">
+        <p className="-mt-1 mb-4 text-sm text-txmuted">
+          Download the tenant demo PDF, fill it, then upload — or upload your own brochure. Extracted{' '}
+          {v.nouns.item} and FAQs publish when you finish setup.
+        </p>
+        <OnboardingKitWidget
+          vertical={draft.vertical}
+          mode="onboarding"
+          onStagedDraft={onStaged}
+        />
+        {(staged || pdfFilled.length > 0) && (
+          <Notice
+            tone="success"
+            title={
+              staged?.extraction_mode === 'kit'
+                ? 'Fetched from your document'
+                : 'Started from your document'
+            }
+            className="mt-4"
+          >
+            {pdfFilled.length > 0 && (
+              <p className="text-xs text-tx">
+                Filled in: {pdfFilled.join(', ')}
+                {offeringCount || faqCount
+                  ? ` · ${offeringCount} ${v.nouns.item}${offeringCount === 1 ? '' : ''} · ${faqCount} FAQ${faqCount === 1 ? '' : 's'}`
+                  : ''}
               </p>
-              {q.kind === 'chips' && (
-                <TagField
-                  value={Array.isArray(value) ? value : []}
-                  onChange={(next) => patch({ answers: { ...draft.answers, [q.key]: next } })}
-                  suggestions={q.suggestions ?? []}
-                />
-              )}
-              {q.kind === 'text' && (
-                <FieldInput
-                  value={typeof value === 'string' ? value : ''}
-                  onChange={(e) => patch({ answers: { ...draft.answers, [q.key]: e.target.value } })}
-                  placeholder={q.placeholder}
-                />
-              )}
-              {q.kind === 'textarea' && (
-                <FieldTextarea
-                  value={typeof value === 'string' ? value : ''}
-                  onChange={(e) => patch({ answers: { ...draft.answers, [q.key]: e.target.value } })}
-                  placeholder={q.placeholder}
-                />
-              )}
-              {q.kind === 'select' && (
-                <FieldSelect
-                  value={typeof value === 'string' ? value : ''}
-                  onChange={(e) => patch({ answers: { ...draft.answers, [q.key]: e.target.value } })}
-                >
-                  <option value="">Select…</option>
-                  {(q.options ?? []).map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </FieldSelect>
-              )}
-              {q.help && <p className="mt-1.5 text-xs leading-relaxed text-txmuted">{q.help}</p>}
-            </div>
-          )
-        })}
-      </div>
+            )}
+            {pdfFilled.length === 0 && (offeringCount > 0 || faqCount > 0) && (
+              <p className="text-xs text-tx">
+                Ready: {offeringCount} {v.nouns.item}
+                {offeringCount === 1 ? '' : ''} · {faqCount} FAQ{faqCount === 1 ? '' : 's'}
+              </p>
+            )}
+          </Notice>
+        )}
+      </Panel>
+
+      {hasQuestions ? (
+        <div className="space-y-5">
+          {v.questions.map((q) => {
+            const value = draft.answers[q.key]
+            return (
+              <div key={q.key}>
+                <p className={fieldLabelClass}>
+                  {q.label}
+                  {q.required && <span className="ml-1 text-badink">*</span>}
+                </p>
+                {q.kind === 'chips' && (
+                  <TagField
+                    value={Array.isArray(value) ? value : []}
+                    onChange={(next) => patch({ answers: { ...draft.answers, [q.key]: next } })}
+                    suggestions={q.suggestions ?? []}
+                  />
+                )}
+                {q.kind === 'text' && (
+                  <FieldInput
+                    value={typeof value === 'string' ? value : ''}
+                    onChange={(e) => patch({ answers: { ...draft.answers, [q.key]: e.target.value } })}
+                    placeholder={q.placeholder}
+                  />
+                )}
+                {q.kind === 'textarea' && (
+                  <FieldTextarea
+                    value={typeof value === 'string' ? value : ''}
+                    onChange={(e) => patch({ answers: { ...draft.answers, [q.key]: e.target.value } })}
+                    placeholder={q.placeholder}
+                  />
+                )}
+                {q.kind === 'select' && (
+                  <FieldSelect
+                    value={typeof value === 'string' ? value : ''}
+                    onChange={(e) => patch({ answers: { ...draft.answers, [q.key]: e.target.value } })}
+                  >
+                    <option value="">Select…</option>
+                    {(q.options ?? []).map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </FieldSelect>
+                )}
+                {q.help && <p className="mt-1.5 text-xs leading-relaxed text-txmuted">{q.help}</p>}
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
 
       <Panel title="Optional modules">
         <p className="-mt-1 mb-4 text-sm text-txmuted">
@@ -639,60 +724,29 @@ function NotificationsStep({ draft, patch }: StepProps) {
   )
 }
 
-function GuardrailsStep({ draft, patch }: StepProps) {
-  return (
-    <StepShell
-      title="Handoff and escalation"
-      description="Keywords that pass the chat to a person, and the message shown when that happens."
-      icon={<ShieldAlert className="h-4 w-4" />}
-    >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <p className={fieldLabelClass}>Forbidden terms</p>
-          <TagField
-            value={draft.forbiddenTerms}
-            onChange={(forbiddenTerms) => patch({ forbiddenTerms })}
-            placeholder="Terms to refuse"
-          />
-        </div>
-        <div>
-          <p className={fieldLabelClass}>Handoff keywords</p>
-          <TagField
-            value={draft.handoffKeywords}
-            onChange={(handoffKeywords) => patch({ handoffKeywords })}
-            placeholder="human, agent…"
-          />
-        </div>
-      </div>
-      <div>
-        <p className={fieldLabelClass}>Escalate immediately on</p>
-        <TagField
-          value={draft.escalateKeywords}
-          onChange={(escalateKeywords) => patch({ escalateKeywords })}
-          placeholder="complaint, fraud, urgent…"
-        />
-      </div>
-      <FieldTextarea
-        label="Escalation message"
-        value={draft.escalationMessage}
-        onChange={(e) => patch({ escalationMessage: e.target.value })}
-        rows={2}
-      />
-    </StepShell>
-  )
-}
-
 function ReviewStep({
   draft,
   onEdit,
+  pdfFilled,
 }: {
   draft: WizardDraft
   onEdit: (step: number) => void
+  pdfFilled: string[]
 }) {
   const v = getVertical(draft.vertical)
   const answers = Object.entries(draft.answers).filter(([, value]) =>
     Array.isArray(value) ? value.length : Boolean(value),
   )
+  const staged = draft.stagedUpload
+  const docSummary = staged
+    ? [
+        `${staged.offerings?.length ?? 0} ${v.nouns.item}`,
+        `${staged.faqs?.length ?? 0} FAQs`,
+        pdfFilled.length ? `filled: ${pdfFilled.join(', ')}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : 'none uploaded'
 
   // Step indices match ADMIN_STEPS: whatsapp=0, company=1, brand=2, domain=3, ...
   const rows: { label: string; value: React.ReactNode; step: number }[] = [
@@ -711,6 +765,11 @@ function ReviewStep({
     { label: 'Bot name', value: draft.botName || v.label, step: 2 },
     { label: 'Support', value: [draft.supportEmail, draft.supportPhone].filter(Boolean).join(' · ') || '—', step: 2 },
     { label: 'Calls it', value: v.nouns.item, step: 2 },
+    {
+      label: 'Document',
+      value: docSummary,
+      step: 3,
+    },
     {
       label: 'Business answers',
       value: answers.length ? (
@@ -836,8 +895,6 @@ function validationError(
       }
       return null
     }
-    case 'guardrails':
-      return null
     default:
       return null
   }

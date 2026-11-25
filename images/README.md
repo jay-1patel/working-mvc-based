@@ -9,8 +9,9 @@ Captured from the first-login register wizard (`#/register`).
 | `onboarding-03-brand.png` | Brand & voice |
 | `onboarding-04-your-business-modules.png` | Your business + optional modules (Tours & travel) |
 | `onboarding-05-notifications.png` | Notifications |
-| `onboarding-06-guardrails.png` | Guardrails |
 | `onboarding-07-review.png` | Review & go live |
+
+Guardrails are no longer a wizard step; handoff defaults are applied at publish.
 
 Regenerate with the Vite app running on `:5173`:
 

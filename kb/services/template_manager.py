@@ -2,11 +2,24 @@ import json
 import requests
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
-from routing.config import SEND2_USERNAME, SEND2_PASSWORD, SEND2_SESSION_MSG_URL, TEMPLATE_PREFIX, SEND2_TEMPLATE_URL,logger
+from routing.config import SEND2_SESSION_MSG_URL, TEMPLATE_PREFIX, SEND2_TEMPLATE_URL, logger
 from ..database import (
     save_template, get_template, delete_template,
     list_templates, update_session_outbound, save_session_button,
 )
+
+
+def _send2_login(tenant_id: str = None):
+    try:
+        from services.credential_vault import resolve_send2_username_password
+    except ImportError:
+        from backend.services.credential_vault import resolve_send2_username_password
+    return resolve_send2_username_password(tenant_id)
+
+
+def _send2_user_pass(tenant_id: str = None) -> dict:
+    username, password = _send2_login(tenant_id)
+    return {"user_name": username, "password": password}
 
 SEND2_TEMPLATE_URL = SEND2_TEMPLATE_URL
 TEMPLATES_JSON_PATH = Path(__file__).resolve().parent.parent / "dataset" / "templates.json"
@@ -143,8 +156,7 @@ def _build_send2_template_payload(template: Dict, lang_code: str = "en") -> Dict
     buttons = template.get("buttons", [])
 
     payload = {
-        "user_name": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_send2_user_pass(),
         "language": lang_code,
         "template_name": name,
         "category": category,
@@ -226,8 +238,7 @@ def _send_template_message(
         })
 
     payload = {
-        "user_name": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_send2_user_pass(),
         "contact_no": to,
         "message_type": "template",
         "template": {
@@ -462,7 +473,7 @@ def delete_template_on_send2(template_name: str) -> Tuple[bool, str]:
     try:
         resp = requests.delete(
             f"{SEND2_TEMPLATE_URL}/{template_name}",
-            auth=(SEND2_USERNAME, SEND2_PASSWORD),
+            auth=_send2_login(),
             timeout=30,
         )
         body = resp.text[:300]

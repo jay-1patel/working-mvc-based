@@ -19,8 +19,6 @@ import httpx
 
 from kb.database import is_session_open, update_session_outbound
 from routing.config import (
-    SEND2_USERNAME,
-    SEND2_PASSWORD,
     SEND2_SESSION_MSG_URL,
     SEND2_NUMBER,
     SEND2_INCOMING_URL,
@@ -67,11 +65,43 @@ SESSION_MSG_URL = SEND2_SESSION_SEND_URL
 # BASE REQUEST HELPERS
 # ============================================
 
-def _inject_credentials(payload: dict) -> dict:
-    """Inject send2.digital credentials into payload."""
-    payload["username"] = SEND2_USERNAME
-    payload["password"] = SEND2_PASSWORD
+def _send2_login(tenant_id: str = None) -> tuple:
+    """Resolve Send2 username/password from the vault (optional env fallback)."""
+    try:
+        from services.credential_vault import resolve_send2_username_password
+    except ImportError:
+        from backend.services.credential_vault import resolve_send2_username_password
+    return resolve_send2_username_password(tenant_id)
+
+
+
+def _cred_user_pass(tenant_id: str = None) -> dict:
+    username, password = _send2_login(tenant_id)
+    return {"user_name": username, "password": password}
+
+
+def _cred_username_pass(tenant_id: str = None) -> dict:
+    username, password = _send2_login(tenant_id)
+    return {"username": username, "password": password}
+
+def _inject_credentials(payload: dict, tenant_id: str = None) -> dict:
+    """Inject send2.digital credentials into payload (vault → optional fallback)."""
+    username, password = _send2_login(tenant_id)
+    payload["username"] = username
+    payload["password"] = password
     return payload
+
+
+def _redacted_payload_preview(payload: dict) -> str:
+    """Safe log preview — never include password/username values."""
+    safe = {}
+    for key, value in (payload or {}).items():
+        lk = str(key).lower()
+        if lk in {"password", "username", "user_name", "userName", "api_secret", "api_key"}:
+            safe[key] = "***"
+        else:
+            safe[key] = value
+    return str(safe)[:200]
 
 
 async def _send_post_request(url: str, payload: dict, timeout: int = 30) -> dict:
@@ -91,7 +121,7 @@ async def _send_post_request(url: str, payload: dict, timeout: int = 30) -> dict
     """
     payload = _inject_credentials(payload)
 
-    logger.info(f"API_REQUEST | url={url} | timeout={timeout} | payload_preview={str(payload)[:200]}")
+    logger.info(f"API_REQUEST | url={url} | timeout={timeout} | payload_preview={_redacted_payload_preview(payload)}")
 
     async with httpx.AsyncClient(trust_env=False, timeout=timeout) as client:
         try:
@@ -251,8 +281,7 @@ async def send_text_message(contact_no: str, text: str) -> bool:
     all_ok = True
     for chunk in chunks:
         payload = {
-            "user_name": SEND2_USERNAME,
-            "password": SEND2_PASSWORD,
+            **_cred_user_pass(),
             "contact_no": contact_no,
             "message_type": "text",
             "message": chunk
@@ -444,8 +473,7 @@ async def send_button_message(
                 interactive_body["header"] = {"type": header_type, header_type: {"link": media_obj["link"]}}
 
     cloud_payload = {
-        "user_name": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_cred_user_pass(),
         "contact_no": contact_no,
         "message_type": "interactive",
         "interactive": interactive_body,
@@ -483,8 +511,7 @@ async def send_button_message(
 
     # Fallback: Quick Button endpoint (text header only, no media).
     payload = {
-        "username": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_cred_username_pass(),
         "number": contact_no,
         "headertype": "text",
         "headertext": " ",
@@ -591,8 +618,7 @@ async def send_list_menu(
 
     # FIX: Build payload with CORRECT send2.digital field names from official documentation
     payload = {
-        "username": SEND2_USERNAME,     # ✅ CORRECT: API expects 'username' not 'user_name'
-        "password": SEND2_PASSWORD,
+        **_cred_username_pass(),  # API expects 'username' not 'user_name'
         "number": contact_no,
         "headertext": header_text or " ",  # ✅ non-empty required by send2
         "bodytext": body_text or " ",      # ✅ non-empty required by send2
@@ -684,8 +710,7 @@ async def send_quick_button_message(
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise
     # send2.digital rejects the whole request with {"error":"INVALID PARAMETER"}.
     payload = {
-        "username": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_cred_username_pass(),
         "number": number,
         "headertype": "text",
         "headertext": header_text or " ",
@@ -998,8 +1023,7 @@ def send_whatsapp_message(to, text, message_type="text"):
         # Fall back to sync implementation
         text = format_for_whatsapp(text, to)
         payload = {
-            "user_name": SEND2_USERNAME,
-            "password": SEND2_PASSWORD,
+            **_cred_user_pass(),
             "contact_no": to,
             "message_type": "text",
             "message": text,
@@ -1315,8 +1339,7 @@ def send_main_menu(to: str) -> bool:
 
 def fetch_incoming_messages(from_date, to_date):
     payload = {
-        "username": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_cred_username_pass(),
         "from_date": from_date,
         "to_date": to_date,
     }
@@ -1368,7 +1391,7 @@ def download_media(media_id: str, mime_type: str = None) -> str:
     try:
         resp = httpx.get(
             f"{SEND2_MEDIA_URL}/{media_id}",
-            auth=(SEND2_USERNAME, SEND2_PASSWORD),
+            auth=_send2_login(),
             timeout=30,
             stream=True,
         )
@@ -1880,8 +1903,7 @@ def send_new_arrivals_pdf(to: str) -> bool:
 
 def mark_as_read(to: str, message_id: str) -> bool:
     payload = {
-        "username": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_cred_username_pass(),
         "number": to,
         "message_type": "read",
         "message_id": message_id,
@@ -1898,8 +1920,7 @@ def mark_as_read(to: str, message_id: str) -> bool:
 
 def send_typing_indicator(to: str) -> bool:
     payload = {
-        "username": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_cred_username_pass(),
         "number": to,
         "message_type": "typing",
     }
@@ -1915,7 +1936,7 @@ def transcribe_voice(media_id: str, mime_type: str = "audio/ogg") -> str:
     try:
         resp = httpx.get(
             f"{SEND2_MEDIA_URL}/{media_id}",
-            auth=(SEND2_USERNAME, SEND2_PASSWORD),
+            auth=_send2_login(),
             timeout=30,
             stream=True,
         )
@@ -1991,8 +2012,7 @@ def send_whatsapp_flow(
         interactive["footer"] = {"text": footer_text}
 
     payload = {
-        "username": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        **_cred_username_pass(),
         "number": to,
         "message_type": "interactive",
         "message": interactive,

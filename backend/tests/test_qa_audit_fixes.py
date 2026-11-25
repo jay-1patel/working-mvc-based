@@ -107,17 +107,18 @@ class QaAuditFixTests(unittest.TestCase):
             "view_analytics": True,
             "view_products": True,
         }
-        database.create_admin(
+        user_id = database.create_admin(
             username=encode_send2_username(username),
             role=role,
             permissions=permissions,
             tenant_id=tenant_id,
             session_id=session_id,
         )
-        self.sessions[username] = session_id
+        self.sessions[username] = {"user_id": user_id, "session_id": session_id}
 
     def _auth(self, username):
-        return {"username": username, "session_id": self.sessions[username]}
+        creds = self.sessions[username]
+        return {"user_id": str(creds["user_id"]), "session_id": creds["session_id"]}
 
     def test_legacy_chat_history_is_tenant_scoped_and_requires_auth(self):
         open_call = self.client.get("/api/chat/history/919111")

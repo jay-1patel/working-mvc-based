@@ -180,7 +180,7 @@ export function IntentsEditor({ tenantId }: { tenantId: string }) {
               </PrimaryButton>
               <GhostButton onClick={() => save(true)} disabled={action.busy}>
                 <Send className="h-4 w-4" />
-                Save & publish
+                Submit for approval
               </GhostButton>
             </div>
             {validation.length > 0 && <Notice tone="warn">{validation.join(', ')}</Notice>}

@@ -234,6 +234,7 @@ READ_ONLY_POST_PATHS = frozenset({
     "/api/admin/tenants/files/preview",
     "/api/admin/tenants/files/download",
     "/api/admin/tenants/knowledge-gaps",
+    "/api/admin/tenants/send2-credentials/status",
     "/api/admin/onboarding-kits/list",
     "/api/tenant-change-requests/mine",
     "/api/auth/admins",
@@ -273,6 +274,7 @@ BODY_TENANT_POST_PATHS = frozenset({
     "/api/admin/tenants/knowledge-gaps",
     "/api/admin/tenants/knowledge-gaps/resolve",
     "/api/admin/tenants/knowledge-gaps/create-faq",
+    "/api/admin/tenants/send2-credentials/status",
 })
 
 
@@ -297,6 +299,7 @@ SUPER_ADMIN_ALLOWED_WRITE_PATTERNS = (
     re.compile(r"^/api/auth(?:/.*)?$"),  # people management, own password, OTP
     re.compile(r"^/api/admin/tenants$"),  # POST: create a tenant
     re.compile(r"^/api/admin/tenants/active-test-tenant$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/send2-credentials/resync$"),
     re.compile(r"^/api/admin/tenants/[^/]+$"),  # DELETE only (checked below)
     re.compile(r"^/api/admin/tenant-change-requests/[^/]+/decision$"),
     re.compile(r"^/api/admin/integration-requests/[^/]+/decision$"),
@@ -374,11 +377,10 @@ def ensure_super_admin_view_only(admin: dict | None, method: str, path: str) -> 
 # ---------- helpers ----------
 
 def _public_username(username: str | None) -> str:
-    """Return the plain username clients send/receive (login-page form).
+    """Return the plain username for API display (Team list, audit, identity).
 
-    DB rows store the Send2 Base64 form; API responses and session identity
-    always use the decoded plain name. Does not accept Base64 as a login input
-    path — use ``normalize_login_username`` for that.
+    DB rows store the Send2 Base64 form; responses always use the decoded plain
+    name. Session auth uses ``user_id`` + ``session_id`` only — not username.
     """
     return decode_stored_username(username)
 
@@ -407,25 +409,17 @@ def _stored_username(row: dict | None, fallback: str = "") -> str:
     return str(fallback or "")
 
 
-def _admin_from_pair(username: str, session_id: str, request: Request | None = None) -> dict:
-    """Authenticate one live username/session-id pair from the database.
-
-    Plain username only (same as ``/api/auth/login``): encode for DB lookup,
-    then expose the plain name on the returned principal. Base64 input fails.
-    """
-    row = _resolve_admin_row(username)
-    stored = str(row["session_id"] or "") if row else ""
-    supplied = str(session_id or "")
-    if not row or not stored or not hmac.compare_digest(stored, supplied):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+def _principal_from_row(
+    row: dict,
+    *,
+    request: Request | None = None,
+    username_fallback: str = "",
+) -> dict:
+    """Build the request principal from an admins row (session already verified)."""
     result = dict(row)
     result.pop("session_id", None)
     # DB stores Send2 Base64; session identity is always the plain name.
-    result["username"] = _public_username(result.get("username") or username)
+    result["username"] = _public_username(result.get("username") or username_fallback)
     result["role"] = result.get("role") or "sub_admin"
     result["permissions"] = _effective_permissions(result.get("role"), result.get("permissions"))
     if request is not None:
@@ -438,34 +432,56 @@ def _admin_from_pair(username: str, session_id: str, request: Request | None = N
     return result
 
 
+def _admin_from_user_id(user_id: str | int, session_id: str, request: Request | None = None) -> dict:
+    """Authenticate with admins.id + live session_id (preferred panel auth)."""
+    try:
+        admin_id = int(str(user_id).strip())
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    row = get_admin_by_id(admin_id)
+    stored = str(row["session_id"] or "") if row else ""
+    supplied = str(session_id or "")
+    if not row or not stored or not hmac.compare_digest(stored, supplied):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return _principal_from_row(row, request=request)
+
+
 def authenticate_basic_header(request: Request) -> dict:
-    """Authenticate with username + session_id only (no Authorization required).
+    """Authenticate with user_id + session_id only (no Authorization required).
 
-    Accepted sources, in order:
-      1. Headers ``username`` + ``session_id``
-      2. JSON/form body fields ``username`` + ``session_id`` (set by middleware)
+    Accepted sources:
+      1. Headers ``user_id`` + ``session_id``
+      2. JSON/form body fields ``user_id`` + ``session_id`` (set by middleware)
 
-    ``username`` must be the plain Send2/local name; lookup encodes it and
-    matches Base64 ``admins.username`` (same rule as login).
+    ``user_id`` is the numeric ``admins.id`` (e.g. ``3047``). Username is not
+    accepted for session auth.
     """
     cached = getattr(request.state, "current_admin", None)
     if cached:
         return cached
 
-    username = (
-        str(request.headers.get("username") or "").strip()
-        or str(getattr(request.state, "auth_username", "") or "").strip()
-    )
     session_id = (
         str(request.headers.get("session_id") or "").strip()
         or str(getattr(request.state, "auth_session_id", "") or "").strip()
     )
-    if username and session_id:
-        return _admin_from_pair(username, session_id, request)
+    user_id = (
+        str(request.headers.get("user_id") or "").strip()
+        or str(getattr(request.state, "auth_user_id", "") or "").strip()
+    )
+    if user_id and session_id:
+        return _admin_from_user_id(user_id, session_id, request)
 
     raise HTTPException(
         status_code=401,
-        detail="Not authenticated — send username and session_id (header or JSON body)",
+        detail="Not authenticated — send user_id and session_id (header or JSON body)",
     )
 
 
@@ -490,10 +506,10 @@ def scoped_tenant_id(admin: dict) -> str | None:
 
 
 def session_tenant_id(admin: dict | None = None, request: Request | None = None) -> str:
-    """Tenant bound to the authenticated username/session_id — never from the body.
+    """Tenant bound to the authenticated user_id/session_id — never from the body.
 
     Flat panel APIs resolve the working tenant only from the admin row matched
-    by username + session_id. Callers must not send tenant_id in the JSON body.
+    by user_id + session_id. Callers must not send tenant_id in the JSON body.
     """
     if admin is None:
         if request is None:
@@ -504,7 +520,7 @@ def session_tenant_id(admin: dict | None = None, request: Request | None = None)
     if not tid:
         raise HTTPException(
             status_code=403,
-            detail="No tenant assigned to this session — use a username/session_id bound to a tenant",
+            detail="No tenant assigned to this session — use a user_id/session_id bound to a tenant",
         )
     if request is not None:
         request.state.error_tenant_id = tid
@@ -520,7 +536,8 @@ def get_current_admin(
         return cached
     if not credentials:
         return authenticate_basic_header(request)
-    return _admin_from_pair(credentials.username, credentials.password, request)
+    # Basic token must be user_id:session_id.
+    return _admin_from_user_id(credentials.username, credentials.password, request)
 
 
 def require_super_admin(current_admin: dict = Depends(get_current_admin)) -> dict:
@@ -615,16 +632,18 @@ def require_tenant_access():
             raise HTTPException(status_code=400, detail="tenant_id is required")
 
         raw = _raw_bearer(request, credentials)
-        # username + session_id may arrive as headers or JSON body (middleware).
+        # user_id + session_id may arrive as headers or JSON body (middleware).
         if not raw and not credentials and not getattr(request.state, "current_admin", None):
-            header_user = str(request.headers.get("username") or "").strip()
             header_session = str(request.headers.get("session_id") or "").strip()
-            if header_user and header_session:
-                request.state.current_admin = _admin_from_pair(header_user, header_session, request)
+            header_user_id = str(request.headers.get("user_id") or "").strip()
+            if header_user_id and header_session:
+                request.state.current_admin = _admin_from_user_id(
+                    header_user_id, header_session, request
+                )
             else:
                 raise HTTPException(
                     status_code=401,
-                    detail="Not authenticated — send username and session_id (header or JSON body)",
+                    detail="Not authenticated — send user_id and session_id (header or JSON body)",
                 )
 
         principal = get_tenant_principal(request, credentials) if raw else None
@@ -718,9 +737,8 @@ def authorize_tenant_access(
 # ---------- request schemas ----------
 
 class LoginRequest(BaseModel):
-    # Plain Send2 / local username only (e.g. ``test_support_``). Backend
-    # Base64-encodes it and matches ``admins.username`` (Base64) + session_id.
-    # Base64 input is rejected.
+    # Login only: plain username + live session_id.
+    # After login, every other API uses user_id + session_id.
     username: str
     session_id: str
 
@@ -765,31 +783,27 @@ def auth_status():
 # SECURITY FIX: Rate limiting - 5 requests per minute for login attempts
 @limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
 async def admin_login(request: Request, body: LoginRequest):
-    """Authenticate a plain username plus its live session ID.
+    """Authenticate with username + live session_id (login only).
 
-    Callers must pass the decoded Send2 name (``test_support_``). The backend
-    Base64-encodes it and matches ``admins.username`` (Base64 only) together
-    with ``session_id``. Pasting an already-encoded username fails.
+    Response includes numeric ``user_id`` so the client can use
+    ``user_id`` + ``session_id`` for every subsequent API call.
     """
-    try:
-        username = normalize_login_username(body.username)
-    except ValueError:
-        # Keep Base64 / malformed input indistinguishable from an unknown
-        # account while still recording the failed attempt via audit.
-        username = ""
+    supplied_username = str(body.username or "").strip()
     supplied_session = str(body.session_id or "").strip()
-    admin = _resolve_admin_row(username) if username else None
+    admin = _resolve_admin_row(supplied_username) if supplied_username else None
 
     stored = str((admin or {}).get("session_id") or "")
     session_matches = bool(stored and supplied_session and hmac.compare_digest(stored, supplied_session))
 
+    public_name = _public_username((admin or {}).get("username")) if admin else ""
+    admin_id = admin.get("id") if admin else None
     if not admin or not session_matches:
         failure_audit = dict(
             action="login",
-            actor={"username": username[:100], "role": admin.get("role") if admin else None},
+            actor={"username": (public_name or supplied_username)[:100], "role": admin.get("role") if admin else None},
             outcome="failure",
             resource_type="admin_session",
-            target_username=username[:100],
+            target_username=(public_name or supplied_username)[:100],
             tenant_id=admin.get("tenant_id") if admin else None,
             details={"reason": "invalid_credentials"},
         )
@@ -802,8 +816,7 @@ async def admin_login(request: Request, body: LoginRequest):
 
     admin_dict = dict(admin)
     admin_dict.pop("session_id", None)
-    # Always expose the plain username to the client / session store.
-    admin_dict["username"] = username
+    admin_dict["username"] = public_name
     # Send2-synced rows sometimes omit role; default safely so login never 500s.
     role = admin_dict.get("role") or "sub_admin"
     admin_dict["role"] = role
@@ -815,18 +828,21 @@ async def admin_login(request: Request, body: LoginRequest):
         resource_type="admin_session",
         target_username=admin_dict["username"][:100],
         tenant_id=admin_dict.get("tenant_id"),
+        details={"user_id": admin_id},
     )
     if use_mongodb():
         record_admin_audit_event(None, **success_audit)
     else:
         with get_db_context() as conn:
             record_admin_audit_event(conn, **success_audit)
-    logger.info(f"Admin logged in: {admin_dict['username']}")
+    logger.info(f"Admin logged in: id={admin_id} username={admin_dict['username']}")
     return {
         "status": "ok",
         "token": base64.b64encode(
-            f"{admin_dict['username']}:{stored}".encode("utf-8")
+            f"{admin_id}:{stored}".encode("utf-8")
         ).decode("ascii"),
+        "id": admin_id,
+        "user_id": admin_id,
         "username": admin_dict["username"],
         "session_id": stored,
         "role": role,
@@ -943,10 +959,19 @@ def create_admin(body: CreateAdminRequest, current_admin: dict = Depends(get_cur
     except Exception:
         raise HTTPException(status_code=409, detail="Username already taken")
 
-    logger.info(f"Admin created by {current_admin['username']}: {plain_username} ({role})")
-    return {"status": "ok", "username": plain_username, "session_id": session_id,
-            "role": role, "permissions": permissions, "email": email,
-            "tenant_id": tenant_id, "created_by": current_admin["username"]}
+    logger.info(f"Admin created by {current_admin['username']}: {plain_username} ({role}) id={admin_id}")
+    return {
+        "status": "ok",
+        "id": admin_id,
+        "user_id": admin_id,
+        "username": plain_username,
+        "session_id": session_id,
+        "role": role,
+        "permissions": permissions,
+        "email": email,
+        "tenant_id": tenant_id,
+        "created_by": current_admin["username"],
+    }
 
 
 def _admin_target(username: str, current_admin: dict) -> dict | None:
@@ -1557,11 +1582,14 @@ def _impersonate_target(current_admin: dict, target: dict, *, via: str) -> dict:
         session_minted,
         via,
     )
+    token_user = str(admin_id) if admin_id is not None else public_username
     return {
         "status": "ok",
+        "id": admin_id,
+        "user_id": admin_id,
         "username": public_username,
         "session_id": session_id,
-        "token": base64.b64encode(f"{public_username}:{session_id}".encode("utf-8")).decode("ascii"),
+        "token": base64.b64encode(f"{token_user}:{session_id}".encode("utf-8")).decode("ascii"),
         "role": role,
         "permissions": permissions,
         "tenant_id": target.get("tenant_id"),
@@ -1808,7 +1836,7 @@ def _build_page_privileges(role: str, permissions: dict, features: dict) -> dict
 
 
 class PrivilegesAuthRequest(BaseModel):
-    username: Optional[str] = None
+    user_id: Optional[int | str] = None
     session_id: Optional[str] = None
 
 
@@ -1824,42 +1852,42 @@ async def admin_privileges(
     Supports super_admin, admin, and sub_admin roles. Respects super admin's
     tenant view-only restrictions.
 
-    Accepts username and session_id from either request headers or JSON body.
+    Accepts user_id and session_id from either request headers or JSON body.
     """
     current_admin = getattr(request.state, "current_admin", None)
     if not current_admin:
-        username = str(request.headers.get("username") or "").strip()
+        user_id = str(request.headers.get("user_id") or "").strip()
         session_id = str(request.headers.get("session_id") or "").strip()
 
         if body is not None:
-            if not username and body.username:
-                username = str(body.username).strip()
+            if not user_id and body.user_id is not None:
+                user_id = str(body.user_id).strip()
             if not session_id and body.session_id:
                 session_id = str(body.session_id).strip()
 
-        if not username:
-            username = str(getattr(request.state, "auth_username", "") or "").strip()
+        if not user_id:
+            user_id = str(getattr(request.state, "auth_user_id", "") or "").strip()
         if not session_id:
             session_id = str(getattr(request.state, "auth_session_id", "") or "").strip()
 
-        if not (username and session_id):
+        if not (user_id and session_id):
             try:
                 raw_bytes = await request.body()
                 if raw_bytes:
                     payload = json.loads(raw_bytes)
                     if isinstance(payload, dict):
-                        username = username or str(payload.get("username") or "").strip()
+                        user_id = user_id or str(payload.get("user_id") or "").strip()
                         session_id = session_id or str(payload.get("session_id") or "").strip()
             except Exception:
                 pass
 
-        if not (username and session_id):
+        if not (user_id and session_id):
             raise HTTPException(
                 status_code=401,
-                detail="Not authenticated — send username and session_id (header or JSON body)",
+                detail="Not authenticated — send user_id and session_id (header or JSON body)",
             )
 
-        current_admin = _admin_from_pair(username, session_id, request)
+        current_admin = _admin_from_user_id(user_id, session_id, request)
 
     role = current_admin.get("role", "")
     tenant_id = current_admin.get("tenant_id")

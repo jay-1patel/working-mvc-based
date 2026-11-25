@@ -14,7 +14,7 @@ describe('login screen', () => {
     renderWithShell()
     await waitForScreen()
     expect(await screen.findByRole('heading', { name: 'AI Chatbot' })).toBeInTheDocument()
-    expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^username$/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 
@@ -22,7 +22,7 @@ describe('login screen', () => {
     renderWithShell()
     await waitForScreen()
     const user = userEvent.setup()
-    await user.type(await screen.findByLabelText(/username/i), 'root')
+    await user.type(await screen.findByLabelText(/^username$/i), 'admin')
     await user.type(screen.getByLabelText(/session id/i), 'secret-session-id')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(
@@ -40,7 +40,7 @@ describe('login screen', () => {
     renderWithShell()
     await waitForScreen()
     const user = userEvent.setup()
-    await user.type(await screen.findByLabelText(/username/i), 'root')
+    await user.type(await screen.findByLabelText(/^username$/i), 'admin')
     await user.type(screen.getByLabelText(/session id/i), 'wrong')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(await screen.findByText('Bad credentials')).toBeInTheDocument()

@@ -109,7 +109,7 @@ describe('phase 4 — register wizard shapes', () => {
     expect(screen.queryByRole('button', { name: /WhatsApp/ })).not.toBeInTheDocument()
   })
 
-  it('locked admin (no tenant) gets WhatsApp-first seven steps', async () => {
+  it('locked admin (no tenant) gets WhatsApp-first six steps', async () => {
     testState.respond('GET /api/auth/me', () => ({
       body: {
         id: 2,
@@ -122,9 +122,10 @@ describe('phase 4 — register wizard shapes', () => {
       },
     }))
     await renderView('#/register')
-    for (const label of ['WhatsApp', 'Company', 'Brand & voice', 'Your business', 'Notifications', 'Guardrails', 'Review']) {
+    for (const label of ['WhatsApp', 'Company', 'Brand & voice', 'Your business', 'Notifications', 'Review']) {
       expect(await screen.findByText(label)).toBeInTheDocument()
     }
+    expect(screen.queryByText('Guardrails')).not.toBeInTheDocument()
   })
 })
 

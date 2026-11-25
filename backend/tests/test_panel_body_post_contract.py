@@ -3,7 +3,7 @@
 import unittest
 from collections import Counter
 
-from routes import conversations, crawl, onboarding_kits, tenant_files, tenant_operations, tenants
+from routes import conversations, crawl, onboarding_kits, send2_credentials, tenant_files, tenant_operations, tenants
 from routes.auth import BODY_TENANT_POST_PATHS, READ_ONLY_POST_PATHS, is_tenant_data_write
 
 
@@ -41,6 +41,7 @@ EXPECTED = {
     "/api/admin/tenants/knowledge-gaps",
     "/api/admin/tenants/knowledge-gaps/resolve",
     "/api/admin/tenants/knowledge-gaps/create-faq",
+    "/api/admin/tenants/send2-credentials/status",
     "/api/admin/onboarding-kits/list",
 }
 
@@ -55,6 +56,7 @@ class PanelBodyPostContractTests(unittest.TestCase):
             tenants.router,
             crawl.router,
             onboarding_kits.router,
+            send2_credentials.flat_router,
         )
         cls.routes = [route for router in routers for route in router.routes]
 
@@ -67,7 +69,7 @@ class PanelBodyPostContractTests(unittest.TestCase):
         ]
         # /api/admin/onboarding-kits/list is the extra flat POST beyond the
         # tenant-body routes; /conversations is the session-tenant list.
-        self.assertEqual(len(EXPECTED), 34)
+        self.assertEqual(len(EXPECTED), 35)
         self.assertEqual({path for _, path in registrations}, EXPECTED)
         self.assertTrue(all(method == "POST" for method, _ in registrations))
         self.assertFalse([item for item, count in Counter(registrations).items() if count > 1])

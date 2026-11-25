@@ -73,6 +73,8 @@ from routes.tenant_files import flat_router as tenant_files_flat_router
 from routes.tenant_chat import router as tenant_chat_router
 from routes.tenant_operations import router as tenant_operations_router
 from routes.tenant_operations import flat_router as tenant_operations_flat_router
+from routes.send2_credentials import flat_router as send2_credentials_flat_router
+from routes.send2_credentials import router as send2_credentials_router
 from routes.leads import router as leads_router
 from routes.api_onboarding import router as api_onboarding_router
 from routes.onboarding_kits import router as onboarding_kits_router
@@ -221,6 +223,8 @@ app.include_router(tenant_files_router, tags=["tenant-files"])
 app.include_router(tenant_chat_router, tags=["tenant-chat"])
 app.include_router(tenant_operations_flat_router, tags=["tenant-operations"])
 app.include_router(tenant_operations_router, tags=["tenant-operations"])
+app.include_router(send2_credentials_flat_router, tags=["send2-credentials"])
+app.include_router(send2_credentials_router, tags=["send2-credentials"])
 app.include_router(leads_router, tags=["leads"])
 app.include_router(api_onboarding_router, tags=["api-onboarding"])
 app.include_router(onboarding_kits_router, tags=["onboarding-kits"])

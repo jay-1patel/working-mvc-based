@@ -107,19 +107,17 @@ def _clear_handover(wa_id: str) -> None:
 def _send_timeout_message(wa_id: str) -> None:
     """Send the auto-revert notification to the user (only when notify is on)."""
     try:
-        from routing.config import SEND2_USERNAME, SEND2_PASSWORD
-        if SEND2_USERNAME and SEND2_PASSWORD:
-            from routing.whatsapp import send_whatsapp_message
-            send_whatsapp_message(wa_id, TIMEOUT_MESSAGE)
-            try:
-                from services.send_log import log_whatsapp_send
-                log_whatsapp_send(
-                    wa_id=wa_id,
-                    reason="handoff_timeout",
-                    snippet=TIMEOUT_MESSAGE[:120],
-                )
-            except Exception:
-                logger.exception("SEND_LOG_RECORD_FAILED | wa=%s reason=handoff_timeout", wa_id)
+        from routing.whatsapp import send_whatsapp_message
+        send_whatsapp_message(wa_id, TIMEOUT_MESSAGE)
+        try:
+            from services.send_log import log_whatsapp_send
+            log_whatsapp_send(
+                wa_id=wa_id,
+                reason="handoff_timeout",
+                snippet=TIMEOUT_MESSAGE[:120],
+            )
+        except Exception:
+            logger.exception("SEND_LOG_RECORD_FAILED | wa=%s reason=handoff_timeout", wa_id)
     except Exception as e:
         logger.error(f"Failed to send timeout message to {wa_id}: {e}")
 

@@ -7,7 +7,7 @@
  * what it staged (nothing is live yet), download it, then approve or
  * reject. Approval publishes knowledge only — never the menu or brand.
  */
-import { api, apiCallStart, apiUrl, authHeaders, getSessionId, getUsername, logApiCall, logApiError } from './api'
+import { api, apiCallStart, apiUrl, authHeaders, getSessionId, getUserId, logApiCall, logApiError } from './api'
 
 export interface CrawlRun {
   id: number
@@ -200,7 +200,7 @@ export const crawlApi = {
         body: JSON.stringify({
           run_id: runId,
           format,
-          ...(getUsername() ? { username: getUsername() } : {}),
+          ...(getUserId() ? { user_id: getUserId() } : {}),
           ...(getSessionId() ? { session_id: getSessionId() } : {}),
         }),
       })

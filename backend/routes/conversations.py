@@ -459,21 +459,19 @@ def resolve_handoff(
     sent = False
     if reply:
         try:
-            from routing.config import SEND2_USERNAME, SEND2_PASSWORD
-            if SEND2_USERNAME and SEND2_PASSWORD:
-                from routing.whatsapp import send_whatsapp_message
-                sent = bool(send_whatsapp_message(wa_id, RESOLVED_MESSAGE))
-                if sent:
-                    try:
-                        from services.send_log import log_whatsapp_send, REASON_INBOX
-                        log_whatsapp_send(
-                            wa_id=wa_id,
-                            tenant_id=tenant_id,
-                            reason=REASON_INBOX,
-                            snippet=RESOLVED_MESSAGE[:120],
-                        )
-                    except Exception:
-                        logger.exception("SEND_LOG_RECORD_FAILED | wa=%s tenant=%s reason=inbox_resolved", wa_id, tenant_id)
+            from routing.whatsapp import send_whatsapp_message
+            sent = bool(send_whatsapp_message(wa_id, RESOLVED_MESSAGE, tenant_id=tenant_id))
+            if sent:
+                try:
+                    from services.send_log import log_whatsapp_send, REASON_INBOX
+                    log_whatsapp_send(
+                        wa_id=wa_id,
+                        tenant_id=tenant_id,
+                        reason=REASON_INBOX,
+                        snippet=RESOLVED_MESSAGE[:120],
+                    )
+                except Exception:
+                    logger.exception("SEND_LOG_RECORD_FAILED | wa=%s tenant=%s reason=inbox_resolved", wa_id, tenant_id)
         except Exception as exc:  # pragma: no cover - depends on live credentials
             logger.warning(f"Could not send resolve message to {wa_id}: {exc}")
     logger.info(f"INBOX_RESOLVED | tenant={tenant_id} | wa={wa_id} | notified={sent}")

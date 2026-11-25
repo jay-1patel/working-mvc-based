@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Globe, MessagesSquare, Send } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { useTenants } from '@/lib/tenants'
+import { tenantsApi, useTenants } from '@/lib/tenants'
 import { usePermissions } from '@/lib/permissions'
 import { useAsync } from '@/lib/hooks'
 import { api } from '@/lib/api'
@@ -63,10 +63,12 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
   const { tenants } = useTenants()
   const toast = useToast()
   const [approving, setApproving] = useState(false)
+  const [resyncing, setResyncing] = useState(false)
   const tenant = tenants.find((t) => t.id === tenantId) ?? null
   // View-only super admin, or customer_care after Onboarded users → Login.
   const canReviewPending = isSuperAdmin || impersonating
 
+  const send2Status = useAsync((s) => tenantsApi.send2CredentialsStatus(), [tenantId])
   const inbox = useAsync((s) => conversationsApi.inbox(tenantId, false, s), [tenantId])
   const history = useAsync(
     (s) => conversationsApi.history(tenantId, { days: 1, limit: 500 }, s),
@@ -99,7 +101,8 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
     [tenantId],
   )
   const customers = useAsync(
-    (s) => operationsApi.tenantCustomers(tenantId, { limit: 500 }, s).then((r) => r.customers),
+    // Overview only needs a cheap "new today" count — avoid the heavy 500-row aggregate.
+    (s) => operationsApi.tenantCustomers(tenantId, { limit: 50 }, s).then((r) => r.customers),
     [tenantId],
   )
 
@@ -146,6 +149,19 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
   ).length
 
   const openReviewQueue = () => navigate('/tenant-requests')
+
+  const resyncSend2 = async () => {
+    setResyncing(true)
+    try {
+      await tenantsApi.resyncSend2Credentials(tenantId)
+      toast.push('Send2 credentials re-synced.')
+      send2Status.reload()
+    } catch (err) {
+      toast.push((err as Error)?.message || 'Send2 re-sync failed', 'error')
+    } finally {
+      setResyncing(false)
+    }
+  }
 
   /** Approve as customer_care, then leave support Login → full superadmin console. */
   const approveAndReturn = async () => {
@@ -347,6 +363,26 @@ export function TodayPanel({ tenantId }: { tenantId: string }) {
             <span className="flex items-center justify-between">
               <span>Conversations in the inbox</span>
               <strong>{inbox.data?.count ?? inbox.data?.queue.length ?? '—'}</strong>
+            </span>
+          </NeedRow>
+          <NeedRow>
+            <span className="flex items-center justify-between gap-3">
+              <span>
+                Send2 credentials:{' '}
+                {send2Status.loading
+                  ? '…'
+                  : send2Status.data?.configured
+                    ? 'configured'
+                    : 'not configured'}
+                {send2Status.data?.last_synced_at
+                  ? ` · last synced ${new Date(send2Status.data.last_synced_at).toLocaleString()}`
+                  : ''}
+              </span>
+              {isSuperAdmin ? (
+                <GhostButton disabled={resyncing} onClick={() => void resyncSend2()}>
+                  {resyncing ? 'Re-syncing…' : 'Re-sync'}
+                </GhostButton>
+              ) : null}
             </span>
           </NeedRow>
         </div>

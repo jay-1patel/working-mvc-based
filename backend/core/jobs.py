@@ -26,6 +26,14 @@ logger = logging.getLogger("router")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("[STARTUP] lifespan entered")
+    # Send2 credential vault — one platform master key. Fail before serving
+    # if CREDENTIAL_MASTER_KEY is missing or invalid (never auto-generate).
+    try:
+        from services.credential_master_key import require_credential_master_key_at_startup
+    except ImportError:
+        from backend.services.credential_master_key import require_credential_master_key_at_startup
+    require_credential_master_key_at_startup()
+    logger.info("[STARTUP] CREDENTIAL_MASTER_KEY ok")
     from shared.tenancy.paths import validate_backend_clients_dir
     _tenant_data_dir = validate_backend_clients_dir()
     logger.info("[STARTUP] tenant data dir OK: %s", _tenant_data_dir)

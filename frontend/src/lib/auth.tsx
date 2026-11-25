@@ -12,6 +12,7 @@ import {
   apiUrl,
   getSessionId,
   getToken,
+  getUserId,
   getUsername,
   setCredentials,
   setToken,
@@ -30,12 +31,12 @@ import {
 import { adminsApi, isCustomerCareIdentity } from './admins'
 
 /** /api/auth/me with explicit credentials (used to keep Customercare identity while supporting). */
-async function fetchIdentityAs(username: string, sessionId: string): Promise<AdminIdentity> {
+async function fetchIdentityAs(userId: string | number, sessionId: string): Promise<AdminIdentity> {
   const res = await fetch(apiUrl('/api/auth/me'), {
     method: 'GET',
     headers: {
       Accept: 'application/json',
-      username,
+      user_id: String(userId),
       session_id: sessionId,
     },
   })
@@ -116,12 +117,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (operator) {
           setImpersonating(true)
           setImpersonatedUsername(getImpersonatedUsername())
-          const me = await fetchIdentityAs(operator.username, operator.sessionId)
+          const me = await fetchIdentityAs(operator.userId, operator.sessionId)
           if (cancelled) return
           setIdentity(me)
         } else {
           const me = await api.get<AdminIdentity>('/api/auth/me')
           if (cancelled) return
+          // Backfill user_id if this browser still has a legacy username token.
+          if (me?.id != null && !getUserId()) {
+            setCredentials(me.id, getSessionId() || '', me.username)
+          }
           setIdentity(me)
         }
       } catch {
@@ -140,10 +145,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token: string
       session_id?: string
       username?: string
+      id?: number
+      user_id?: number
       permissions: Record<string, boolean>
     }>('/api/auth/login', { username, session_id: sessionId }, { anonymous: true })
-    // Store username + session_id so every later API call sends them.
-    setCredentials(res.username || username, res.session_id || sessionId)
+    const resolvedId = res.user_id ?? res.id
+    if (resolvedId == null || String(resolvedId).trim() === '') {
+      throw new Error('Login response missing user_id')
+    }
+    // Store user_id + session_id so every later API call sends them.
+    setCredentials(resolvedId, res.session_id || sessionId, res.username || username)
     const me = await api.get<AdminIdentity>('/api/auth/me')
     setIdentity(me)
     setNeedsSetup(false)
@@ -163,13 +174,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setup = useCallback(async (username: string, password: string, email?: string) => {
-    const res = await api.post<{ token: string }>('/api/auth/first-admin', {
-      username,
-      password,
-      email: email || null,
-    })
-    setToken(res.token)
+    const res = await api.post<{ token: string; id?: number; user_id?: number; session_id?: string }>(
+      '/api/auth/first-admin',
+      {
+        username,
+        password,
+        email: email || null,
+      },
+    )
+    const userId = res.user_id ?? res.id
+    if (userId != null && (res.session_id || getSessionId())) {
+      setCredentials(userId, res.session_id || getSessionId() || '', username)
+    } else {
+      setToken(res.token)
+    }
     const me = await api.get<AdminIdentity>('/api/auth/me')
+    if (me?.id != null) {
+      setCredentials(me.id, getSessionId() || res.session_id || '', me.username)
+    }
     setIdentity(me)
     setNeedsSetup(false)
     navigate('/dashboard')
@@ -187,8 +209,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const operator = getImpersonator()
       const me = operator
-        ? await fetchIdentityAs(operator.username, operator.sessionId)
+        ? await fetchIdentityAs(operator.userId, operator.sessionId)
         : await api.get<AdminIdentity>('/api/auth/me')
+      if (me?.id != null && !getUserId() && !operator) {
+        setCredentials(me.id, getSessionId() || '', me.username)
+      }
       setIdentity(me)
       return me
     } catch {
@@ -198,9 +223,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const applySupportSession = useCallback(async (result: Awaited<ReturnType<typeof adminsApi.impersonate>>) => {
-    const operatorUser = getUsername()
+    const operatorUserId = getUserId()
     const operatorSession = getSessionId()
-    if (!operatorUser || !operatorSession) {
+    if (!operatorUserId || !operatorSession) {
       throw new Error('Your customer_care session is missing — log in again')
     }
     if (!result.tenant_id) {
@@ -212,14 +237,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         `Admin "${result.username}" has no session_id in the database. Regenerate their session, then try Login again.`,
       )
     }
+    const targetUserId = result.user_id ?? result.id
+    if (targetUserId == null) {
+      throw new Error(`Admin "${result.username}" has no user_id in the login payload`)
+    }
     // Keep Customercare / superadmin as the visible identity. The live API
     // session switches to the tenant account so writes are allowed.
     const operatorIdentity =
       identity && isCustomerCareIdentity(identity)
         ? identity
-        : await fetchIdentityAs(operatorUser, operatorSession)
-    saveImpersonator(operatorUser, operatorSession, result.username)
-    setCredentials(result.username, sessionId)
+        : await fetchIdentityAs(operatorUserId, operatorSession)
+    saveImpersonator(operatorUserId, operatorSession, result.username, getUsername())
+    setCredentials(targetUserId, sessionId, result.username)
     setImpersonating(true)
     setImpersonatedUsername(result.username)
     setIdentity({
@@ -255,7 +284,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setImpersonatedUsername(null)
       return
     }
-    setCredentials(operator.username, operator.sessionId)
+    setCredentials(operator.userId, operator.sessionId, operator.username)
     clearImpersonator()
     setImpersonating(false)
     setImpersonatedUsername(null)

@@ -649,6 +649,13 @@
           "integer": false,
           "required": false,
           "default": null
+        },
+        {
+          "name": "krt_unique_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
         }
       ],
       "primary_key": [
@@ -10656,6 +10663,135 @@
           ],
           "options": {
             "name": "ix_event_facilities_tenant_active",
+            "unique": false
+          }
+        }
+      ]
+    },
+    "send2_credentials": {
+      "columns": [
+        {
+          "name": "id",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "tenant_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "krt_unique_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "enc_username",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "enc_password",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "enc_extra",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "last_synced_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "updated_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        },
+        {
+          "name": "created_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "keys": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "mongo_primary_key",
+            "unique": true,
+            "partialFilterExpression": {
+              "id": {
+                "$type": "number"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ],
+            [
+              "krt_unique_id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ux_send2_credentials_tenant_krt",
+            "unique": true,
+            "partialFilterExpression": {
+              "tenant_id": {
+                "$type": "string"
+              },
+              "krt_unique_id": {
+                "$type": "string"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ix_send2_credentials_tenant",
             "unique": false
           }
         }

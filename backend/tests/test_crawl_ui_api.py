@@ -150,14 +150,14 @@ class CrawlExportApiTests(_CrawlTestBase):
         self.sessions = {}
         for username, tenant_id in (("crawl-a-admin", "crawl-a"), ("crawl-b-admin", "crawl-b")):
             session_id = f"session-{username}"
-            database.create_admin(
+            user_id = database.create_admin(
                 encode_send2_username(username),
                 role="admin",
                 permissions={"manage_operations": True},
                 tenant_id=tenant_id,
                 session_id=session_id,
             )
-            self.sessions[tenant_id] = {"username": username, "session_id": session_id}
+            self.sessions[tenant_id] = {"user_id": str(user_id), "session_id": session_id}
 
         from routes import crawl as crawl_routes
 

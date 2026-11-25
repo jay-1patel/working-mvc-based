@@ -11,12 +11,18 @@ from typing import Optional
 from database import list_chat_thread, save_chat, touch_handover_activity
 from routes.auth import get_current_admin, scoped_tenant_id
 from routing.config import (
-    SEND2_USERNAME,
-    SEND2_PASSWORD,
     SEND2_NUMBER,
     SEND2_SESSION_SEND_URL,
     SEND_MEDIA,
 )
+
+
+def _send2_login(tenant_id: str = None):
+    try:
+        from services.credential_vault import resolve_send2_username_password
+    except ImportError:
+        from backend.services.credential_vault import resolve_send2_username_password
+    return resolve_send2_username_password(tenant_id)
 
 logger = logging.getLogger("chat")
 router = APIRouter(prefix="/api/chat")
@@ -100,12 +106,13 @@ def _guess_media_type(filename: str, content_type: str = "") -> str:
 
 # ── Send via send2.digital ────────────────────────────────────────────────
 
-def _send_text_via_send2(wa_id: str, text: str) -> dict:
+def _send_text_via_send2(wa_id: str, text: str, tenant_id: str = None) -> dict:
     """Send text message via send2.digital."""
     url = SEND2_SESSION_SEND_URL
+    username, password = _send2_login(tenant_id)
     payload = {
-        "user_name": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        "user_name": username,
+        "password": password,
         "contact_no": wa_id,
         "message_type": "text",
         "message": text,
@@ -119,12 +126,13 @@ def _send_text_via_send2(wa_id: str, text: str) -> dict:
         return {"error": str(e)}
 
 
-def _send_media_via_send2(wa_id: str, media_type: str, media_url: str, caption: str = None) -> dict:
+def _send_media_via_send2(wa_id: str, media_type: str, media_url: str, caption: str = None, tenant_id: str = None) -> dict:
     """Send media message via send2.digital."""
     url = SEND2_SESSION_SEND_URL
+    username, password = _send2_login(tenant_id)
     payload = {
-        "user_name": SEND2_USERNAME,
-        "password": SEND2_PASSWORD,
+        "user_name": username,
+        "password": password,
         "contact_no": wa_id,
         "message_type": media_type,
         "message": media_url,
@@ -168,6 +176,7 @@ async def send_message(
     if not wa_id:
         raise HTTPException(status_code=400, detail="wa_id is required")
 
+    tenant_id = scoped_tenant_id(current_admin)
     result = {}
 
     if uploaded_file and hasattr(uploaded_file, "read"):
@@ -195,13 +204,15 @@ async def send_message(
             )
 
         # Send media via send2.digital
-        result = _send_media_via_send2(wa_id, media_type, media_url, caption=message or None)
+        result = _send_media_via_send2(
+            wa_id, media_type, media_url, caption=message or None, tenant_id=tenant_id
+        )
 
         # Save to chat_history
         save_chat(wa_id, sender, message or f"[{media_type}] {filename}", response=None, route="agent")
     else:
         # Text-only message
-        result = _send_text_via_send2(wa_id, message)
+        result = _send_text_via_send2(wa_id, message, tenant_id=tenant_id)
         save_chat(wa_id, sender, message, response=None, route="agent")
 
     # A human agent has just responded: keep the handoff alive by resetting the

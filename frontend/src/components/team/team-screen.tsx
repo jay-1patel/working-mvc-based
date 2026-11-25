@@ -250,7 +250,7 @@ export function TeamScreen() {
               disabled={!isSuperAdmin}
               hint={
                 isSuperAdmin
-                  ? 'The tenant this admin is scoped to. Leave empty for a tenant-wide super admin.'
+                  ? 'Leave empty for a Send2-provisioned admin — they create their tenant on first login. Or pick a tenant to assign them now.'
                   : 'Automatically set to your tenant — only a super admin can choose it.'
               }
             >

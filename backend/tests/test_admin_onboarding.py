@@ -140,13 +140,22 @@ class AdminOnboardingTests(unittest.TestCase):
         assert res.status_code == 200, res.text
         return _headers(username, res.json()["session_id"])
 
-    # ── the premise: this admin really is still awaiting approval ──────
+    # ── lock rule: no tenant_id → first-login incomplete ───────────────
 
-    def test_admin_is_awaiting_approval(self):
+    def test_unscoped_admin_is_locked_until_first_login(self):
+        headers = self._create_admin("fresh-admin", tenant_id=None)
+        me = self.client.get("/api/auth/me", headers=headers)
+        self.assertEqual(me.status_code, 200, me.text)
+        self.assertEqual(me.json()["role"], "admin")
+        self.assertIsNone(me.json().get("tenant_id"))
+        self.assertFalse(me.json()["onboarding_approved"])
+
+    def test_scoped_admin_is_unlocked(self):
         me = self.client.get("/api/auth/me", headers=self.leeway_admin)
         self.assertEqual(me.status_code, 200, me.text)
         self.assertEqual(me.json()["role"], "admin")
-        self.assertFalse(me.json()["onboarding_approved"])
+        self.assertEqual(me.json().get("tenant_id"), "leeway")
+        self.assertTrue(me.json()["onboarding_approved"])
 
     # ── stage endpoint ─────────────────────────────────────────────────
 

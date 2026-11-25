@@ -1,5 +1,5 @@
 import { render, waitFor, screen } from '@testing-library/react'
-import { setToken } from '@/lib/api'
+import { setCredentials, setToken } from '@/lib/api'
 import App from '@/App'
 
 export function renderWithShell() {
@@ -9,7 +9,8 @@ export function renderWithShell() {
 
 export function renderApp(hash = '#/tenants') {
   window.location.hash = hash
-  setToken('test-token')
+  // Username + session_id auth — a bare opaque token no longer authenticates.
+  setCredentials('root', 'test-session')
   const utils = render(<App />)
   return utils
 }

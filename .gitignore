@@ -21,6 +21,7 @@ scratchpad/
 .idea/
 .vscode/
 *.log
+node_modules/
 
 # Runtime / generated data (do not commit)
 backend/uploaded_files/

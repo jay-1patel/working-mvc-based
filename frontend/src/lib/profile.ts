@@ -21,7 +21,7 @@ import {
   type ResolvedProfile,
   type Tenant,
 } from './types'
-import { getVertical } from './verticals'
+import { defaultFeaturesFor, getVertical } from './verticals'
 import type { StagedOnboardingDraft } from './uploads'
 
 // ── shared wizard/editor data ───────────────────────────────────────────────
@@ -238,7 +238,7 @@ export function emptyDraft(): WizardDraft {
     supportPhone: '',
     greeting: '',
     logoUrl: '',
-    features: [...v.recommended],
+    features: defaultFeaturesFor(v),
     answers: {},
     salesEmail: '',
     notificationsSupportEmail: '',
@@ -259,7 +259,7 @@ export function applyVertical(draft: WizardDraft, vertical: string): WizardDraft
     ...draft,
     vertical: v.id,
     tone: v.tone,
-    features: [...v.recommended],
+    features: defaultFeaturesFor(v),
   }
 }
 

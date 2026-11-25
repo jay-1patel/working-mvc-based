@@ -5,7 +5,7 @@
  * Each entry describes one business field (software & IT, tours & travel, ...)
  * and drives:
  *   - which onboarding questions appear,
- *   - which feature groups are offered and which are pre-selected,
+ *   - which Optional modules are offered (and which start on),
  *   - the vocabulary the bot will use ("services" vs "products" vs "packages"),
  *   - the preview shown before the tenant is created.
  *
@@ -14,7 +14,7 @@
  * values here are seeded into the draft and the server remains the authority.
  */
 
-import type { FeatureFlag, Vertical } from './types'
+import { FEATURE_FLAGS, type FeatureFlag, type Vertical } from './types'
 
 export type QuestionKind = 'text' | 'textarea' | 'chips' | 'select'
 
@@ -42,6 +42,26 @@ export interface VerticalContent {
   /** Price field label. `null` hides price - a consultancy has no list price. */
   priceLabel: string | null
 }
+
+/** One toggle on the onboarding "Optional modules" panel for this vertical. */
+export interface OptionalModule {
+  flag: FeatureFlag
+  label: string
+  description: string
+  /** Pre-selected when this vertical is chosen. */
+  defaultOn: boolean
+}
+
+/**
+ * Always enabled for every tenant (not shown as Optional modules toggles).
+ * FAQ / KB / handoff / talk-to-human stay on so support substrate never disappears.
+ */
+export const SUBSTRATE_FEATURES: FeatureFlag[] = [
+  'faq',
+  'kb',
+  'handoff',
+  'human_handover',
+]
 
 export interface VerticalMeta {
   id: Vertical
@@ -73,13 +93,25 @@ export interface VerticalMeta {
    * the suggested groups and the extra detail fields differ.
    */
   content: VerticalContent
-  /** Pre-selected in the capabilities step. */
-  recommended: FeatureFlag[]
+  /**
+   * Vertical-specific Optional modules list. Only these flags appear as
+   * toggles; commerce flags are omitted for non-shop verticals, etc.
+   */
+  optionalModules: OptionalModule[]
   /** Capability groups to hide entirely for this vertical. */
   hiddenGroups: string[]
   /** Plain-language "your bot will be able to..." bullets. */
   capabilities: string[]
   questions: VerticalQuestion[]
+}
+
+/** Seeded feature flags: substrate + every optional module marked defaultOn. */
+export function defaultFeaturesFor(meta: Pick<VerticalMeta, 'optionalModules'>): FeatureFlag[] {
+  const on = new Set<FeatureFlag>(SUBSTRATE_FEATURES)
+  for (const mod of meta.optionalModules) {
+    if (mod.defaultOn) on.add(mod.flag)
+  }
+  return FEATURE_FLAGS.filter((flag) => on.has(flag))
 }
 
 export const FEATURE_GROUPS: {
@@ -203,21 +235,24 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'enquiry',
       leadAction: 'Enquire',
     },
-    recommended: [
-      'cart',
-      'buy_now',
-      'orders',
-      'track_order',
-      'returns',
-      'offerings',
-      'offering_details',
-      'products',
-      'brochure_pdf',
-      'faq',
-      'kb',
-      'complaints',
-      'handoff',
-      'human_handover',
+    optionalModules: [
+      { flag: 'products', label: 'Products Menu', description: 'Show the Products menu entry and answer questions about what you sell.', defaultOn: true },
+      { flag: 'offerings', label: 'Browse products', description: 'Let customers browse your product catalogue on WhatsApp.', defaultOn: true },
+      { flag: 'offering_details', label: 'Product details', description: 'Share price, specs and images for each product.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Brochure PDF', description: 'Offer downloadable brochure or catalog PDFs in chat.', defaultOn: true },
+      { flag: 'cart', label: 'Cart', description: 'Allow customers to add multiple items to a cart before checkout.', defaultOn: true },
+      { flag: 'buy_now', label: 'Buy now', description: 'One-tap purchase from a product card.', defaultOn: true },
+      { flag: 'orders', label: 'Orders Management', description: 'Accept and process customer orders through WhatsApp.', defaultOn: true },
+      { flag: 'payments', label: 'Online Payments', description: 'Generate Razorpay or Stripe checkout links for WhatsApp orders.', defaultOn: true },
+      { flag: 'track_order', label: 'Order Tracking', description: 'Allow customers to look up order status and shipment AWB on WhatsApp.', defaultOn: true },
+      { flag: 'returns', label: 'Returns', description: 'Accept return and refund requests from chat.', defaultOn: true },
+      { flag: 'distributors', label: 'Distributors', description: 'Manage reseller/distributor network and wholesale pricing tiers.', defaultOn: true },
+      { flag: 'lead_capture', label: 'Lead / Enquire', description: 'Collect name, phone and email from interested buyers.', defaultOn: true },
+      { flag: 'quote', label: 'Request a Quote', description: 'Collect custom requirements and generate quote requests.', defaultOn: false },
+      { flag: 'callback', label: 'Request a Callback', description: 'Allow users to request a phone callback from sales or support.', defaultOn: false },
+      { flag: 'book_appointment', label: 'Book Appointments', description: 'Allow booking appointments and scheduled meetings.', defaultOn: false },
+      { flag: 'complaints', label: 'Complaints & Support', description: 'Register customer grievances and track complaint tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast messages to customer segments from the console.', defaultOn: true },
     ],
     hiddenGroups: [],
     capabilities: [
@@ -291,20 +326,17 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'enquiry',
       leadAction: 'Enquire',
     },
-    recommended: [
-      'offerings',
-      'offering_details',
-      'services',
-      'brochure_pdf',
-      'lead_capture',
-      'quote',
-      'callback',
-      'book_appointment',
-      'faq',
-      'kb',
-      'complaints',
-      'handoff',
-      'human_handover',
+    optionalModules: [
+      { flag: 'services', label: 'Services Menu', description: 'Show the Services menu entry and answer questions about what you deliver.', defaultOn: true },
+      { flag: 'offerings', label: 'Browse services', description: 'Let customers explore your service catalogue on WhatsApp.', defaultOn: true },
+      { flag: 'offering_details', label: 'Service details', description: 'Share scope, stack and pricing cues per service.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Service Brochure PDF', description: 'Offer a downloadable service brochure in chat.', defaultOn: true },
+      { flag: 'lead_capture', label: 'Project enquiry', description: 'Collect project details and raise an enquiry to your team.', defaultOn: true },
+      { flag: 'quote', label: 'Request a Quote', description: 'Collect requirements and generate quote requests.', defaultOn: true },
+      { flag: 'callback', label: 'Request a Callback', description: 'Allow users to request a phone callback from sales or support.', defaultOn: true },
+      { flag: 'book_appointment', label: 'Book Discovery Call', description: 'Allow booking a discovery or consultation call.', defaultOn: true },
+      { flag: 'complaints', label: 'Complaints & Support', description: 'Register customer grievances and track complaint tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast messages to customer segments from the console.', defaultOn: false },
     ],
     hiddenGroups: ['commerce'],
     capabilities: [
@@ -382,18 +414,16 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'booking enquiry',
       leadAction: 'Enquire',
     },
-    recommended: [
-      'offerings',
-      'offering_details',
-      'brochure_pdf',
-      'lead_capture',
-      'book_appointment',
-      'callback',
-      'faq',
-      'kb',
-      'complaints',
-      'handoff',
-      'human_handover',
+    optionalModules: [
+      { flag: 'offerings', label: 'Tour packages menu', description: 'Show Destinations and Packages so travellers can browse trips.', defaultOn: true },
+      { flag: 'offering_details', label: 'Itinerary & inclusions', description: 'Share duration, inclusions and destination details per package.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Travel Brochure PDF', description: 'Offer downloadable travel brochure or itinerary PDFs in chat.', defaultOn: true },
+      { flag: 'lead_capture', label: 'Trip enquiry', description: 'Collect traveller details and raise a booking enquiry.', defaultOn: true },
+      { flag: 'quote', label: 'Custom trip quote', description: 'Collect custom itinerary requirements and generate quote requests.', defaultOn: true },
+      { flag: 'callback', label: 'Request a Callback', description: 'Allow travellers to request a phone callback from your team.', defaultOn: true },
+      { flag: 'book_appointment', label: 'Book consultation', description: 'Allow booking a travel consultation or planning call.', defaultOn: true },
+      { flag: 'complaints', label: 'Complaints & Support', description: 'Register booking issues and track support tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast offers to traveller segments from the console.', defaultOn: true },
     ],
     hiddenGroups: ['commerce'],
     capabilities: [
@@ -457,18 +487,17 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'enquiry',
       leadAction: 'Enquire',
     },
-    recommended: [
-      'offerings',
-      'offering_details',
-      'products_schemes',
-      'brochure_pdf',
-      'lead_capture',
-      'callback',
-      'faq',
-      'kb',
-      'complaints',
-      'handoff',
-      'human_handover',
+    optionalModules: [
+      { flag: 'products_schemes', label: 'Products & Schemes', description: 'Show accounts, cards, loans and schemes in the WhatsApp menu.', defaultOn: true },
+      { flag: 'offerings', label: 'Browse products', description: 'Let customers browse banking products and schemes.', defaultOn: true },
+      { flag: 'offering_details', label: 'Product details', description: 'Share eligibility, charges and product specifics.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Product Brochure', description: 'Offer downloadable product brochure PDFs in chat.', defaultOn: false },
+      { flag: 'lead_capture', label: 'Apply / Enquire', description: 'Collect details for product applications and enquiries.', defaultOn: true },
+      { flag: 'quote', label: 'Check Eligibility', description: 'Collect details to check product eligibility.', defaultOn: false },
+      { flag: 'callback', label: 'Request a Callback', description: 'Allow users to request a phone callback from the bank.', defaultOn: true },
+      { flag: 'book_appointment', label: 'Book Appointments', description: 'Allow booking a branch or advisor appointment.', defaultOn: true },
+      { flag: 'complaints', label: 'Complaints & Support', description: 'Register grievances and track complaint tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast messages to customer segments from the console.', defaultOn: true },
     ],
     hiddenGroups: ['commerce'],
     capabilities: [
@@ -520,18 +549,17 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'consultation',
       leadAction: 'Request a Callback',
     },
-    recommended: [
-      'offerings',
-      'offering_details',
-      'services',
-      'brochure_pdf',
-      'lead_capture',
-      'callback',
-      'book_appointment',
-      'faq',
-      'kb',
-      'handoff',
-      'human_handover',
+    optionalModules: [
+      { flag: 'services', label: 'Services Menu', description: 'Show the Services menu entry for tax, audit and advisory work.', defaultOn: true },
+      { flag: 'offerings', label: 'Browse services', description: 'Let clients explore your finance services on WhatsApp.', defaultOn: true },
+      { flag: 'offering_details', label: 'Service details', description: 'Share fees, deadlines and documents needed per service.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Fee schedule / Brochure', description: 'Offer a downloadable fee schedule or services brochure.', defaultOn: true },
+      { flag: 'lead_capture', label: 'Consultation enquiry', description: 'Collect client details and raise a consultation enquiry.', defaultOn: true },
+      { flag: 'quote', label: 'Request a Proposal', description: 'Collect requirements and generate a proposal request.', defaultOn: true },
+      { flag: 'callback', label: 'Book a Callback', description: 'Allow clients to request a phone callback.', defaultOn: true },
+      { flag: 'book_appointment', label: 'Book consultation', description: 'Allow booking a consultation appointment.', defaultOn: true },
+      { flag: 'complaints', label: 'Complaints & Support', description: 'Register client grievances and track tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast messages to client segments from the console.', defaultOn: true },
     ],
     hiddenGroups: ['commerce'],
     capabilities: [
@@ -590,18 +618,16 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'appointment request',
       leadAction: 'Book Appointment',
     },
-    recommended: [
-      'offerings',
-      'offering_details',
-      'brochure_pdf',
-      'lead_capture',
-      'book_appointment',
-      'callback',
-      'faq',
-      'kb',
-      'complaints',
-      'handoff',
-      'human_handover',
+    optionalModules: [
+      { flag: 'offerings', label: 'Departments menu', description: 'Show departments and treatments patients can browse.', defaultOn: true },
+      { flag: 'offering_details', label: 'Specialities', description: 'Share department timings, leads and consultation details.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Services list PDF', description: 'Offer a downloadable services or departments PDF.', defaultOn: false },
+      { flag: 'lead_capture', label: 'Patient enquiry', description: 'Collect patient details and raise an enquiry to reception.', defaultOn: true },
+      { flag: 'quote', label: 'Cost estimate', description: 'Collect details for a treatment cost estimate.', defaultOn: false },
+      { flag: 'callback', label: 'Request a Callback', description: 'Allow patients to request a phone callback.', defaultOn: true },
+      { flag: 'book_appointment', label: 'Book Appointment', description: 'Allow booking appointments with the clinic.', defaultOn: true },
+      { flag: 'complaints', label: 'Feedback / Complaints', description: 'Register feedback and grievances as tracked tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast messages to patient segments from the console.', defaultOn: false },
     ],
     hiddenGroups: ['commerce'],
     capabilities: [
@@ -663,19 +689,16 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'site visit request',
       leadAction: 'Schedule Site Visit',
     },
-    recommended: [
-      'offerings',
-      'offering_details',
-      'brochure_pdf',
-      'lead_capture',
-      'quote',
-      'callback',
-      'book_appointment',
-      'faq',
-      'kb',
-      'complaints',
-      'handoff',
-      'human_handover',
+    optionalModules: [
+      { flag: 'offerings', label: 'Properties menu', description: 'Show residential and commercial listings customers can browse.', defaultOn: true },
+      { flag: 'offering_details', label: 'Projects & specs', description: 'Share floor plans, amenities and project specifications.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Project Brochure PDF', description: 'Offer downloadable project brochures and floor plans.', defaultOn: true },
+      { flag: 'lead_capture', label: 'Site-visit / enquiry', description: 'Collect buyer details and raise a site-visit enquiry.', defaultOn: true },
+      { flag: 'quote', label: 'Price & payment plan', description: 'Collect details for pricing and payment-plan requests.', defaultOn: true },
+      { flag: 'callback', label: 'Request a Callback', description: 'Allow buyers to request a callback from a property advisor.', defaultOn: true },
+      { flag: 'book_appointment', label: 'Schedule Site Visit', description: 'Allow booking a guided site visit.', defaultOn: true },
+      { flag: 'complaints', label: 'Customer Support', description: 'Register buyer support requests and track tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast offers to buyer segments from the console.', defaultOn: true },
     ],
     hiddenGroups: ['commerce'],
     capabilities: [
@@ -729,24 +752,20 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'sales enquiry',
       leadAction: 'Test Drive',
     },
-    recommended: [
-      'offerings',
-      'offering_details',
-      'brochure_pdf',
-      'lead_capture',
-      'quote',
-      'callback',
-      'book_appointment',
-      'faq',
-      'kb',
-      'complaints',
-      'campaigns',
-      'handoff',
-      'human_handover',
-      'message_intelligence',
-      'topic_tagging',
-      'safety_escalation',
-      'repeat_issue_detection',
+    optionalModules: [
+      { flag: 'offerings', label: 'Our Cars menu', description: 'Show models customers can browse on WhatsApp.', defaultOn: true },
+      { flag: 'offering_details', label: 'Specs & variants', description: 'Share fuel, variant and engine details per model.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Model Brochure PDF', description: 'Offer downloadable model brochures in chat.', defaultOn: true },
+      { flag: 'lead_capture', label: 'Sales enquiry', description: 'Collect buyer details and raise a sales enquiry.', defaultOn: true },
+      { flag: 'quote', label: 'On-Road Price', description: 'Collect city and model details for an on-road price quote.', defaultOn: true },
+      { flag: 'callback', label: 'Test Drive / Callback', description: 'Allow customers to request a test drive or sales callback.', defaultOn: true },
+      { flag: 'book_appointment', label: 'Book Appointments', description: 'Allow booking showroom visits or service appointments.', defaultOn: true },
+      { flag: 'complaints', label: 'Customer Care', description: 'Register service and sales complaints as tracked tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast offers to customer segments from the console.', defaultOn: true },
+      { flag: 'message_intelligence', label: 'Message intelligence', description: 'Classify sentiment and message type (complaint, question, praise).', defaultOn: true },
+      { flag: 'topic_tagging', label: 'Component / topic tags', description: 'Tag vehicle components and topics from each message.', defaultOn: true },
+      { flag: 'safety_escalation', label: 'Safety escalation', description: 'Detect safety issues and hand off to a human immediately.', defaultOn: true },
+      { flag: 'repeat_issue_detection', label: 'Repeat issue detection', description: 'Flag repeated issues and topic surges across customers.', defaultOn: true },
     ],
     hiddenGroups: ['commerce'],
     capabilities: [
@@ -799,7 +818,17 @@ export const VERTICAL_CATALOG: VerticalMeta[] = [
       lead: 'enquiry',
       leadAction: 'Enquire',
     },
-    recommended: ['offerings', 'offering_details', 'lead_capture', 'faq', 'kb', 'handoff', 'human_handover'],
+    optionalModules: [
+      { flag: 'offerings', label: 'Browse offerings', description: 'Let customers browse what you sell or offer.', defaultOn: true },
+      { flag: 'offering_details', label: 'Item details', description: 'Share details and images for each offering.', defaultOn: true },
+      { flag: 'brochure_pdf', label: 'Brochure PDF', description: 'Offer downloadable brochure PDFs in chat.', defaultOn: false },
+      { flag: 'lead_capture', label: 'Enquire', description: 'Collect name, phone and email from interested customers.', defaultOn: true },
+      { flag: 'quote', label: 'Request a Quote', description: 'Collect custom requirements and generate quote requests.', defaultOn: false },
+      { flag: 'callback', label: 'Request a Callback', description: 'Allow users to request a phone callback.', defaultOn: true },
+      { flag: 'book_appointment', label: 'Book Appointments', description: 'Allow booking appointments and scheduled meetings.', defaultOn: false },
+      { flag: 'complaints', label: 'Complaints', description: 'Register customer grievances and track tickets.', defaultOn: true },
+      { flag: 'campaigns', label: 'Campaigns', description: 'Broadcast messages to customer segments from the console.', defaultOn: false },
+    ],
     hiddenGroups: ['commerce'],
     capabilities: [
       'Answer questions from your FAQ and documents',

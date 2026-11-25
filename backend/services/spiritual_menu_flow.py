@@ -1,11 +1,10 @@
-"""Hierarchical WhatsApp menus for the spiritual tenant (PDF-aligned).
+"""Hierarchical WhatsApp menus for the spiritual tenant.
 
-Main: Gangasagar · Kumbh Mela · Rath Yatra
-Event → Places → Details
-  History · Darshan · Reach · Stay · Prasad · Parking · Contact ·
-  Emergency · Lost Found
-
-Emergency / Lost Found open action lists and can send location pins.
+Main: Kumbh Mela · Gangasagar Mela · Jagannath Rath Yatra
+Each event opens the same 7 platform components (event-specific answers):
+  AI Spiritual Guide · Religious Knowledge · Religious Calendar ·
+  Holy Bathing Information · Travel Assistance · Accommodation ·
+  Emergency Support
 """
 from __future__ import annotations
 
@@ -21,104 +20,196 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned)
 
 
-# ── Standard place details (answered as text) ────────────────────────────────
+# ── Events (main menu) ───────────────────────────────────────────────────────
 
-DETAIL_TOPICS: list[dict[str, str]] = [
+EVENTS: dict[str, dict[str, Any]] = {
+    "menu_kumbh": {
+        "slug": "kumbh",
+        "title": "Kumbh Mela",
+        "header": "Kumbh Mela",
+        "body": "Choose a Kumbh Mela service:",
+        "event_label": "Kumbh Mela",
+    },
+    "menu_gangasagar": {
+        "slug": "gangasagar",
+        "title": "Gangasagar Mela",
+        "header": "Gangasagar Mela",
+        "body": "Choose a Gangasagar Mela service:",
+        "event_label": "Gangasagar Mela",
+    },
+    "menu_rath_yatra": {
+        "slug": "rath_yatra",
+        "title": "Jagannath Rath Yatra",
+        "header": "Jagannath Rath Yatra",
+        "body": "Choose a Rath Yatra service:",
+        "event_label": "Jagannath Rath Yatra",
+    },
+}
+
+# ── Sub-menu (platform components) — same 7 for every event ──────────────────
+
+EVENT_TOPICS: list[dict[str, Any]] = [
     {
-        "key": "history",
-        "title": "History",
-        "description": "Sacred history & significance",
-        "answer": (
-            "📜 *History — {place}*\n\n"
-            "Sacred history and religious significance of *{place}* "
-            "({event}) will be shared from verified sources.\n\n"
-            "Ask if you want mythology, architecture, or festival heritage."
-        ),
+        "key": "guide",
+        "title": "AI Spiritual Guide",
+        "description": "Common spiritual guidance",
+        "kind": "text",
+        "answers": {
+            "kumbh": (
+                "🙏 *AI Spiritual Guide — Kumbh Mela*\n\n"
+                "Ask about sankalp, snan etiquette, mantras, or how to plan "
+                "your Kumbh day with calm and devotion.\n\n"
+                "Type your question anytime."
+            ),
+            "gangasagar": (
+                "🙏 *AI Spiritual Guide — Gangasagar Mela*\n\n"
+                "Ask about Kapil Muni darshan, snan sankalp, or how to keep "
+                "your Gangasagar yatra peaceful and safe.\n\n"
+                "Type your question anytime."
+            ),
+            "rath_yatra": (
+                "🙏 *AI Spiritual Guide — Jagannath Rath Yatra*\n\n"
+                "Ask about darshan, chariot pull etiquette, or the meaning of "
+                "Rath Yatra rituals in Puri.\n\n"
+                "Type your question anytime."
+            ),
+        },
     },
     {
-        "key": "darshan",
-        "title": "Darshan",
-        "description": "Darshan & timings",
-        "answer": (
-            "🙏 *Darshan / Timings — {place}*\n\n"
-            "Darshan windows, opening hours and peak crowd guidance for "
-            "*{place}* will appear here from the official schedule.\n\n"
-            "Ask for today's morning or evening slot."
-        ),
+        "key": "knowledge",
+        "title": "Religious Knowledge",
+        "description": "Event-specific sacred knowledge",
+        "kind": "text",
+        "answers": {
+            "kumbh": (
+                "📜 *Religious Knowledge — Kumbh Mela*\n\n"
+                "Kumbh-specific heritage: four sacred cities, Amrit Snan cycles, "
+                "akhara traditions and the spiritual meaning of the Sangam.\n\n"
+                "Ask for mythology, history, or rituals."
+            ),
+            "gangasagar": (
+                "📜 *Religious Knowledge — Gangasagar Mela*\n\n"
+                "Gangasagar-specific heritage: Kapil Muni, Ganga-Sagar sangam, "
+                "Makar Sankranti snan and local pilgrimage customs.\n\n"
+                "Ask for mythology, history, or rituals."
+            ),
+            "rath_yatra": (
+                "📜 *Religious Knowledge — Jagannath Rath Yatra*\n\n"
+                "Rath Yatra-specific heritage: Jagannath, Balabhadra, Subhadra, "
+                "Gundicha yatra and the meaning of the chariots.\n\n"
+                "Ask for mythology, history, or rituals."
+            ),
+        },
     },
     {
-        "key": "reach",
-        "title": "Reach",
-        "description": "How to reach",
-        "answer": (
-            "🗺️ *How to Reach — {place}*\n\n"
-            "Directions to *{place}* for {event}: nearest rail/road/ferry "
-            "and local transport tips.\n\n"
-            "Tell us your starting city for a step-by-step plan."
-        ),
+        "key": "calendar",
+        "title": "Religious Calendar",
+        "description": "Event schedule & key dates",
+        "kind": "text",
+        "answers": {
+            "kumbh": (
+                "📅 *Religious Calendar — Kumbh*\n\n"
+                "Kumbh schedule highlights: Shahi Snan / Amrit Snan dates, "
+                "parikrama windows and peak crowd days (verify with official mela notice).\n\n"
+                "Ask which city (Prayagraj / Haridwar / Nashik / Ujjain)."
+            ),
+            "gangasagar": (
+                "📅 *Religious Calendar — Gangasagar*\n\n"
+                "Mela schedule highlights: Makar Sankranti snan day, "
+                "approach dates and ferry / snan windows "
+                "(verify with official mela notice)."
+            ),
+            "rath_yatra": (
+                "📅 *Religious Calendar — Rath Yatra*\n\n"
+                "Rath Yatra schedule highlights: Snana Yatra, Gundicha, "
+                "Bahuda Yatra and return dates "
+                "(verify with Sri Jagannath Temple / official notice)."
+            ),
+        },
+    },
+    {
+        "key": "bathing",
+        "title": "Holy Bathing Info",
+        "description": "Snan / ritual bathing guidance",
+        "kind": "text",
+        "answers": {
+            "kumbh": (
+                "🛁 *Holy Bathing — Kumbh*\n\n"
+                "Snan locations and guidance for Kumbh ghats (Sangam and city-specific snan points). "
+                "Follow local volunteers for safe entry/exit.\n\n"
+                "Ask which ghat or city you are visiting."
+            ),
+            "gangasagar": (
+                "🛁 *Holy Bathing — Gangasagar*\n\n"
+                "Sangam snan guidance near Kapil Muni / main snan ghat. "
+                "Mind tides, ferry timings and crowd flow.\n\n"
+                "Ask for morning snan tips if needed."
+            ),
+            "rath_yatra": (
+                "🛁 *Holy Bathing / Rituals — Rath Yatra*\n\n"
+                "Applicable rituals around Jagannath Rath Yatra "
+                "(Snana Yatra, chariot procession etiquette). "
+                "Follow temple / police guidance on Bada Danda."
+            ),
+        },
+    },
+    {
+        "key": "travel",
+        "title": "Travel Assistance",
+        "description": "How to reach the event",
+        "kind": "text",
+        "answers": {
+            "kumbh": (
+                "🗺️ *Travel Assistance — Kumbh*\n\n"
+                "Event-specific travel: nearest rail/road for your Kumbh city, "
+                "shuttle tips and peak-day advice.\n\n"
+                "Tell us your starting city."
+            ),
+            "gangasagar": (
+                "🗺️ *Travel Assistance — Gangasagar*\n\n"
+                "Event-specific travel: how to reach via Kakdwip / Kachuberia, "
+                "ferry and last-mile tips.\n\n"
+                "Tell us your starting city."
+            ),
+            "rath_yatra": (
+                "🗺️ *Travel Assistance — Rath Yatra*\n\n"
+                "Event-specific travel: reaching Puri (rail/road), "
+                "Bada Danda access and crowd-day tips.\n\n"
+                "Tell us your starting city."
+            ),
+        },
     },
     {
         "key": "stay",
-        "title": "Stay",
-        "description": "Where to stay nearby",
-        "answer": (
-            "🛏️ *Stay near {place}*\n\n"
-            "Dharamshalas, ashrams, guest houses and hotels near *{place}* "
-            "({event}) will be listed from approved directories.\n\n"
-            "Ask for budget, family or senior-friendly options."
-        ),
+        "title": "Accommodation",
+        "description": "Local stay options",
+        "kind": "text",
+        "answers": {
+            "kumbh": (
+                "🛏️ *Accommodation — Kumbh*\n\n"
+                "Local facilities: tent cities, dharamshalas, ashrams and hotels "
+                "near the mela zone (book early for Shahi Snan days)."
+            ),
+            "gangasagar": (
+                "🛏️ *Accommodation — Gangasagar*\n\n"
+                "Local facilities: ashrams, dharamshalas and lodges near the mela / jetty approach. "
+                "Book ahead for Makar Sankranti."
+            ),
+            "rath_yatra": (
+                "🛏️ *Accommodation — Rath Yatra*\n\n"
+                "Local facilities: hotels, dharamshalas and lodges in Puri "
+                "(near temple / beach / railway). Book early for yatra week."
+            ),
+        },
     },
-    {
-        "key": "prasad",
-        "title": "Prasad",
-        "description": "Prasad & food nearby",
-        "answer": (
-            "🍲 *Prasad / Food — {place}*\n\n"
-            "Prasad distribution, annadan / bhandara and nearby food points "
-            "around *{place}* will be shared here.\n\n"
-            "Ask for today's prasad timing if needed."
-        ),
-    },
-    {
-        "key": "parking",
-        "title": "Parking",
-        "description": "Parking & vehicles",
-        "answer": (
-            "🚗 *Parking — {place}*\n\n"
-            "Car, two-wheeler and bus parking near *{place}* "
-            "({event}), plus peak-hour tips.\n\n"
-            "Ask which vehicle type you are bringing."
-        ),
-    },
-    {
-        "key": "contact",
-        "title": "Contact",
-        "description": "Helpdesk & contacts",
-        "answer": (
-            "📞 *Contact — {place}*\n\n"
-            "Authorised helpdesk / temple contacts for *{place}* "
-            "({event}) will appear here once organisers publish them.\n\n"
-            "For emergencies, call local emergency services first."
-        ),
-    },
-    # Special: open nested menus (not plain answers)
     {
         "key": "emergency",
-        "title": "Emergency",
-        "description": "Medical, police, ambulance help",
-        "answer": "",
-    },
-    {
-        "key": "lostfound",
-        "title": "Lost Found",
-        "description": "Missing person / lost item help",
-        "answer": "",
+        "title": "Emergency Support",
+        "description": "Local authorities & help pins",
+        "kind": "emergency",
+        "answers": {},
     },
 ]
-
-# Facilities live in Mongo ``event_facilities`` (tenant_id, event, type, name,
-# lat/lng, address, message). Seed via scripts/seed_event_facilities.py and
-# manage via POST /api/admin/tenants/{tenant_id}/event-facilities/{list|create|update|delete}.
 
 EMERGENCY_ACTIONS: list[dict[str, str]] = [
     {"key": "medical", "title": "Medical Camp", "description": "Share GPS for nearest camp"},
@@ -128,96 +219,21 @@ EMERGENCY_ACTIONS: list[dict[str, str]] = [
     {"key": "sharearea", "title": "Share Location", "description": "WhatsApp location → nearest help"},
 ]
 
-LOSTFOUND_ACTIONS: list[dict[str, str]] = [
-    {"key": "missing", "title": "Missing Person", "description": "Report someone missing"},
-    {"key": "lostitem", "title": "Lost Item", "description": "Report a lost item"},
-    {"key": "found", "title": "Report Found", "description": "Report a found person/item"},
-    {"key": "reunion", "title": "Reunion Point", "description": "Official reunion centre pin"},
-]
+# Facilities live in Mongo ``event_facilities`` (tenant_id, event, type, name,
+# lat/lng, address, message). Seed via scripts/seed_event_facilities.py.
 
-# ── Events + places ──────────────────────────────────────────────────────────
-
-EVENTS: dict[str, dict[str, Any]] = {
-    "menu_gangasagar": {
-        "slug": "gangasagar",
-        "title": "Gangasagar",
-        "header": "Gangasagar Mela",
-        "body": "Choose a place at Gangasagar Mela:",
-        "event_label": "Gangasagar Mela",
-        "places": [
-            {"slug": "kapil_muni", "title": "Kapil Muni", "place": "Kapil Muni Temple"},
-            {"slug": "snan_ghat", "title": "Snan Ghat", "place": "Main Snan Ghat"},
-            {"slug": "jetty", "title": "Ferry Jetty", "place": "Kachuberia / Jetty"},
-            {"slug": "ashram", "title": "Ashrams", "place": "Ashram area"},
-            {"slug": "helipad", "title": "Helipad Area", "place": "Helipad / approach"},
-            {"slug": "market", "title": "Mela Market", "place": "Mela market & stalls"},
-            {"slug": "medical_camp", "title": "Medical Camp", "place": "Medical camp zone"},
-        ],
-    },
-    "menu_kumbh": {
-        "slug": "kumbh",
-        "title": "Kumbh Mela",
-        "header": "Kumbh Mela",
-        "body": "Choose a Kumbh place / city:",
-        "event_label": "Kumbh Mela",
-        "places": [
-            {"slug": "prayagraj", "title": "Prayagraj", "place": "Triveni Sangam, Prayagraj"},
-            {"slug": "haridwar", "title": "Haridwar", "place": "Har Ki Pauri, Haridwar"},
-            {"slug": "nashik", "title": "Nashik", "place": "Ramkund, Nashik"},
-            {"slug": "ujjain", "title": "Ujjain", "place": "Shipra Ghat, Ujjain"},
-            {"slug": "sangam", "title": "Sangam Ghat", "place": "Sangam bathing ghat"},
-            {"slug": "akhara", "title": "Akhara Camp", "place": "Akhara camping area"},
-            {"slug": "mela_admin", "title": "Mela Office", "place": "Mela administration"},
-        ],
-    },
-    "menu_rath_yatra": {
-        "slug": "rath_yatra",
-        "title": "Rath Yatra",
-        "header": "Jagannath Rath Yatra",
-        "body": "Choose a place for Rath Yatra (Puri):",
-        "event_label": "Jagannath Rath Yatra",
-        "places": [
-            {"slug": "jagannath", "title": "Jagannath", "place": "Jagannath Temple, Puri"},
-            {"slug": "gundicha", "title": "Gundicha", "place": "Gundicha Temple"},
-            {"slug": "bada_danda", "title": "Bada Danda", "place": "Bada Danda (Grand Road)"},
-            {"slug": "railway", "title": "Near Railway", "place": "Puri Railway area"},
-            {"slug": "beach", "title": "Sea Beach", "place": "Puri Beach"},
-            {"slug": "narendra", "title": "Narendra Tank", "place": "Narendra Tank"},
-            {"slug": "singhadwara", "title": "Singha Dwara", "place": "Singha Dwara entrance"},
-        ],
-    },
-}
-
-_TOPIC_BY_KEY = {t["key"]: t for t in DETAIL_TOPICS}
-_TEXT_TOPICS = frozenset(t["key"] for t in DETAIL_TOPICS if t["key"] not in {"emergency", "lostfound"})
+_TOPIC_BY_KEY = {t["key"]: t for t in EVENT_TOPICS}
 _EVENT_IDS = frozenset(EVENTS.keys())
-
-_PLACE_BY_ID: dict[str, dict[str, str]] = {}
-_PLACE_TITLE_KEYS: dict[str, str] = {}
-for _cid, _ev in EVENTS.items():
-    for _p in _ev["places"]:
-        pid = f"pl_{_ev['slug']}_{_p['slug']}"
-        _PLACE_BY_ID[pid] = {
-            "id": pid,
-            "event_id": _cid,
-            "event_slug": str(_ev["slug"]),
-            "event_label": str(_ev["event_label"]),
-            "place_slug": str(_p["slug"]),
-            "title": str(_p["title"]),
-            "place": str(_p["place"]),
-        }
-        tkey = _norm(_p["title"])
-        if tkey not in _PLACE_TITLE_KEYS:
-            _PLACE_TITLE_KEYS[tkey] = pid
+_EVENT_BY_SLUG = {str(v["slug"]): k for k, v in EVENTS.items()}
 
 _EVENT_TITLE_KEYS: dict[str, str] = {}
 for _cid, _meta in EVENTS.items():
     _EVENT_TITLE_KEYS[_norm(_meta["title"])] = _cid
 _EVENT_TITLE_KEYS.update({
-    _norm("Gangasagar Mela"): "menu_gangasagar",
-    _norm("Gangasagar"): "menu_gangasagar",
     _norm("Kumbh"): "menu_kumbh",
     _norm("Kumbh Mela"): "menu_kumbh",
+    _norm("Gangasagar"): "menu_gangasagar",
+    _norm("Gangasagar Mela"): "menu_gangasagar",
     _norm("Rath Yatra"): "menu_rath_yatra",
     _norm("Jagannath Rath Yatra"): "menu_rath_yatra",
 })
@@ -274,11 +290,11 @@ def _get_pending(wa_id: str, *, tenant_id: str | None) -> dict:
     try:
         from database import get_user_state
         row = get_user_state(wa_id, tenant_id=tenant_id) or {}
-        ctx = row.get("context_json") or {}
+        import json
+        ctx = row.get("context") if isinstance(row, dict) else None
         if isinstance(ctx, str):
-            import json
             ctx = json.loads(ctx or "{}")
-        pending = ctx.get("spiritual_pending") or {}
+        pending = (ctx or {}).get("spiritual_pending") or {}
         return pending if isinstance(pending, dict) else {}
     except Exception:
         logger.debug("spiritual_pending load skipped", exc_info=True)
@@ -303,7 +319,6 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _normalize_facility_row(row: dict) -> dict[str, Any]:
-    """Map DB row → pin shape used by send/nearest helpers."""
     return {
         "id": row.get("id"),
         "key": str(row.get("type") or row.get("key") or ""),
@@ -397,7 +412,6 @@ async def _send_pin(
     event_slug: str,
     pin_key: str,
 ) -> bool:
-    """Send first matching facility pin (fallback when no user GPS)."""
     rows = _facilities_for(event_slug, pin_key, tenant_id=tenant_id)
     if not rows:
         await _sender().send_button_message(
@@ -415,7 +429,6 @@ async def _ask_share_whatsapp_location(
     *,
     tenant_id: str | None,
     event_slug: str,
-    place_slug: str,
     category: str,
 ) -> None:
     labels = {
@@ -423,8 +436,6 @@ async def _ask_share_whatsapp_location(
         "police": "nearest police / helpdesk",
         "ambulance": "nearest ambulance point",
         "women": "nearest women & child helpdesk",
-        "reunion": "nearest reunion centre",
-        "lost_counter": "nearest lost & found counter",
         "any": "nearest emergency help",
     }
     label = labels.get(category, "nearest help point")
@@ -433,7 +444,7 @@ async def _ask_share_whatsapp_location(
         {
             "kind": "await_location",
             "event_slug": event_slug,
-            "place_slug": place_slug,
+            "place_slug": "event",
             "category": category,
         },
         tenant_id=tenant_id,
@@ -462,7 +473,6 @@ async def handle_shared_location(
     name: str = "",
     address: str = "",
 ) -> Optional[dict]:
-    """Handle inbound WhatsApp location share → nearest facility pin."""
     if not is_spiritual_tenant(tenant_id):
         return None
     pending = _get_pending(wa_id, tenant_id=tenant_id)
@@ -470,7 +480,6 @@ async def handle_shared_location(
         return None
 
     event_slug = str(pending.get("event_slug") or "")
-    place_slug = str(pending.get("place_slug") or "")
     category = str(pending.get("category") or "any")
     if not event_slug:
         return None
@@ -480,7 +489,6 @@ async def handle_shared_location(
         event_slug, latitude, longitude, category=cat, tenant_id=tenant_id,
     )
     if not found and cat:
-        # Fall back to any help point for this event
         found = find_nearest_facility(
             event_slug, latitude, longitude, category=None, tenant_id=tenant_id,
         )
@@ -506,12 +514,12 @@ async def handle_shared_location(
     await _send_facility_pin(
         wa_id, facility, tenant_id=tenant_id, distance_km=km,
     )
-    buttons = (
-        _followup_buttons(event_slug, place_slug)
-        if place_slug
-        else [{"id": "main_menu", "title": "Main Menu"}]
+    await _sender().send_button_message(
+        wa_id,
+        preface,
+        _event_followup_buttons(event_slug),
+        tenant_id=tenant_id,
     )
-    await _sender().send_button_message(wa_id, preface, buttons, tenant_id=tenant_id)
     return {
         "handled": True,
         "action": "spiritual_nearest_pin",
@@ -521,14 +529,29 @@ async def handle_shared_location(
     }
 
 
-async def _send_places(wa_id: str, category_id: str, *, tenant_id: str | None) -> bool:
+def _event_followup_buttons(event_slug: str) -> list[dict]:
+    menu_id = _EVENT_BY_SLUG.get(event_slug) or "main_menu"
+    return [
+        {"id": f"st_{event_slug}_emergency", "title": "Emergency"},
+        {"id": menu_id, "title": "Event Menu"},
+        {"id": "main_menu", "title": "Main Menu"},
+    ]
+
+
+async def _send_event_topics(
+    wa_id: str,
+    category_id: str,
+    *,
+    tenant_id: str | None,
+) -> bool:
     meta = EVENTS[category_id]
+    slug = str(meta["slug"])
     rows = []
-    for p in meta["places"][:9]:
+    for topic in EVENT_TOPICS:
         rows.append({
-            "id": f"pl_{meta['slug']}_{p['slug']}",
-            "title": str(p["title"])[:24],
-            "description": str(p.get("place") or "")[:72],
+            "id": f"st_{slug}_{topic['key']}",
+            "title": str(topic["title"])[:24],
+            "description": str(topic.get("description") or "")[:72],
         })
     rows.append({
         "id": "main_menu",
@@ -539,38 +562,8 @@ async def _send_places(wa_id: str, category_id: str, *, tenant_id: str | None) -
         wa_id,
         str(meta["header"])[:60],
         str(meta["body"])[:1024],
-        "View Places",
-        _list_sections(rows, "Places"),
-        tenant_id=tenant_id,
-    )
-
-
-async def _send_place_details(
-    wa_id: str,
-    place_id: str,
-    *,
-    tenant_id: str | None,
-) -> bool:
-    place = _PLACE_BY_ID[place_id]
-    rows = []
-    for topic in DETAIL_TOPICS:
-        rows.append({
-            "id": f"pd_{place['event_slug']}_{place['place_slug']}_{topic['key']}",
-            "title": topic["title"][:24],
-            "description": topic["description"][:72],
-        })
-    # 9 detail rows already = WhatsApp max without a back row
-    body = (
-        f"*{place['place']}*\n_{place['event_label']}_\n\n"
-        "Choose History, Darshan, Reach, Stay, Prasad, Parking, Contact, "
-        "Emergency or Lost Found:"
-    )
-    return await _sender().send_list_menu(
-        wa_id,
-        str(place["title"])[:60],
-        body[:1024],
-        "Details",
-        _list_sections(rows, "Details"),
+        "Services",
+        _list_sections(rows, "Services"),
         tenant_id=tenant_id,
     )
 
@@ -578,70 +571,35 @@ async def _send_place_details(
 async def _send_emergency_menu(
     wa_id: str,
     event_slug: str,
-    place_slug: str,
     *,
     tenant_id: str | None,
 ) -> bool:
-    place = _PLACE_BY_ID.get(f"pl_{event_slug}_{place_slug}") or {}
+    meta = EVENTS.get(_EVENT_BY_SLUG.get(event_slug, ""), {}) or {}
+    label = meta.get("event_label") or event_slug
     rows = []
     for act in EMERGENCY_ACTIONS:
         rows.append({
-            "id": f"sea_{event_slug}_{place_slug}_{act['key']}",
+            "id": f"sea_{event_slug}_event_{act['key']}",
             "title": act["title"][:24],
             "description": act["description"][:72],
         })
     rows.append({
-        "id": f"pl_{event_slug}_{place_slug}",
+        "id": _EVENT_BY_SLUG.get(event_slug, "main_menu"),
         "title": "Back",
-        "description": "Back to place details",
+        "description": "Back to event services",
     })
-    label = place.get("place") or place_slug
     body = (
-        f"🚨 *Emergency — {label}*\n\n"
-        "If life-threatening, call local emergency services first.\n"
-        "Choose an option for a help pin or guidance:"
+        f"🚨 *Emergency Support — {label}*\n\n"
+        "Local authorities & help pins. If life-threatening, "
+        "call emergency services first.\n"
+        "Choose an option:"
     )
     return await _sender().send_list_menu(
         wa_id,
-        "Emergency",
+        "Emergency Support",
         body[:1024],
         "Options",
         _list_sections(rows, "Emergency"),
-        tenant_id=tenant_id,
-    )
-
-
-async def _send_lostfound_menu(
-    wa_id: str,
-    event_slug: str,
-    place_slug: str,
-    *,
-    tenant_id: str | None,
-) -> bool:
-    place = _PLACE_BY_ID.get(f"pl_{event_slug}_{place_slug}") or {}
-    rows = []
-    for act in LOSTFOUND_ACTIONS:
-        rows.append({
-            "id": f"slf_{event_slug}_{place_slug}_{act['key']}",
-            "title": act["title"][:24],
-            "description": act["description"][:72],
-        })
-    rows.append({
-        "id": f"pl_{event_slug}_{place_slug}",
-        "title": "Back",
-        "description": "Back to place details",
-    })
-    label = place.get("place") or place_slug
-    body = (
-        f"🧭 *Lost & Found — {label}*\n\n"
-        "Choose an option. Sensitive cases are handled by authorised helpdesk staff."
-    )
-    return await _sender().send_list_menu(
-        wa_id,
-        "Lost Found",
-        body[:1024],
-        "Options",
-        _list_sections(rows, "Lost Found"),
         tenant_id=tenant_id,
     )
 
@@ -660,153 +618,53 @@ def _match_event(text: str) -> Optional[str]:
     return None
 
 
-def _match_place(text: str) -> Optional[str]:
-    raw = str(text or "").strip()
-    if raw in _PLACE_BY_ID:
-        return raw
-    lowered = raw.lower()
-    if lowered in _PLACE_BY_ID:
-        return lowered
-    m = re.match(r"^pl[_:]([a-z0-9_]+)$", raw, re.I)
-    if m:
-        pid = f"pl_{m.group(1).lower()}"
-        if pid in _PLACE_BY_ID:
-            return pid
-    return _PLACE_TITLE_KEYS.get(_norm(raw))
-
-
-def _parse_detail(text: str) -> Optional[tuple[str, str, str]]:
-    raw = str(text or "").strip()
-    m = re.match(r"^pd[_:](.+)$", raw, re.I)
+def _parse_event_topic(text: str) -> Optional[tuple[str, str]]:
+    """Parse ``st_{event}_{topic}`` row ids."""
+    raw = str(text or "").strip().lower()
+    m = re.match(r"^st[_:](.+)$", raw)
     if not m:
         return None
-    rest = m.group(1).lower()
+    rest = m.group(1)
     for topic in _TOPIC_BY_KEY:
         suffix = f"_{topic}"
         if rest.endswith(suffix):
-            mid = rest[: -len(suffix)]
-            for place in _PLACE_BY_ID.values():
-                if mid == f"{place['event_slug']}_{place['place_slug']}":
-                    return place["event_slug"], place["place_slug"], topic
+            event_slug = rest[: -len(suffix)]
+            if event_slug in _EVENT_BY_SLUG:
+                return event_slug, topic
     return None
 
 
-def _parse_sea(text: str) -> Optional[tuple[str, str, str]]:
+def _parse_sea(text: str) -> Optional[tuple[str, str]]:
+    """Parse ``sea_{event}_event_{action}`` → (event_slug, action)."""
     raw = str(text or "").strip().lower()
     m = re.match(r"^sea[_:](.+)$", raw)
     if not m:
         return None
     rest = m.group(1)
     for act in EMERGENCY_ACTIONS:
-        suffix = f"_{act['key']}"
+        suffix = f"_event_{act['key']}"
         if rest.endswith(suffix):
-            mid = rest[: -len(suffix)]
-            for place in _PLACE_BY_ID.values():
-                if mid == f"{place['event_slug']}_{place['place_slug']}":
-                    return place["event_slug"], place["place_slug"], act["key"]
+            event_slug = rest[: -len(suffix)]
+            if event_slug in _EVENT_BY_SLUG:
+                return event_slug, act["key"]
+        # legacy place-based ids still accepted
+        suffix2 = f"_{act['key']}"
+        if rest.endswith(suffix2):
+            mid = rest[: -len(suffix2)]
+            for slug in _EVENT_BY_SLUG:
+                if mid.startswith(f"{slug}_"):
+                    return slug, act["key"]
     return None
 
 
-def _parse_slf(text: str) -> Optional[tuple[str, str, str]]:
-    raw = str(text or "").strip().lower()
-    m = re.match(r"^slf[_:](.+)$", raw)
-    if not m:
-        return None
-    rest = m.group(1)
-    for act in LOSTFOUND_ACTIONS:
-        suffix = f"_{act['key']}"
-        if rest.endswith(suffix):
-            mid = rest[: -len(suffix)]
-            for place in _PLACE_BY_ID.values():
-                if mid == f"{place['event_slug']}_{place['place_slug']}":
-                    return place["event_slug"], place["place_slug"], act["key"]
-    return None
-
-
-def _detail_answer(event_slug: str, place_slug: str, topic: str) -> str:
-    place_id = f"pl_{event_slug}_{place_slug}"
-    place = _PLACE_BY_ID.get(place_id) or {
-        "place": place_slug.replace("_", " ").title(),
-        "event_label": event_slug.replace("_", " ").title(),
-    }
-    spec = _TOPIC_BY_KEY[topic]
-    return spec["answer"].format(
-        place=place["place"],
-        event=place["event_label"],
+def _topic_answer(event_slug: str, topic_key: str) -> str:
+    topic = _TOPIC_BY_KEY[topic_key]
+    answers = topic.get("answers") or {}
+    return str(
+        answers.get(event_slug)
+        or answers.get("kumbh")
+        or f"*{topic['title']}* for this event will appear here soon."
     )
-
-
-def _followup_buttons(event_slug: str, place_slug: str) -> list[dict]:
-    return [
-        {"id": f"pd_{event_slug}_{place_slug}_emergency", "title": "Emergency"},
-        {"id": f"pd_{event_slug}_{place_slug}_lostfound", "title": "Lost Found"},
-        {"id": "main_menu", "title": "Main Menu"},
-    ]
-
-
-async def _handle_pending_reply(
-    wa_id: str,
-    text: str,
-    *,
-    tenant_id: str | None,
-) -> Optional[dict]:
-    pending = _get_pending(wa_id, tenant_id=tenant_id)
-    kind = str(pending.get("kind") or "")
-    if not kind:
-        return None
-    # Ignore if user tapped another known control
-    if (
-        _match_event(text)
-        or _match_place(text)
-        or _parse_detail(text)
-        or _parse_sea(text)
-        or _parse_slf(text)
-        or text in {"main_menu", "spiritual_main"}
-    ):
-        return None
-
-    event_slug = str(pending.get("event_slug") or "")
-    place_slug = str(pending.get("place_slug") or "")
-    place = _PLACE_BY_ID.get(f"pl_{event_slug}_{place_slug}") or {}
-    place_label = place.get("place") or place_slug
-    event_label = place.get("event_label") or event_slug
-    area = text.strip()
-
-    if kind == "share_area":
-        _clear_pending(wa_id, tenant_id=tenant_id)
-        msg = (
-            f"📍 Thanks. You are near *{area}* ({place_label}, {event_label}).\n\n"
-            "Sharing the nearest helpdesk / medical pin for this event.\n"
-            "If urgent, call local emergency services first."
-        )
-        await _sender().send_button_message(
-            wa_id, msg, _followup_buttons(event_slug, place_slug), tenant_id=tenant_id,
-        )
-        await _send_pin(wa_id, tenant_id=tenant_id, event_slug=event_slug, pin_key="medical")
-        return {"handled": True, "action": "spiritual_share_area", "area": area}
-
-    if kind in {"missing", "lostitem", "found"}:
-        _clear_pending(wa_id, tenant_id=tenant_id)
-        case_type = {
-            "missing": "Missing person",
-            "lostitem": "Lost item",
-            "found": "Found report",
-        }[kind]
-        msg = (
-            f"🧭 *{case_type} noted*\n\n"
-            f"Last place / details: *{area}*\n"
-            f"Context: {place_label} ({event_label})\n\n"
-            "A case reference will be generated when connected to the official "
-            "helpdesk. Sharing the reunion / lost-found centre pin now."
-        )
-        await _sender().send_button_message(
-            wa_id, msg, _followup_buttons(event_slug, place_slug), tenant_id=tenant_id,
-        )
-        pin_key = "reunion" if kind == "missing" else "lost_counter"
-        await _send_pin(wa_id, tenant_id=tenant_id, event_slug=event_slug, pin_key=pin_key)
-        return {"handled": True, "action": f"spiritual_{kind}", "details": area}
-
-    return None
 
 
 async def handle_spiritual_menu_action(
@@ -815,7 +673,7 @@ async def handle_spiritual_menu_action(
     *,
     tenant_id: str | None = None,
 ) -> Optional[dict]:
-    """Handle spiritual event → place → detail / emergency / lost-found taps."""
+    """Handle spiritual event → platform component / emergency taps."""
     if not is_spiritual_tenant(tenant_id):
         return None
 
@@ -823,19 +681,12 @@ async def handle_spiritual_menu_action(
     if not text:
         return None
 
-    pending_result = await _handle_pending_reply(wa_id, text, tenant_id=tenant_id)
-    if pending_result:
-        return pending_result
-
-    # Waiting for WhatsApp location share — remind if user typed instead.
     pending_now = _get_pending(wa_id, tenant_id=tenant_id)
     if (
         str(pending_now.get("kind") or "") == "await_location"
         and not _match_event(text)
-        and not _match_place(text)
-        and not _parse_detail(text)
+        and not _parse_event_topic(text)
         and not _parse_sea(text)
-        and not _parse_slf(text)
         and text not in {"main_menu", "spiritual_main"}
     ):
         await _sender().send_button_message(
@@ -878,46 +729,32 @@ async def handle_spiritual_menu_action(
 
     event_id = _match_event(text)
     if event_id:
-        await _send_places(wa_id, event_id, tenant_id=tenant_id)
-        return {"handled": True, "action": "spiritual_event_places", "category": event_id}
+        await _send_event_topics(wa_id, event_id, tenant_id=tenant_id)
+        return {"handled": True, "action": "spiritual_event_topics", "category": event_id}
 
-    place_id = _match_place(text)
-    if place_id:
-        await _send_place_details(wa_id, place_id, tenant_id=tenant_id)
-        return {"handled": True, "action": "spiritual_place", "place_id": place_id}
-
-    parsed = _parse_detail(text)
+    parsed = _parse_event_topic(text)
     if parsed:
-        event_slug, place_slug, topic = parsed
+        event_slug, topic = parsed
         if topic == "emergency":
-            await _send_emergency_menu(
-                wa_id, event_slug, place_slug, tenant_id=tenant_id,
-            )
+            await _send_emergency_menu(wa_id, event_slug, tenant_id=tenant_id)
             return {"handled": True, "action": "spiritual_emergency_menu"}
-        if topic == "lostfound":
-            await _send_lostfound_menu(
-                wa_id, event_slug, place_slug, tenant_id=tenant_id,
-            )
-            return {"handled": True, "action": "spiritual_lostfound_menu"}
-        if topic in _TEXT_TOPICS:
-            answer = _detail_answer(event_slug, place_slug, topic)
-            await _sender().send_button_message(
-                wa_id,
-                answer,
-                _followup_buttons(event_slug, place_slug),
-                tenant_id=tenant_id,
-            )
-            return {
-                "handled": True,
-                "action": "spiritual_place_detail",
-                "event": event_slug,
-                "place": place_slug,
-                "topic": topic,
-            }
+        answer = _topic_answer(event_slug, topic)
+        await _sender().send_button_message(
+            wa_id,
+            answer,
+            _event_followup_buttons(event_slug),
+            tenant_id=tenant_id,
+        )
+        return {
+            "handled": True,
+            "action": "spiritual_event_topic",
+            "event": event_slug,
+            "topic": topic,
+        }
 
     sea = _parse_sea(text)
     if sea:
-        event_slug, place_slug, action = sea
+        event_slug, action = sea
         category_map = {
             "medical": "medical",
             "police": "police",
@@ -931,56 +768,8 @@ async def handle_spiritual_menu_action(
                 wa_id,
                 tenant_id=tenant_id,
                 event_slug=event_slug,
-                place_slug=place_slug,
                 category=category,
             )
             return {"handled": True, "action": f"spiritual_ask_location_{action}"}
-
-    slf = _parse_slf(text)
-    if slf:
-        event_slug, place_slug, action = slf
-        if action == "reunion":
-            await _ask_share_whatsapp_location(
-                wa_id,
-                tenant_id=tenant_id,
-                event_slug=event_slug,
-                place_slug=place_slug,
-                category="reunion",
-            )
-            return {"handled": True, "action": "spiritual_ask_location_reunion"}
-        prompts = {
-            "missing": (
-                "🧭 *Missing Person*\n\n"
-                "Reply with last-seen place + short description "
-                "(name/age/clothes if known).\n"
-                "Example: *Last seen near Sangam ghat, red shirt, age 10*"
-            ),
-            "lostitem": (
-                "🧳 *Lost Item*\n\n"
-                "Reply with last-seen place + item description.\n"
-                "Example: *Black bag near Jagannath temple gate*"
-            ),
-            "found": (
-                "✋ *Report Found*\n\n"
-                "Reply with where you found the person/item + short description.\n"
-                "Example: *Found child near Bada Danda police booth*"
-            ),
-        }
-        _set_pending(
-            wa_id,
-            {
-                "kind": action,
-                "event_slug": event_slug,
-                "place_slug": place_slug,
-            },
-            tenant_id=tenant_id,
-        )
-        await _sender().send_button_message(
-            wa_id,
-            prompts[action],
-            [{"id": "main_menu", "title": "Main Menu"}],
-            tenant_id=tenant_id,
-        )
-        return {"handled": True, "action": f"spiritual_{action}_prompt"}
 
     return None

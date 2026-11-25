@@ -1,8 +1,9 @@
-"""Publish spiritual WhatsApp menu: 3 events → places → details.
+"""Publish spiritual WhatsApp main menu (3 events → 7 platform services).
 
-Main: Gangasagar, Kumbh Mela, Rath Yatra
-Each event opens Places; each place opens
-History / Darshan / Reach / Stay / Prasad / Parking / Contact.
+Main: Kumbh Mela, Gangasagar Mela, Jagannath Rath Yatra
+Each event opens:
+  AI Spiritual Guide · Religious Knowledge · Religious Calendar ·
+  Holy Bathing Info · Travel Assistance · Accommodation · Emergency Support
 """
 from __future__ import annotations
 
@@ -59,29 +60,29 @@ REMOVE_DEFAULTS = [
 
 SPIRITUAL_BUTTONS = [
     {
-        "id": "menu_gangasagar",
-        "title": "Gangasagar",
-        "description": "Places at Gangasagar Mela",
+        "id": "menu_kumbh",
+        "title": "Kumbh Mela",
+        "description": "Kumbh services & guidance",
         "section": "Events",
         "icon": "",
         "sort_order": 0,
         "enabled": True,
-        "intent": "gangasagar_mela",
+        "intent": "kumbh_mela",
     },
     {
-        "id": "menu_kumbh",
-        "title": "Kumbh Mela",
-        "description": "Places at Kumbh Mela",
+        "id": "menu_gangasagar",
+        "title": "Gangasagar Mela",
+        "description": "Gangasagar services & guidance",
         "section": "Events",
         "icon": "",
         "sort_order": 1,
         "enabled": True,
-        "intent": "kumbh_mela",
+        "intent": "gangasagar_mela",
     },
     {
         "id": "menu_rath_yatra",
-        "title": "Rath Yatra",
-        "description": "Places for Jagannath Rath Yatra",
+        "title": "Jagannath Rath Yatra",
+        "description": "Rath Yatra services & guidance",
         "section": "Events",
         "icon": "",
         "sort_order": 2,
@@ -116,20 +117,20 @@ def main() -> int:
     )
 
     intent_defs = {
-        "gangasagar_mela": {
-            "examples": ["gangasagar", "gangasagar mela"],
-            "keywords": ["gangasagar", "kapil muni"],
-            "answer": "Opening Gangasagar places…",
-        },
         "kumbh_mela": {
             "examples": ["kumbh", "kumbh mela"],
             "keywords": ["kumbh", "sangam"],
-            "answer": "Opening Kumbh places…",
+            "answer": "Opening Kumbh Mela services…",
+        },
+        "gangasagar_mela": {
+            "examples": ["gangasagar", "gangasagar mela"],
+            "keywords": ["gangasagar", "kapil muni"],
+            "answer": "Opening Gangasagar Mela services…",
         },
         "rath_yatra": {
-            "examples": ["rath yatra", "jagannath"],
+            "examples": ["rath yatra", "jagannath", "jagannath rath yatra"],
             "keywords": ["rath yatra", "jagannath", "puri"],
-            "answer": "Opening Rath Yatra places…",
+            "answer": "Opening Jagannath Rath Yatra services…",
         },
     }
     intents = list(base.get("intents") or [])
@@ -145,7 +146,7 @@ def main() -> int:
         else:
             existing["enabled"] = True
             for key, value in spec.items():
-                existing.setdefault(key, value)
+                existing[key] = value
 
     vocabulary = dict(base.get("vocabulary") or {})
     vocabulary["browse_label"] = "Options"
@@ -161,8 +162,8 @@ def main() -> int:
             "key": "kb_main",
             "header": brand.get("bot_name") or "Aastha",
             "body": (
-                "Namaste. Choose a sacred event to explore places, "
-                "darshan, travel and stay:"
+                "Namaste. Choose a sacred event:\n"
+                "Kumbh Mela · Gangasagar Mela · Jagannath Rath Yatra"
             ),
             "footer": "Or type your question directly",
             "button_text": "Show Options",

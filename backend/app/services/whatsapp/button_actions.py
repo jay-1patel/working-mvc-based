@@ -116,9 +116,9 @@ BUTTONS: dict[str, str] = {
     "menu_onroad_price": "On-Road Price",
     "menu_customer_care": "Customer Care",
     # Spiritual / pilgrimage (PDF events + support; titles <= 20)
-    "menu_gangasagar": "Gangasagar",
+    "menu_gangasagar": "Gangasagar Mela",
     "menu_kumbh": "Kumbh Mela",
-    "menu_rath_yatra": "Rath Yatra",
+    "menu_rath_yatra": "Jagannath Rath Yatra",
     "menu_spiritual_guide": "Spiritual Guide",
     "menu_emergency": "Emergency",
     "menu_lost_found": "Lost Found",

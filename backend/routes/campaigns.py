@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, HTTPException, UploadFile
 from typing import List
 from pydantic import BaseModel, Field
 
@@ -758,6 +758,15 @@ def list_templates(
     }
 
 
+@router.post("/templates/list")
+def list_templates_post(
+    tenant_id: str,
+    current_admin: dict = Depends(require_tenant_access()),
+):
+    """Prefer POST /templates/list (POST /templates creates)."""
+    return list_templates(tenant_id=tenant_id, current_admin=current_admin)
+
+
 @router.post("/templates", status_code=201)
 def create_template(
     tenant_id: str,
@@ -821,6 +830,19 @@ def set_template_status(
                 raise HTTPException(404, "template not found")
 
     return {"ok": True}
+
+
+@router.post("/templates/{template_id}/update")
+def set_template_status_post(
+    tenant_id: str,
+    template_id: int,
+    body: TemplateStatus,
+    current_admin: dict = Depends(require_permission("manage_campaigns")),
+):
+    """Prefer POST .../update over PUT."""
+    return set_template_status(
+        tenant_id=tenant_id, template_id=template_id, body=body, current_admin=current_admin
+    )
 
 
 @router.post("/media")
@@ -892,6 +914,18 @@ def delete_template(
                 raise HTTPException(404, "template not found")
     logger.info(f"WA_TEMPLATE_DELETED | tenant={tenant_id} | id={template_id}")
     return {"ok": True}
+
+
+@router.post("/templates/{template_id}/delete")
+def delete_template_post(
+    tenant_id: str,
+    template_id: int,
+    current_admin: dict = Depends(require_permission("manage_campaigns")),
+):
+    """Prefer POST .../delete over DELETE."""
+    return delete_template(
+        tenant_id=tenant_id, template_id=template_id, current_admin=current_admin
+    )
 
 
 class TestSendBody(BaseModel):
@@ -971,6 +1005,15 @@ def list_segments(
             ).fetchall()
             segments = [_segment_to_dict(conn, dict(r), tenant_id) for r in rows]
     return {"segments": segments}
+
+
+@router.post("/segments/list")
+def list_segments_post(
+    tenant_id: str,
+    current_admin: dict = Depends(require_tenant_access()),
+):
+    """Prefer POST /segments/list (POST /segments creates)."""
+    return list_segments(tenant_id=tenant_id, current_admin=current_admin)
 
 
 @router.post("/segments", status_code=201)
@@ -1067,6 +1110,19 @@ def update_segment(
     return {"ok": True}
 
 
+@router.post("/segments/{segment_id}/update")
+def update_segment_post(
+    tenant_id: str,
+    segment_id: int,
+    body: SegmentCreate,
+    current_admin: dict = Depends(require_permission("manage_campaigns")),
+):
+    """Prefer POST .../update over PUT."""
+    return update_segment(
+        tenant_id=tenant_id, segment_id=segment_id, body=body, current_admin=current_admin
+    )
+
+
 @router.delete("/segments/{segment_id}")
 def delete_segment(
     tenant_id: str,
@@ -1088,6 +1144,18 @@ def delete_segment(
                 raise HTTPException(404, "segment not found")
 
     return {"ok": True}
+
+
+@router.post("/segments/{segment_id}/delete")
+def delete_segment_post(
+    tenant_id: str,
+    segment_id: int,
+    current_admin: dict = Depends(require_permission("manage_campaigns")),
+):
+    """Prefer POST .../delete over DELETE."""
+    return delete_segment(
+        tenant_id=tenant_id, segment_id=segment_id, current_admin=current_admin
+    )
 
 
 # ── GET /campaigns — list + stats ──────────────────────────────────────
@@ -1168,6 +1236,15 @@ def list_campaigns(
             "active_campaigns": active,
         },
     }
+
+
+@router.post("/list")
+def list_campaigns_post(
+    tenant_id: str,
+    current_admin: dict = Depends(require_tenant_access()),
+):
+    """Prefer POST /list (POST "" creates)."""
+    return list_campaigns(tenant_id=tenant_id, current_admin=current_admin)
 
 
 # ── POST /campaigns — create ──────────────────────────────────────────
@@ -1436,6 +1513,19 @@ def update_campaign(
     return {"ok": True}
 
 
+@router.post("/{campaign_id}/update")
+def update_campaign_post(
+    tenant_id: str,
+    campaign_id: int,
+    body: CampaignCreate,
+    current_admin: dict = Depends(require_permission("manage_campaigns")),
+):
+    """Prefer POST .../update over PUT."""
+    return update_campaign(
+        tenant_id=tenant_id, campaign_id=campaign_id, body=body, current_admin=current_admin
+    )
+
+
 # ── DELETE /campaigns/{id} ────────────────────────────────────────────
 
 @router.delete("/{campaign_id}")
@@ -1495,6 +1585,18 @@ def delete_campaign(
 
     logger.info(f"CAMPAIGN_DELETED | tenant={tenant_id} | id={campaign_id}")
     return {"ok": True}
+
+
+@router.post("/{campaign_id}/delete")
+def delete_campaign_post(
+    tenant_id: str,
+    campaign_id: int,
+    current_admin: dict = Depends(require_permission("manage_campaigns")),
+):
+    """Prefer POST .../delete over DELETE."""
+    return delete_campaign(
+        tenant_id=tenant_id, campaign_id=campaign_id, current_admin=current_admin
+    )
 
 
 # ── POST /campaigns/{id}/duplicate ────────────────────────────────────
@@ -1827,6 +1929,15 @@ def list_recipients(
         })
     recipients.sort(key=lambda r: r["name"].lower())
     return {"ok": True, "recipients": recipients, "count": len(recipients)}
+
+
+@router.post("/recipients")
+def list_recipients_post(
+    tenant_id: str,
+    current_admin: dict = Depends(require_permission("view_campaigns")),
+):
+    """Prefer POST over GET for panel clients."""
+    return list_recipients(tenant_id=tenant_id, current_admin=current_admin)
 
 
 @router.post("/{campaign_id}/send-selection")

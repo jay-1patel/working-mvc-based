@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -295,8 +295,7 @@ def _create_request(body: OnboardingRequestCreate, current_admin: dict):
     return {"request": _request_dict(row)}
 
 
-@router.get("/api/integration-requests")
-def list_my_requests(current_admin: dict = Depends(get_current_admin)):
+def _list_my_requests_payload(current_admin: dict) -> dict:
     tenant_id = _require_tenant_admin(current_admin)
     if use_mongodb():
         from db.mongo import Repository
@@ -319,11 +318,27 @@ def list_my_requests(current_admin: dict = Depends(get_current_admin)):
         conn.close()
 
 
-@router.get("/api/admin/integration-requests")
-def list_all_requests(
-    status: RequestStatus | None = Query(default=None),
-    current_admin: dict = Depends(get_current_admin),
-):
+@router.get("/api/integration-requests")
+def list_my_requests(current_admin: dict = Depends(get_current_admin)):
+    """Legacy GET; prefer POST /api/integration-requests/mine."""
+    return _list_my_requests_payload(current_admin)
+
+
+@router.post("/api/integration-requests/mine")
+def list_my_requests_post(current_admin: dict = Depends(get_current_admin)):
+    return _list_my_requests_payload(current_admin)
+
+
+class AdminIntegrationListRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    status: RequestStatus | None = None
+
+
+def _list_all_integration_requests_payload(
+    current_admin: dict,
+    status: RequestStatus | None = None,
+) -> dict:
     _require_super_admin(current_admin)
     if use_mongodb():
         from db.mongo import Repository
@@ -355,11 +370,25 @@ def list_all_requests(
         conn.close()
 
 
-@router.get("/api/admin/integration-requests/{request_id}/events")
-def list_request_events(
-    request_id: int,
+@router.get("/api/admin/integration-requests")
+def list_all_requests(
+    status: RequestStatus | None = Query(default=None),
     current_admin: dict = Depends(get_current_admin),
 ):
+    """Legacy GET; prefer POST /api/admin/integration-requests."""
+    return _list_all_integration_requests_payload(current_admin, status)
+
+
+@router.post("/api/admin/integration-requests")
+def list_all_requests_post(
+    body: Optional[AdminIntegrationListRequest] = None,
+    current_admin: dict = Depends(get_current_admin),
+):
+    status = body.status if body is not None else None
+    return _list_all_integration_requests_payload(current_admin, status)
+
+
+def _list_integration_events_payload(request_id: int, current_admin: dict) -> dict:
     _require_super_admin(current_admin)
     if use_mongodb():
         from db.mongo import Repository
@@ -383,6 +412,23 @@ def list_request_events(
         return {"events": [_request_dict(row) for row in rows]}
     finally:
         conn.close()
+
+
+@router.get("/api/admin/integration-requests/{request_id}/events")
+def list_request_events(
+    request_id: int,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Legacy GET; prefer POST .../events."""
+    return _list_integration_events_payload(request_id, current_admin)
+
+
+@router.post("/api/admin/integration-requests/{request_id}/events")
+def list_request_events_post(
+    request_id: int,
+    current_admin: dict = Depends(get_current_admin),
+):
+    return _list_integration_events_payload(request_id, current_admin)
 
 
 @router.post("/api/admin/integration-requests/{request_id}/decision")

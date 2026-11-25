@@ -27,7 +27,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel, ConfigDict, Field
 
 from database import get_db_context, record_admin_audit_event
@@ -573,6 +573,18 @@ async def create_callback(
     }
 
 
+class CallbackListRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    status: Optional[str] = None
+    wa_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    limit: int = 100
+    offset: int = 0
+
+
 @router.get("/{tenant_id}/callbacks")
 async def list_callbacks(
     tenant_id: str,
@@ -610,6 +622,26 @@ async def list_callbacks(
         "limit": limit,
         "offset": offset
     }
+
+
+@router.post("/{tenant_id}/callbacks/list")
+async def list_callbacks_post(
+    tenant_id: str,
+    body: CallbackListRequest = Body(default_factory=CallbackListRequest),
+    current_admin: dict = Depends(require_tenant_access()),
+):
+    """Prefer POST .../callbacks/list (POST .../callbacks creates)."""
+    return await list_callbacks(
+        tenant_id=tenant_id,
+        status=body.status,
+        wa_id=body.wa_id,
+        agent_id=body.agent_id,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        limit=body.limit,
+        offset=body.offset,
+        current_admin=current_admin,
+    )
 
 
 @router.get("/{tenant_id}/callbacks/{callback_id}")

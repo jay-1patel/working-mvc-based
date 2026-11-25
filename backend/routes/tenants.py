@@ -341,16 +341,29 @@ def list_tenants_post(
     return _list_tenants_payload(current_admin, status)
 
 
-@router.get("/active-test-tenant")
-def get_current_active_test_tenant(
-    current_admin: dict = Depends(require_super_admin),
-):
+def _active_test_tenant_read_payload() -> dict:
     """Deprecated: always null. WhatsApp routes by tenants.waba_phone_id."""
     return {
         "active_test_tenant": None,
         "disabled": True,
         "detail": "Active Test Tenant override removed — route by waba_phone_id",
     }
+
+
+@router.get("/active-test-tenant")
+def get_current_active_test_tenant(
+    current_admin: dict = Depends(require_super_admin),
+):
+    """Legacy GET; prefer POST /api/admin/tenants/active-test-tenant/current."""
+    return _active_test_tenant_read_payload()
+
+
+@router.post("/active-test-tenant/current")
+def get_current_active_test_tenant_post(
+    current_admin: dict = Depends(require_super_admin),
+):
+    """Read active-test-tenant (POST twin; POST on bare path sets)."""
+    return _active_test_tenant_read_payload()
 
 
 @router.post("/active-test-tenant")
@@ -536,11 +549,7 @@ def create_tenant(
     return {"ok": True, "tenant": _public_tenant(tenancy_store.get_tenant(tid))}
 
 
-@router.delete("/{tenant_id}")
-def delete_tenant(
-    tenant_id: str,
-    principal: dict = Depends(require_tenant_access()),
-):
+def _delete_tenant_payload(tenant_id: str, principal: dict) -> dict:
     """Permanently wipe a tenant: registry, profile, and all tenant-scoped DB/disk data.
 
     Super-admin only. ``admin_audit_events`` for the delete are kept.
@@ -580,6 +589,24 @@ def delete_tenant(
     tenancy_cache.purge(tenant_id)
     logger.info("TENANT_DELETED | tenant=%s | by=%s | hard=1", tenant_id, principal.get("username"))
     return {"ok": True, "tenant_id": tenant_id, "purged": purge}
+
+
+@router.delete("/{tenant_id}")
+def delete_tenant(
+    tenant_id: str,
+    principal: dict = Depends(require_tenant_access()),
+):
+    """Legacy DELETE; prefer POST /api/admin/tenants/{tenant_id}/delete."""
+    return _delete_tenant_payload(tenant_id, principal)
+
+
+@router.post("/{tenant_id}/delete")
+def delete_tenant_post(
+    tenant_id: str,
+    principal: dict = Depends(require_tenant_access()),
+):
+    """Permanently wipe a tenant (POST twin)."""
+    return _delete_tenant_payload(tenant_id, principal)
 
 
 # ── profile: read ─────────────────────────────────────────────────────────
@@ -691,17 +718,43 @@ def tenant_detail(
     )
 
 
+class VersionsListRequest(BaseModel):
+    limit: Optional[int] = 50
+
+
+def _list_versions_payload(tenant_id: str, limit: int = 50) -> dict:
+    return {
+        "tenant_id": tenant_id,
+        "current_version": tenancy_store.current_version(tenant_id),
+        "versions": tenancy_store.list_versions(tenant_id, limit=limit),
+    }
+
+
 @router.get("/{tenant_id}/versions")
 def list_versions(
     tenant_id: str,
     limit: int = 50,
     principal: dict = Depends(require_tenant_access()),
 ):
-    return {
-        "tenant_id": tenant_id,
-        "current_version": tenancy_store.current_version(tenant_id),
-        "versions": tenancy_store.list_versions(tenant_id, limit=limit),
-    }
+    """Legacy GET; prefer POST .../versions."""
+    return _list_versions_payload(tenant_id, limit)
+
+
+@router.post("/{tenant_id}/versions")
+def list_versions_post(
+    tenant_id: str,
+    body: Optional[VersionsListRequest] = None,
+    principal: dict = Depends(require_tenant_access()),
+):
+    limit = body.limit if body and body.limit is not None else 50
+    return _list_versions_payload(tenant_id, limit)
+
+
+def _get_version_payload(tenant_id: str, version: int) -> dict:
+    record = tenancy_store.get_version(tenant_id, version)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"version {version} not found")
+    return _scrub_console_profile(record)
 
 
 @router.get("/{tenant_id}/versions/{version}")
@@ -710,10 +763,17 @@ def get_version(
     version: int,
     principal: dict = Depends(require_tenant_access()),
 ):
-    record = tenancy_store.get_version(tenant_id, version)
-    if not record:
-        raise HTTPException(status_code=404, detail=f"version {version} not found")
-    return _scrub_console_profile(record)
+    """Legacy GET; prefer POST .../versions/{version}."""
+    return _get_version_payload(tenant_id, version)
+
+
+@router.post("/{tenant_id}/versions/{version}")
+def get_version_post(
+    tenant_id: str,
+    version: int,
+    principal: dict = Depends(require_tenant_access()),
+):
+    return _get_version_payload(tenant_id, version)
 
 
 # ── profile: write ────────────────────────────────────────────────────────
@@ -1362,18 +1422,23 @@ def create_token(
     }
 
 
-@router.get("/{tenant_id}/tokens")
-def list_tokens(tenant_id: str, principal: dict = Depends(require_tenant_access())):
+def _list_tokens_payload(tenant_id: str, principal: dict) -> dict:
     _admin_only(principal)
     return {"tenant_id": tenant_id, "tokens": tenancy_store.list_tenant_tokens(tenant_id)}
 
 
-@router.delete("/{tenant_id}/tokens/{token_id}")
-def revoke_token(
-    tenant_id: str,
-    token_id: int,
-    principal: dict = Depends(require_tenant_access()),
-):
+@router.get("/{tenant_id}/tokens")
+def list_tokens(tenant_id: str, principal: dict = Depends(require_tenant_access())):
+    """Legacy GET; prefer POST .../tokens/list."""
+    return _list_tokens_payload(tenant_id, principal)
+
+
+@router.post("/{tenant_id}/tokens/list")
+def list_tokens_post(tenant_id: str, principal: dict = Depends(require_tenant_access())):
+    return _list_tokens_payload(tenant_id, principal)
+
+
+def _revoke_token_payload(tenant_id: str, token_id: int, principal: dict) -> dict:
     _admin_only(principal)
     if use_mongodb():
         from db.mongo import Repository
@@ -1412,10 +1477,28 @@ def revoke_token(
     return {"ok": True, "id": token_id}
 
 
+@router.delete("/{tenant_id}/tokens/{token_id}")
+def revoke_token(
+    tenant_id: str,
+    token_id: int,
+    principal: dict = Depends(require_tenant_access()),
+):
+    """Legacy DELETE; prefer POST .../tokens/{token_id}/delete."""
+    return _revoke_token_payload(tenant_id, token_id, principal)
+
+
+@router.post("/{tenant_id}/tokens/{token_id}/delete")
+def revoke_token_post(
+    tenant_id: str,
+    token_id: int,
+    principal: dict = Depends(require_tenant_access()),
+):
+    return _revoke_token_payload(tenant_id, token_id, principal)
+
+
 # ── smoke test ────────────────────────────────────────────────────────────
 
-@router.get("/{tenant_id}/smoke")
-def profile_smoke(tenant_id: str, principal: dict = Depends(require_tenant_access())):
+def _profile_smoke_payload(tenant_id: str) -> dict:
     """Assert the runtime really is data-derived.
 
     Guards the Phase 4/7 exit test: menus and intents must equal the profile,
@@ -1446,3 +1529,14 @@ def profile_smoke(tenant_id: str, principal: dict = Depends(require_tenant_acces
         "forbidden_term_leaks": leaked,
         "ok": not leaked,
     }
+
+
+@router.get("/{tenant_id}/smoke")
+def profile_smoke(tenant_id: str, principal: dict = Depends(require_tenant_access())):
+    """Legacy GET; prefer POST .../smoke."""
+    return _profile_smoke_payload(tenant_id)
+
+
+@router.post("/{tenant_id}/smoke")
+def profile_smoke_post(tenant_id: str, principal: dict = Depends(require_tenant_access())):
+    return _profile_smoke_payload(tenant_id)

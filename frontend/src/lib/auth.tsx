@@ -14,6 +14,7 @@ import {
   getToken,
   getUserId,
   getUsername,
+  setActiveTenantId,
   setCredentials,
   setToken,
   setUnauthorizedHandler,
@@ -33,12 +34,14 @@ import { adminsApi, isCustomerCareIdentity } from './admins'
 /** /api/auth/me with explicit credentials (used to keep Customercare identity while supporting). */
 async function fetchIdentityAs(userId: string | number, sessionId: string): Promise<AdminIdentity> {
   const res = await fetch(apiUrl('/api/auth/me'), {
-    method: 'GET',
+    method: 'POST',
     headers: {
       Accept: 'application/json',
+      'Content-Type': 'application/json',
       user_id: String(userId),
       session_id: sessionId,
     },
+    body: JSON.stringify({ user_id: userId, session_id: sessionId }),
   })
   if (!res.ok) {
     const detail = (await res.json().catch(() => null))?.detail || res.statusText
@@ -100,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     ;(async () => {
       try {
-        const status = await api.get<{ has_admins: boolean }>('/api/auth/status')
+        const status = await api.post<{ has_admins: boolean }>('/api/auth/status', {})
         if (cancelled) return
         if (!status.has_admins) {
           setNeedsSetup(true)
@@ -121,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (cancelled) return
           setIdentity(me)
         } else {
-          const me = await api.get<AdminIdentity>('/api/auth/me')
+          const me = await api.post<AdminIdentity>('/api/auth/me', {})
           if (cancelled) return
           // Backfill user_id if this browser still has a legacy username token.
           if (me?.id != null && !getUserId()) {
@@ -155,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // Store user_id + session_id so every later API call sends them.
     setCredentials(resolvedId, res.session_id || sessionId, res.username || username)
-    const me = await api.get<AdminIdentity>('/api/auth/me')
+    const me = await api.post<AdminIdentity>('/api/auth/me', {})
     setIdentity(me)
     setNeedsSetup(false)
     // Everyone lands on the graphical overview first.
@@ -188,7 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setToken(res.token)
     }
-    const me = await api.get<AdminIdentity>('/api/auth/me')
+    const me = await api.post<AdminIdentity>('/api/auth/me', {})
     if (me?.id != null) {
       setCredentials(me.id, getSessionId() || res.session_id || '', me.username)
     }
@@ -210,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const operator = getImpersonator()
       const me = operator
         ? await fetchIdentityAs(operator.userId, operator.sessionId)
-        : await api.get<AdminIdentity>('/api/auth/me')
+        : await api.post<AdminIdentity>('/api/auth/me', {})
       if (me?.id != null && !getUserId() && !operator) {
         setCredentials(me.id, getSessionId() || '', me.username)
       }
@@ -247,8 +250,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       identity && isCustomerCareIdentity(identity)
         ? identity
         : await fetchIdentityAs(operatorUserId, operatorSession)
-    saveImpersonator(operatorUserId, operatorSession, result.username, getUsername())
+    saveImpersonator(
+      operatorUserId,
+      operatorSession,
+      result.username,
+      getUsername(),
+      result.tenant_id,
+    )
     setCredentials(targetUserId, sessionId, result.username)
+    setActiveTenantId(result.tenant_id)
     setImpersonating(true)
     setImpersonatedUsername(result.username)
     setIdentity({
@@ -288,7 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearImpersonator()
     setImpersonating(false)
     setImpersonatedUsername(null)
-    const me = await api.get<AdminIdentity>('/api/auth/me')
+    const me = await api.post<AdminIdentity>('/api/auth/me', {})
     setIdentity(me)
     navigate(redirectTo)
   }, [])

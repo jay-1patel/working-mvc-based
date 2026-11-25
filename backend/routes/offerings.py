@@ -348,6 +348,12 @@ def get_record_schema(tenant_id: str, principal: dict = Depends(read_access)):
     return {"tenant_id": tenant_id, "vertical": _vertical(tenant_id), "columns": _columns(tenant_id)}
 
 
+@router.post("/record-schema")
+def get_record_schema_post(tenant_id: str, principal: dict = Depends(read_access)):
+    """Prefer POST over GET for panel clients."""
+    return get_record_schema(tenant_id=tenant_id, principal=principal)
+
+
 @router.post("/record-schema/columns")
 def create_record_column(tenant_id: str, body: ColumnIn, principal: dict = Depends(schema_access)):
     try:
@@ -392,6 +398,14 @@ def create_record_column(tenant_id: str, body: ColumnIn, principal: dict = Depen
         with get_db_context() as conn:
             record_admin_audit_event(conn, **audit)
     return {"status": "created", "column": column, "columns": _columns(tenant_id)}
+
+
+@router.post("/record-schema/columns/{key}/update")
+def patch_record_column_post(
+    tenant_id: str, key: str, body: ColumnPatch, principal: dict = Depends(schema_access)
+):
+    """Prefer POST .../update over PUT."""
+    return patch_record_column(tenant_id=tenant_id, key=key, body=body, principal=principal)
 
 
 @router.put("/record-schema/columns/{key}")
@@ -445,6 +459,12 @@ def patch_record_column(tenant_id: str, key: str, body: ColumnPatch, principal: 
         with get_db_context() as conn:
             record_admin_audit_event(conn, **audit)
     return {"status": "updated", "column": column, "columns": _columns(tenant_id)}
+
+
+@router.post("/record-schema/columns/{key}/delete")
+def delete_record_column_post(tenant_id: str, key: str, principal: dict = Depends(schema_access)):
+    """Prefer POST .../delete over DELETE."""
+    return delete_record_column(tenant_id=tenant_id, key=key, principal=principal)
 
 
 @router.delete("/record-schema/columns/{key}")
@@ -511,6 +531,12 @@ def reset_record_schema(tenant_id: str, principal: dict = Depends(schema_access)
 
 # ── records ───────────────────────────────────────────────────────────────
 
+class OfferingsListRequest(BaseModel):
+    category: Optional[str] = None
+    include_inactive: bool = False
+    limit: int = 200
+
+
 @router.get("/offerings")
 def list_offerings(
     tenant_id: str,
@@ -527,6 +553,22 @@ def list_offerings(
     )
     columns = _columns(tenant_id)
     return {"count": len(items), "columns": columns, "offerings": [_public(i, columns) for i in items]}
+
+
+@router.post("/offerings/list")
+def list_offerings_post(
+    tenant_id: str,
+    body: OfferingsListRequest = Body(default_factory=OfferingsListRequest),
+    principal: dict = Depends(read_access),
+):
+    """Prefer POST /offerings/list (POST /offerings creates)."""
+    return list_offerings(
+        tenant_id=tenant_id,
+        category=body.category,
+        include_inactive=body.include_inactive,
+        limit=body.limit,
+        principal=principal,
+    )
 
 
 @router.get("/offerings/categories")
@@ -613,6 +655,21 @@ def patch_offering(tenant_id: str, offering_id: int, body: OfferingPatch, princi
     }
 
 
+@router.post("/offerings/{offering_id}/update")
+def patch_offering_post(
+    tenant_id: str,
+    offering_id: int,
+    body: OfferingPatch,
+    principal: dict = Depends(_require_write_access("update")),
+):
+    """Prefer POST .../update over PUT."""
+    return patch_offering(tenant_id=tenant_id, offering_id=offering_id, body=body, principal=principal)
+
+
+class OfferingDeleteRequest(BaseModel):
+    hard: bool = False
+
+
 @router.delete("/offerings/{offering_id}")
 def remove_offering(
     tenant_id: str,
@@ -624,6 +681,19 @@ def remove_offering(
         raise HTTPException(status_code=404, detail="Record not found for this tenant")
     delete_product(offering_id, hard=hard, tenant_id=tenant_id, actor=principal)
     return {"status": "deleted" if hard else "deactivated", "id": offering_id}
+
+
+@router.post("/offerings/{offering_id}/delete")
+def remove_offering_post(
+    tenant_id: str,
+    offering_id: int,
+    body: OfferingDeleteRequest = Body(default_factory=OfferingDeleteRequest),
+    principal: dict = Depends(_require_write_access("delete")),
+):
+    """Prefer POST .../delete over DELETE."""
+    return remove_offering(
+        tenant_id=tenant_id, offering_id=offering_id, hard=body.hard, principal=principal
+    )
 
 
 # ── Automated PDF-to-Products Ingestion & Staging ─────────────────────────

@@ -37,6 +37,9 @@ export function relativeTime(value?: string | null): string {
   if (!date) return value
   const diff = Date.now() - date.getTime()
   const minutes = Math.round(diff / 60000)
+  // Future / clock-skew timestamps used to all show "just now" because
+  // negative minute diffs satisfied `minutes < 1`.
+  if (minutes < -2) return formatDate(value)
   if (minutes < 1) return 'just now'
   if (minutes < 60) return `${minutes}m ago`
   const hours = Math.round(minutes / 60)

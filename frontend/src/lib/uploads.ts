@@ -496,12 +496,17 @@ export const onboardingKitsApi = {
     let res: Response
     try {
       res = await fetch(apiUrl(path), {
-        method: 'GET',
-        headers: { Accept: 'application/pdf,application/octet-stream,*/*', ...authHeaders() },
+        method: 'POST',
+        headers: {
+          Accept: 'application/pdf,application/octet-stream,*/*',
+          'Content-Type': 'application/json',
+          ...authHeaders(),
+        },
+        body: JSON.stringify({}),
       })
     } catch {
       const detail = 'Cannot reach the backend to download the demo PDF.'
-      logApiError('GET', path, 0, detail, startedAt)
+      logApiError('POST', path, 0, detail, startedAt)
       throw new ApiError(0, detail)
     }
     if (!res.ok) {
@@ -512,11 +517,11 @@ export const onboardingKitsApi = {
       } catch {
         /* ignore */
       }
-      logApiError('GET', path, res.status, detail, startedAt)
+      logApiError('POST', path, res.status, detail, startedAt)
       throw new ApiError(res.status, detail)
     }
     const blob = await res.blob()
-    logApiCall('GET', path, res.status, startedAt)
+    logApiCall('POST', path, res.status, startedAt)
     saveBlob(blob, `${slug}_onboarding_kit.${format}`)
   },
 

@@ -27,9 +27,10 @@ export interface ColumnInput {
 export const offeringsApi = {
   list: (tenantId: string, opts: { includeInactive?: boolean } = {}, signal?: AbortSignal) =>
     api
-      .get<{ count: number; offerings: Offering[] }>(
-        `${base(tenantId)}?include_inactive=${opts.includeInactive ? 'true' : 'false'}`,
-        signal,
+      .post<{ count: number; offerings: Offering[] }>(
+        `${base(tenantId)}/list`,
+        { include_inactive: !!opts.includeInactive },
+        { signal },
       )
       .then((r) => r.offerings),
 
@@ -39,9 +40,10 @@ export const offeringsApi = {
     opts: { includeInactive?: boolean } = {},
     signal?: AbortSignal,
   ) =>
-    api.get<{ count: number; columns: RecordColumn[]; offerings: Offering[] }>(
-      `${base(tenantId)}?include_inactive=${opts.includeInactive ? 'true' : 'false'}`,
-      signal,
+    api.post<{ count: number; columns: RecordColumn[]; offerings: Offering[] }>(
+      `${base(tenantId)}/list`,
+      { include_inactive: !!opts.includeInactive },
+      { signal },
     ),
 
   create: (tenantId: string, body: OfferingInput) =>
@@ -49,17 +51,17 @@ export const offeringsApi = {
 
   update: (tenantId: string, id: number, body: Partial<OfferingInput>) =>
     api
-      .put<{ status: string; offering: Offering }>(`${base(tenantId)}/${id}`, body)
+      .post<{ status: string; offering: Offering }>(`${base(tenantId)}/${id}/update`, body)
       .then((r) => r.offering),
 
   remove: (tenantId: string, id: number, hard = false) =>
-    api.del<{ status: string; id: number }>(`${base(tenantId)}/${id}?hard=${hard ? 'true' : 'false'}`),
+    api.post<{ status: string; id: number }>(`${base(tenantId)}/${id}/delete`, { hard }),
 
   // ── column schema ──────────────────────────────────────────────────────
   // Each mutation returns the full, freshly reconciled column list.
 
   getSchema: (tenantId: string, signal?: AbortSignal) =>
-    api.get<RecordSchema>(schemaBase(tenantId), signal).then((r) => r.columns),
+    api.post<RecordSchema>(schemaBase(tenantId), {}, { signal }).then((r) => r.columns),
 
   createColumn: (tenantId: string, body: ColumnInput) =>
     api
@@ -71,15 +73,16 @@ export const offeringsApi = {
 
   updateColumn: (tenantId: string, key: string, body: Partial<ColumnInput> & { sort_order?: number }) =>
     api
-      .put<{ status: string; column: RecordColumn; columns: RecordColumn[] }>(
-        `${schemaBase(tenantId)}/columns/${encodeURIComponent(key)}`,
+      .post<{ status: string; column: RecordColumn; columns: RecordColumn[] }>(
+        `${schemaBase(tenantId)}/columns/${encodeURIComponent(key)}/update`,
         body,
       )
       .then((r) => r.columns),
 
   deleteColumn: (tenantId: string, key: string) =>
-    api.del<{ status: string; key: string; database_column_dropped: boolean; columns: RecordColumn[] }>(
-      `${schemaBase(tenantId)}/columns/${encodeURIComponent(key)}`,
+    api.post<{ status: string; key: string; database_column_dropped: boolean; columns: RecordColumn[] }>(
+      `${schemaBase(tenantId)}/columns/${encodeURIComponent(key)}/delete`,
+      {},
     ),
 
   resetColumns: (tenantId: string) =>

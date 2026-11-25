@@ -235,8 +235,17 @@ READ_ONLY_POST_PATHS = frozenset({
     "/api/admin/tenants/files/download",
     "/api/admin/tenants/knowledge-gaps",
     "/api/admin/tenants/send2-credentials/status",
+    "/api/admin/tenants/active-test-tenant/current",
     "/api/admin/onboarding-kits/list",
+    "/api/admin/tenant-change-requests",
+    "/api/admin/integration-requests",
+    "/api/admin/audit-history",
+    "/api/admin/audit-statistics",
+    "/api/admin/audit-export",
     "/api/tenant-change-requests/mine",
+    "/api/integration-requests/mine",
+    "/api/auth/status",
+    "/api/auth/me",
     "/api/auth/admins",
 })
 
@@ -282,6 +291,24 @@ BODY_TENANT_POST_PATHS = frozenset({
 # view-only for super admins (profile page load).
 READ_ONLY_POST_PATH_PATTERNS = (
     re.compile(r"^/api/admin/tenants/[^/]+/detail$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/offerings/list$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/record-schema$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/orders$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/distributors/list$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/campaigns/list$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/campaigns/templates/list$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/campaigns/segments/list$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/campaigns/recipients$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/versions$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/versions/\d+$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/tokens/list$"),
+    re.compile(r"^/api/admin/tenants/[^/]+/smoke$"),
+    re.compile(r"^/api/tenants/[^/]+/callbacks/list$"),
+    re.compile(r"^/api/tenants/[^/]+/integrations$"),
+    re.compile(r"^/api/admin/onboarding-kits/[^/]+/[^/]+$"),
+    re.compile(r"^/api/admin/tenant-change-requests/\d+/events$"),
+    re.compile(r"^/api/admin/integration-requests/\d+/events$"),
+    re.compile(r"^/api/admin/audit-history/\d+$"),
     re.compile(r"^/api/admin/menus$"),
     re.compile(r"^/api/admin/menus/[^/]+$"),
     re.compile(r"^/api/admin/menus/[^/]+/settings$"),
@@ -301,6 +328,7 @@ SUPER_ADMIN_ALLOWED_WRITE_PATTERNS = (
     re.compile(r"^/api/admin/tenants/active-test-tenant$"),
     re.compile(r"^/api/admin/tenants/[^/]+/send2-credentials/resync$"),
     re.compile(r"^/api/admin/tenants/[^/]+$"),  # DELETE only (checked below)
+    re.compile(r"^/api/admin/tenants/[^/]+/delete$"),  # POST twin of DELETE tenant
     re.compile(r"^/api/admin/tenant-change-requests/[^/]+/decision$"),
     re.compile(r"^/api/admin/integration-requests/[^/]+/decision$"),
     re.compile(r"^/api/admin/logs$"),  # platform maintenance
@@ -773,10 +801,21 @@ class FirstLoginCompleteRequest(BaseModel):
 
 # ---------- routes ----------
 
-@router.get("/status")
-def auth_status():
+def _auth_status_payload() -> dict:
     """Public: returns whether any admin accounts exist."""
     return {"has_admins": _admin_count() > 0}
+
+
+@router.get("/status")
+def auth_status():
+    """Legacy GET; prefer POST /api/auth/status."""
+    return _auth_status_payload()
+
+
+@router.post("/status")
+def auth_status_post():
+    """Public: whether any admin accounts exist (POST twin)."""
+    return _auth_status_payload()
 
 
 @router.post("/login")
@@ -1058,8 +1097,11 @@ def list_admins(current_admin: dict = Depends(require_permission("manage_admins"
     return _list_admins_payload(current_admin)
 
 
-@router.patch("/admins/{username}")
-def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = Depends(get_current_admin)):
+def _update_admin_payload(
+    username: str,
+    body: UpdateAdminRequest,
+    current_admin: dict,
+) -> dict:
     """Update an admin's permissions, email or tenant scope.
 
     A role is fixed at account creation and can NEVER be changed through
@@ -1115,8 +1157,6 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     # else tenant_id is left untouched (None means "no change" here).
     tenant_id = body.tenant_id if current_admin.get("role") == "super_admin" else None
 
-    after_tenant = tenant_id if tenant_id is not None else target.get("tenant_id")
-
     before = {
         "role": target.get("role"),
         "permissions": target.get("permissions") or {},
@@ -1167,8 +1207,19 @@ def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = 
     return {"status": "ok", "username": public_username, "role": new_role, "permissions": permissions}
 
 
-@router.delete("/admins/{username}")
-def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_current_admin)):
+@router.patch("/admins/{username}")
+def update_admin(username: str, body: UpdateAdminRequest, current_admin: dict = Depends(get_current_admin)):
+    """Legacy PATCH; prefer POST /api/auth/admins/{username}/update."""
+    return _update_admin_payload(username, body, current_admin)
+
+
+@router.post("/admins/{username}/update")
+def update_admin_post(username: str, body: UpdateAdminRequest, current_admin: dict = Depends(get_current_admin)):
+    """Update an admin's permissions, email or tenant scope (POST twin)."""
+    return _update_admin_payload(username, body, current_admin)
+
+
+def _delete_admin_payload(username: str, current_admin: dict) -> dict:
     """Delete an admin account. Requires the manage_admins permission."""
     if not has_permission(current_admin, "manage_admins"):
         raise HTTPException(status_code=403, detail="You do not have permission to manage admins")
@@ -1205,6 +1256,18 @@ def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_curre
             record_admin_audit_event(conn, **audit_kwargs)
     logger.info(f"Admin deleted by {current_admin['username']}: {public_username}")
     return {"status": "ok", "username": public_username}
+
+
+@router.delete("/admins/{username}")
+def delete_admin_endpoint(username: str, current_admin: dict = Depends(get_current_admin)):
+    """Legacy DELETE; prefer POST /api/auth/admins/{username}/delete."""
+    return _delete_admin_payload(username, current_admin)
+
+
+@router.post("/admins/{username}/delete")
+def delete_admin_post(username: str, current_admin: dict = Depends(get_current_admin)):
+    """Delete an admin account (POST twin)."""
+    return _delete_admin_payload(username, current_admin)
 
 
 @router.post("/admins/{username}/regenerate-session")
@@ -1258,8 +1321,7 @@ def _onboarding_approved(admin: dict) -> bool:
     return bool(str(admin.get("tenant_id") or "").strip())
 
 
-@router.get("/me")
-def admin_me(current_admin: dict = Depends(get_current_admin)):
+def _admin_me_payload(current_admin: dict) -> dict:
     """Return the currently authenticated admin."""
     return {
         "id": current_admin.get("id"),
@@ -1270,6 +1332,18 @@ def admin_me(current_admin: dict = Depends(get_current_admin)):
         "onboarding_approved": _onboarding_approved(current_admin),
         "is_customer_care": _is_customer_care(current_admin),
     }
+
+
+@router.get("/me")
+def admin_me(current_admin: dict = Depends(get_current_admin)):
+    """Legacy GET; prefer POST /api/auth/me."""
+    return _admin_me_payload(current_admin)
+
+
+@router.post("/me")
+def admin_me_post(current_admin: dict = Depends(get_current_admin)):
+    """Return the currently authenticated admin (POST twin)."""
+    return _admin_me_payload(current_admin)
 
 
 @router.post("/first-login/complete")

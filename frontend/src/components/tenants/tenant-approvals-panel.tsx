@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Check, Loader2, X } from 'lucide-react'
 import {
   tenantApprovalsApi,
@@ -10,7 +10,9 @@ import { useAuth } from '@/lib/auth'
 import { isCustomerCareIdentity } from '@/lib/admins'
 import { navigate } from '@/lib/router'
 import { formatDate, isTruthyFlag } from '@/lib/format'
-import { tenantsApi } from '@/lib/tenants'
+import { tenantsApi, useTenants } from '@/lib/tenants'
+import { getActiveTenantId } from '@/lib/api'
+import { getImpersonatedTenantId } from '@/lib/impersonation'
 import {
   Card,
   DangerButton,
@@ -442,15 +444,33 @@ function RequestCard({
 /** Super admin side: the queue of registrations and publishes awaiting approval. */
 export function TenantChangeReview() {
   const [filter, setFilter] = useState<TenantChangeStatus | 'all'>('pending')
-  const state = useAsync((signal) => tenantApprovalsApi.all(filter === 'all' ? undefined : filter, signal), [filter])
+  // While support Login is active, live API creds are the tenant admin — use
+  // saved Customercare credentials so the confirmation queue still loads.
+  const state = useAsync(
+    (signal) =>
+      tenantApprovalsApi.allAsReviewer(filter === 'all' ? undefined : filter, signal),
+    [filter],
+  )
   const action = useAction()
   const toast = useToast()
-  const { identity, refreshIdentity } = useAuth()
+  const { identity, refreshIdentity, impersonating, exitImpersonation } = useAuth()
+  const { active } = useTenants()
   const [notes, setNotes] = useState<Record<number, string>>({})
+  // Support Login is scoped to one tenant — hide other tenants' edit requests.
+  const scopedTenantId = impersonating
+    ? String(
+        getImpersonatedTenantId() || active?.id || getActiveTenantId() || '',
+      ).trim() || null
+    : null
+  const visibleRequests = useMemo(() => {
+    const rows = state.data ?? []
+    if (!scopedTenantId) return rows
+    return rows.filter((request) => request.tenant_id === scopedTenantId)
+  }, [state.data, scopedTenantId])
 
   const decide = async (request: TenantChangeRequest, decision: 'approved' | 'rejected') => {
     const result = await action.run(() =>
-      tenantApprovalsApi.decide(request.id, decision, notes[request.id] ?? ''),
+      tenantApprovalsApi.decideAsReviewer(request.id, decision, notes[request.id] ?? ''),
     )
     if (result) {
       toast.push(result.message ?? `${TYPE_LABELS[request.request_type]} request ${decision}`)
@@ -459,17 +479,28 @@ export function TenantChangeReview() {
       // Stay as Customercare / superadmin with full Platform + Onboarded users.
       // Refresh identity so privileges and Login access stay correct after apply.
       void refreshIdentity()
-      if (decision === 'approved' && isCustomerCareIdentity(identity)) {
-        navigate('/onboarding-users')
+      if (decision === 'approved' && (impersonating || isCustomerCareIdentity(identity))) {
+        if (impersonating) {
+          await exitImpersonation('/onboarding-users')
+        } else {
+          navigate('/onboarding-users')
+        }
       }
+      return
     }
+    // 409 "already reviewed" (or any decide failure): drop the stale pending card.
+    state.reload()
   }
 
   return (
     <div>
       <PageHeader
         title="Business requests"
-        description="Tenant registrations and profile publishes submitted by admins. Approval applies the change exactly as it was submitted; rejection leaves the live tenant untouched."
+        description={
+          scopedTenantId
+            ? `Pending registrations and profile publishes for tenant “${scopedTenantId}” only. Other tenants stay hidden while you are Logged into this account.`
+            : 'Tenant registrations and profile publishes submitted by admins. Approval applies the change exactly as it was submitted; rejection leaves the live tenant untouched.'
+        }
         meta={<Pill tone="ok">Superadmin review</Pill>}
       />
 
@@ -485,17 +516,21 @@ export function TenantChangeReview() {
       {action.error && <ErrorBanner title="Could not update request" message={action.error} className="mb-4" />}
       {state.loading && <LoadingBlock label="Loading tenant change requests…" />}
       {state.error && <ErrorBanner title="Could not load requests" message={state.error} />}
-      {state.data?.length === 0 && !state.loading && (
+      {visibleRequests.length === 0 && !state.loading && !state.error && (
         <Card>
           <EmptyState
             title="No requests"
-            description="There are no tenant change requests in this status. Admin submissions appear here for approval."
+            description={
+              scopedTenantId
+                ? `No change requests for tenant “${scopedTenantId}” in this status.`
+                : 'There are no tenant change requests in this status. Admin submissions appear here for approval.'
+            }
           />
         </Card>
       )}
-      {state.data && state.data.length > 0 && (
+      {visibleRequests.length > 0 && (
         <div className="space-y-3">
-          {state.data.map((request) => (
+          {visibleRequests.map((request) => (
             <RequestCard
               key={request.id}
               request={request}

@@ -7,6 +7,7 @@ from .core import (
     logger, get_db_context, use_mongodb, _ensure_columns,
     _audit_request_context, _facade_ref,
 )
+from .timestamps import now_stamp
 
 
 def _init_admin_audit_tables(conn):
@@ -130,12 +131,13 @@ def record_admin_audit_event(
     actor_kind = actor_kind or actor.get("type") or ("tenant_token" if actor.get("token_id") else "admin")
     actor_label = actor_label or actor.get("label") or actor.get("username")
     details_payload = _facade_ref("safe_audit_details", safe_audit_details)(details or {})
-    created_at = datetime.now(timezone.utc)
+    # Local wall-clock stamp — matches how the Activity log displays times.
+    created_at = now_stamp()
 
     if mongo_mode:
         from .mongo import Repository
         try:
-            cutoff = created_at - timedelta(days=365)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=365)
             Repository("admin_audit_events").delete_many({"created_at": {"$lt": cutoff}})
         except Exception:
             logger.debug("AUDIT_RETENTION_CLEANUP_SKIPPED", exc_info=True)

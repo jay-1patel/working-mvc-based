@@ -94,15 +94,18 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const brandName =
     profile?.brand?.name?.trim() || active?.display_name || active?.id || identity?.tenant_id || ''
   const brandTagline = profile?.brand?.tagline?.trim() || (active ? getVertical(active.vertical).short : '')
-  // Support sessions see every tenant screen (including ones normally SA-only).
+  // Super admin / support Login use the same tenant sidebar as a company admin.
+  // Platform-only Manage links (People / Activity / Errors) are appended below.
   const nav = locked
     ? []
     : buildTenantNav({
         vertical: active?.vertical,
         features,
         can,
-        isSuperAdmin: isSuperAdmin || impersonating,
+        isSuperAdmin: false,
       })
+  const showTenantManageTools =
+    !locked && (impersonating || (isSuperAdmin && Boolean(route.tenantId)))
   const contentCount = useOfferingsCount(
     route.tenantId && can('view_products') ? route.tenantId : null,
   )
@@ -397,12 +400,11 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
           )}
 
           {/*
-            Platform tools:
-            - Normal super admins: always
-            - customer_care: only AFTER Login into a tenant (impersonating) — home is
-              Onboarded users only
+            Platform tools (super admin, not inside a tenant):
+            - customer_care home stays Onboarded users only until Login
+            - Inside a tenant: hide Platform — sidebar is admin nav + Manage below
           */}
-          {!locked && isSuperAdmin && !showOnboardingUsers && (
+          {!locked && isSuperAdmin && !showOnboardingUsers && !route.tenantId && !impersonating && (
             <div className="space-y-0.5 border-t border-line pt-3">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Platform
@@ -426,12 +428,19 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
           )}
 
-          {!locked && impersonating && (
+          {showTenantManageTools && (
             <div className="space-y-0.5 border-t border-line pt-3">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Manage
               </p>
               {globalItem('team', 'People / privileges', Users, '/team', 'team')}
+              {globalItem(
+                'tenant-requests',
+                'Business requests',
+                ClipboardCheck,
+                '/tenant-requests',
+                'tenant-requests',
+              )}
               {globalItem('audit-history', 'Activity log', ScrollText, '/audit-history', 'audit-history')}
               {globalItem('errors', 'Errors & health', AlertTriangle, '/errors', 'errors')}
             </div>

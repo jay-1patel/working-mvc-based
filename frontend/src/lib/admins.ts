@@ -89,19 +89,20 @@ export const adminsApi = {
     // refuses role changes — changing a role is delete + recreate.
     body: { permissions?: Record<string, boolean>; email?: string | null; tenant_id?: string | null },
   ) =>
-    api.patch<{ status: string; username: string; role: string; permissions: Record<string, boolean>; tenant_id?: string | null }>(
-      `/api/auth/admins/${encodeURIComponent(username)}`,
+    api.post<{ status: string; username: string; role: string; permissions: Record<string, boolean>; tenant_id?: string | null }>(
+      `/api/auth/admins/${encodeURIComponent(username)}/update`,
       body,
     ),
 
-  remove: (username: string) => api.del<{ status: string }>(`/api/auth/admins/${encodeURIComponent(username)}`),
+  remove: (username: string) =>
+    api.post<{ status: string }>(`/api/auth/admins/${encodeURIComponent(username)}/delete`, {}),
 
   resetPassword: (username: string, newPassword: string) =>
     api.post<{ status: string }>(`/api/auth/admins/${encodeURIComponent(username)}/reset-password`, {
       new_password: newPassword,
     }),
 
-  me: () => api.get<AdminIdentity>('/api/auth/me'),
+  me: () => api.post<AdminIdentity>('/api/auth/me', {}),
 
   /** First-login setup: create tenant, bind WhatsApp, publish v1, scope self. */
   firstLoginComplete: (body: {

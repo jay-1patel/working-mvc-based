@@ -85,9 +85,10 @@ export const callbacksApi = {
     opts: { status?: string; wa_id?: string; limit?: number } = {},
     signal?: AbortSignal,
   ) =>
-    api.get<{ ok: boolean; callbacks: Callback[]; total_count: number }>(
-      `${base(tenantId)}${query(opts)}`,
-      signal,
+    api.post<{ ok: boolean; callbacks: Callback[]; total_count: number }>(
+      `${base(tenantId)}/list`,
+      { status: opts.status, wa_id: opts.wa_id, limit: opts.limit ?? 100 },
+      { signal },
     ),
 
   create: (tenantId: string, body: CallbackInput) =>

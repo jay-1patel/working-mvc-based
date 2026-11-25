@@ -4,7 +4,7 @@ import io
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
@@ -131,6 +131,14 @@ def export_tenant_customers(
     )
 
 
+class OrdersListRequest(BaseModel):
+    status: Optional[str] = None
+    order_type: Optional[str] = None
+    payment_status: Optional[str] = None
+    q: str = ""
+    limit: int = 200
+
+
 @router.get("/orders")
 def list_tenant_orders(
     tenant_id: str,
@@ -148,6 +156,24 @@ def list_tenant_orders(
         payment_status=payment_status,
         q=q,
         limit=limit,
+    )
+
+
+@router.post("/orders")
+def list_tenant_orders_post(
+    tenant_id: str,
+    body: OrdersListRequest = Body(default_factory=OrdersListRequest),
+    current_admin: dict = Depends(require_tenant_admin_permission("view_orders")),
+):
+    """Prefer POST over GET for panel clients."""
+    return list_tenant_orders(
+        tenant_id=tenant_id,
+        status=body.status,
+        order_type=body.order_type,
+        payment_status=body.payment_status,
+        q=body.q,
+        limit=min(max(body.limit, 1), 500),
+        current_admin=current_admin,
     )
 
 

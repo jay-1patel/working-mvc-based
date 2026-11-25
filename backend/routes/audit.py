@@ -12,8 +12,9 @@ import io
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from database import safe_audit_details
 from db.audit_history_ops import (
@@ -24,6 +25,52 @@ from db.audit_history_ops import (
 from routes.auth import get_current_admin
 
 router = APIRouter(tags=["audit-history"])
+
+
+class AuditListRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    actor: Optional[str] = Field(default=None, max_length=100)
+    action: Optional[str] = Field(default=None, max_length=80)
+    category: Optional[str] = Field(default=None, max_length=30)
+    tenant_id: Optional[str] = Field(default=None, max_length=100)
+    outcome: Optional[str] = Field(default=None, max_length=20)
+    search: Optional[str] = Field(default=None, max_length=120)
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0, le=1_000_000)
+    sort_by: Optional[str] = Field(default=None, max_length=50)
+    sort_order: Optional[str] = Field(default="desc", max_length=4)
+
+
+class AuditStatsRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    actor: Optional[str] = Field(default=None, max_length=100)
+    action: Optional[str] = Field(default=None, max_length=80)
+    category: Optional[str] = Field(default=None, max_length=30)
+    tenant_id: Optional[str] = Field(default=None, max_length=100)
+    outcome: Optional[str] = Field(default=None, max_length=20)
+    search: Optional[str] = Field(default=None, max_length=120)
+
+
+class AuditExportRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    actor: Optional[str] = Field(default=None, max_length=100)
+    action: Optional[str] = Field(default=None, max_length=80)
+    category: Optional[str] = Field(default=None, max_length=30)
+    tenant_id: Optional[str] = Field(default=None, max_length=100)
+    outcome: Optional[str] = Field(default=None, max_length=20)
+    search: Optional[str] = Field(default=None, max_length=120)
+    format: str = Field(default="csv", max_length=4)
+    columns: str = Field(default="", max_length=500)
+    limit: int = Field(default=10000, ge=1, le=50000)
 
 # Tenant admins may inspect peer admin / sub-admin activity only.
 _ADMIN_VISIBLE_ACTOR_ROLES = ("admin", "sub_admin")
@@ -85,6 +132,8 @@ CATEGORY_ACTIONS = {
         "tenant_intent_draft_saved", "tenant_profile_published", "tenant_profile_rolled_back",
         "tenant_phone_id_bound", "tenant_webhook_secret_configured", "tenant_token_created",
         "tenant_token_revoked", "config_draft_saved", "config_draft_built", "config_published",
+        "tenant_change_request_submitted", "tenant_change_request_reviewed",
+        "admin_impersonated",
     ),
     "api_access": ("api_access_request_submitted", "api_access_request_reviewed"),
     "menus": (
@@ -188,6 +237,63 @@ def list_audit_history(
     sort_order: Optional[str] = Query(default="desc", max_length=4),
     current_admin: dict = Depends(get_current_admin),
 ):
+    """Legacy GET; prefer POST /api/admin/audit-history."""
+    return _list_audit_history_payload(
+        current_admin,
+        start_date=start_date,
+        end_date=end_date,
+        actor=actor,
+        action=action,
+        category=category,
+        tenant_id=tenant_id,
+        outcome=outcome,
+        search=search,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+
+
+@router.post("/api/admin/audit-history")
+def list_audit_history_post(
+    body: Optional[AuditListRequest] = None,
+    current_admin: dict = Depends(get_current_admin),
+):
+    req = body or AuditListRequest()
+    return _list_audit_history_payload(
+        current_admin,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        actor=req.actor,
+        action=req.action,
+        category=req.category,
+        tenant_id=req.tenant_id,
+        outcome=req.outcome,
+        search=req.search,
+        limit=req.limit,
+        offset=req.offset,
+        sort_by=req.sort_by,
+        sort_order=req.sort_order,
+    )
+
+
+def _list_audit_history_payload(
+    current_admin: dict,
+    *,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    actor: Optional[str] = None,
+    action: Optional[str] = None,
+    category: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    outcome: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = "desc",
+):
     """List audit history events with filtering and sorting."""
     tenant_id = _scoped_tenant_id(current_admin, tenant_id)
     if start_date and end_date and start_date > end_date:
@@ -260,6 +366,51 @@ def get_audit_statistics(
     outcome: Optional[str] = Query(default=None, max_length=20),
     search: Optional[str] = Query(default=None, max_length=120),
     current_admin: dict = Depends(get_current_admin),
+):
+    """Legacy GET; prefer POST /api/admin/audit-statistics."""
+    return _get_audit_statistics_payload(
+        current_admin,
+        start_date=start_date,
+        end_date=end_date,
+        actor=actor,
+        action=action,
+        category=category,
+        tenant_id=tenant_id,
+        outcome=outcome,
+        search=search,
+    )
+
+
+@router.post("/api/admin/audit-statistics")
+def get_audit_statistics_post(
+    body: Optional[AuditStatsRequest] = None,
+    current_admin: dict = Depends(get_current_admin),
+):
+    req = body or AuditStatsRequest()
+    return _get_audit_statistics_payload(
+        current_admin,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        actor=req.actor,
+        action=req.action,
+        category=req.category,
+        tenant_id=req.tenant_id,
+        outcome=req.outcome,
+        search=req.search,
+    )
+
+
+def _get_audit_statistics_payload(
+    current_admin: dict,
+    *,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    actor: Optional[str] = None,
+    action: Optional[str] = None,
+    category: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    outcome: Optional[str] = None,
+    search: Optional[str] = None,
 ):
     """Get aggregated statistics for audit events."""
     tenant_id = _scoped_tenant_id(current_admin, tenant_id)
@@ -412,7 +563,7 @@ def export_audit_history(
     limit: int = Query(default=10000, ge=1, le=50000),
     current_admin: dict = Depends(get_current_admin),
 ):
-    """Export audit history as CSV, JSON or PDF."""
+    """Legacy GET; prefer POST /api/admin/audit-export."""
     tenant_id = _scoped_tenant_id(current_admin, tenant_id)
     
     if format not in ("csv", "json", "pdf"):
@@ -547,11 +698,29 @@ def export_audit_history(
         )
 
 
-@router.get("/api/admin/audit-history/{event_id}")
-def get_audit_event(
-    event_id: int,
+@router.post("/api/admin/audit-export")
+def export_audit_history_post(
+    body: AuditExportRequest = Body(default_factory=AuditExportRequest),
     current_admin: dict = Depends(get_current_admin),
 ):
+    """Session-auth export; prefer over GET query-string form."""
+    return export_audit_history(
+        start_date=body.start_date,
+        end_date=body.end_date,
+        actor=body.actor,
+        action=body.action,
+        category=body.category,
+        tenant_id=body.tenant_id,
+        outcome=body.outcome,
+        search=body.search,
+        format=body.format,
+        columns=body.columns,
+        limit=body.limit,
+        current_admin=current_admin,
+    )
+
+
+def _get_audit_event_payload(event_id: int, current_admin: dict) -> dict:
     """Get details for a specific audit event."""
     # Role gate first (sub admins refused); tenant scoping is enforced
     # against the loaded row below so an admin can never read another
@@ -571,3 +740,20 @@ def get_audit_event(
                 detail="Admins can only view admin and sub-admin activity logs",
             )
     return row_dict
+
+
+@router.get("/api/admin/audit-history/{event_id}")
+def get_audit_event(
+    event_id: int,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Legacy GET; prefer POST /api/admin/audit-history/{event_id}."""
+    return _get_audit_event_payload(event_id, current_admin)
+
+
+@router.post("/api/admin/audit-history/{event_id}")
+def get_audit_event_post(
+    event_id: int,
+    current_admin: dict = Depends(get_current_admin),
+):
+    return _get_audit_event_payload(event_id, current_admin)

@@ -3,7 +3,7 @@ import logging
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel
 
 from database import (
@@ -108,6 +108,12 @@ def _contact_errors(name=None, phone=None, email=None, wa_id=None):
 
 # ── Routes ─────────────────────────────────────────────────────────────
 
+class DistributorListRequest(BaseModel):
+    q: str = ""
+    region: str = ""
+    tier: str = ""
+
+
 @router.get("")
 def list_distributors(
     tenant_id: str,
@@ -122,6 +128,22 @@ def list_distributors(
             tenant_id, q=q, region=region, tier=tier
         )
     }
+
+
+@router.post("/list")
+def list_distributors_post(
+    tenant_id: str,
+    body: DistributorListRequest = Body(default_factory=DistributorListRequest),
+    current_admin: dict = Depends(require_tenant_access()),
+):
+    """Prefer POST /list (POST "" creates)."""
+    return list_distributors(
+        tenant_id=tenant_id,
+        q=body.q,
+        region=body.region,
+        tier=body.tier,
+        current_admin=current_admin,
+    )
 
 
 @router.get("/count")
@@ -251,6 +273,19 @@ def update_distributor(
     return {"ok": True}
 
 
+@router.post("/{wa_id}/update")
+def update_distributor_post(
+    tenant_id: str,
+    wa_id: str,
+    body: DistributorUpdate,
+    current_admin: dict = Depends(require_permission("manage_distributors")),
+):
+    """Prefer POST .../update over PUT."""
+    return update_distributor(
+        tenant_id=tenant_id, wa_id=wa_id, body=body, current_admin=current_admin
+    )
+
+
 @router.delete("/{wa_id}")
 def delete_distributor(
     tenant_id: str,
@@ -284,3 +319,13 @@ def delete_distributor(
 
     logger.info(f"DISTRIBUTOR_DELETED | tenant={tenant_id} | wa_id={wa_id}")
     return {"ok": True}
+
+
+@router.post("/{wa_id}/delete")
+def delete_distributor_post(
+    tenant_id: str,
+    wa_id: str,
+    current_admin: dict = Depends(require_permission("manage_distributors")),
+):
+    """Prefer POST .../delete over DELETE."""
+    return delete_distributor(tenant_id=tenant_id, wa_id=wa_id, current_admin=current_admin)

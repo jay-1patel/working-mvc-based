@@ -132,7 +132,7 @@ export interface IntegrationTestResult {
 
 export const apiOnboarding = {
   mine: async (signal?: AbortSignal) =>
-    (await api.get<{ requests: ApiOnboardingRequest[] }>('/api/integration-requests', signal)).requests,
+    (await api.post<{ requests: ApiOnboardingRequest[] }>('/api/integration-requests/mine', {}, { signal })).requests,
   create: async (input: {
     api_type: ApiOnboardingType
     provider: string
@@ -140,22 +140,38 @@ export const apiOnboarding = {
     purpose: string
   }) =>
     (await api.post<{ request: ApiOnboardingRequest }>('/api/integration-requests', input)).request,
-  all: async (status?: ApiOnboardingStatus, signal?: AbortSignal) => {
-    const query = status ? `?status=${encodeURIComponent(status)}` : ''
-    return (await api.get<{ requests: ApiOnboardingRequest[] }>(`/api/admin/integration-requests${query}`, signal)).requests
-  },
+  all: async (status?: ApiOnboardingStatus, signal?: AbortSignal) =>
+    (
+      await api.post<{ requests: ApiOnboardingRequest[] }>(
+        '/api/admin/integration-requests',
+        status ? { status } : {},
+        { signal },
+      )
+    ).requests,
   decide: async (id: number, decision: 'approved' | 'rejected', note: string) =>
     api.post<{ request: ApiOnboardingRequest; message: string }>(
       `/api/admin/integration-requests/${id}/decision`,
       { decision, note },
     ),
   events: async (id: number, signal?: AbortSignal) =>
-    (await api.get<{ events: ApiOnboardingEvent[] }>(`/api/admin/integration-requests/${id}/events`, signal)).events,
+    (
+      await api.post<{ events: ApiOnboardingEvent[] }>(
+        `/api/admin/integration-requests/${id}/events`,
+        {},
+        { signal },
+      )
+    ).events,
 }
 
 export const tenantIntegrationsApi = {
   list: async (tenantId: string, signal?: AbortSignal) =>
-    (await api.get<{ integrations: TenantIntegration[] }>(`/api/tenants/${encodeURIComponent(tenantId)}/integrations`, signal)).integrations,
+    (
+      await api.post<{ integrations: TenantIntegration[] }>(
+        `/api/tenants/${encodeURIComponent(tenantId)}/integrations`,
+        {},
+        { signal },
+      )
+    ).integrations,
   
   saveConfig: async (
     tenantId: string,
@@ -235,12 +251,12 @@ export const tenantIntegrationsApi = {
     }>(`/api/tenants/${encodeURIComponent(tenantId)}/shipping/book-shipment`, data),
 
   trackShipment: async (tenantId: string, awb: string) =>
-    api.get<{
+    api.post<{
       ok: boolean
       awb: string
       status: string
       carrier: string
       tracking_url: string
       [key: string]: any
-    }>(`/api/tenants/${encodeURIComponent(tenantId)}/shipping/track/${encodeURIComponent(awb)}`),
+    }>(`/api/tenants/${encodeURIComponent(tenantId)}/shipping/track/${encodeURIComponent(awb)}`, {}),
 }

@@ -1,6 +1,12 @@
-"""Canonical DB datetime stamps: ``DD-MM-YYYY HH:mm`` strings (no BSON Date)."""
+"""Canonical DB datetime stamps: ``DD-MM-YYYY HH:mm`` strings (no BSON Date).
+
+Stamps are **local wall-clock** values. Never treat a stamp string as UTC and
+convert it again — that shifts Activity log times (e.g. +5:30) and makes
+every row show as \"just now\".
+"""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -14,6 +20,9 @@ _PARSE_FORMATS = (
     "%Y-%m-%dT%H:%M:%S.%f",
     "%Y-%m-%d %H:%M",
 )
+
+# Already-canonical local stamps must pass through unchanged.
+_STAMP_RE = re.compile(r"^(\d{2})-(\d{2})-(\d{4})[ T](\d{2}):(\d{2})(?::\d{2})?$")
 
 
 def now_stamp() -> str:
@@ -31,6 +40,11 @@ def to_stamp(value: Any) -> Optional[str]:
     text = str(value).strip()
     if not text:
         return None
+    # Idempotent: stamp strings are already local wall-clock.
+    match = _STAMP_RE.match(text)
+    if match:
+        dd, mm, yyyy, hh, minute = match.groups()
+        return f"{dd}-{mm}-{yyyy} {hh}:{minute}"
     parsed = parse_stamp(text)
     if parsed is not None:
         local = parsed.astimezone().replace(tzinfo=None) if parsed.tzinfo else parsed
@@ -39,7 +53,12 @@ def to_stamp(value: Any) -> Optional[str]:
 
 
 def parse_stamp(value: Any) -> Optional[datetime]:
-    """Parse a stamp / ISO / legacy string into an aware UTC datetime."""
+    """Parse a stamp / ISO / legacy string into an aware UTC datetime.
+
+    ``DD-MM-YYYY HH:mm`` stamps are local wall-clock: interpret them in the
+    host local timezone, then convert to UTC. ISO strings with ``Z``/offsets
+    keep their embedded zone.
+    """
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
@@ -47,10 +66,28 @@ def parse_stamp(value: Any) -> Optional[datetime]:
     text = str(value).strip()
     if not text:
         return None
+
+    stamp_match = _STAMP_RE.match(text)
+    if stamp_match:
+        dd, mm, yyyy, hh, minute = stamp_match.groups()
+        seconds = 0
+        if len(text) >= 19 and text[16] == ":":
+            try:
+                seconds = int(text[17:19])
+            except ValueError:
+                seconds = 0
+        naive = datetime(
+            int(yyyy), int(mm), int(dd), int(hh), int(minute), seconds,
+        )
+        # Attach the host's local zone, then normalize to UTC.
+        local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+        return naive.replace(tzinfo=local_tz).astimezone(timezone.utc)
+
     for fmt in _PARSE_FORMATS:
+        if fmt in (STAMP_FORMAT, "%d-%m-%Y %H:%M:%S"):
+            continue  # handled above
         try:
             sample = text[:26].replace("Z", "")
-            # strptime needs exact length for some formats; trim to format width.
             width = len(datetime(2000, 1, 1).strftime(fmt))
             parsed = datetime.strptime(sample[:width], fmt)
             return parsed.replace(tzinfo=timezone.utc)

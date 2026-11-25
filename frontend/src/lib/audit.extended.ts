@@ -1,5 +1,43 @@
-import { api, ApiError, apiCallStart, authHeaders, logApiCall, logApiError } from './api'
+import { api, apiUrl, ApiError, apiCallStart, authHeaders, logApiCall, logApiError } from './api'
 import { type AuditEvent, type AuditFilters, type AuditPage } from './audit'
+import { getImpersonator } from './impersonation'
+
+/**
+ * Activity log reads while support Login is active must use Customercare
+ * credentials. The live session is the tenant admin, which hides
+ * ``super_admin`` actor rows and would make the log look empty.
+ */
+async function auditPostAsViewer<T>(path: string, body: unknown = {}, signal?: AbortSignal): Promise<T> {
+  const operator = getImpersonator()
+  if (!operator) return api.post<T>(path, body, { signal })
+
+  const startedAt = apiCallStart()
+  const payload =
+    body && typeof body === 'object'
+      ? { ...(body as Record<string, unknown>), user_id: operator.userId, session_id: operator.sessionId }
+      : { user_id: operator.userId, session_id: operator.sessionId }
+  const res = await fetch(apiUrl(path), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      user_id: operator.userId,
+      session_id: operator.sessionId,
+    },
+    body: JSON.stringify(payload),
+    signal,
+  })
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null))?.detail || res.statusText
+    logApiError('POST', path, res.status, String(detail), startedAt)
+    throw new ApiError(
+      res.status,
+      typeof detail === 'string' ? detail : `Request failed (${res.status})`,
+    )
+  }
+  logApiCall('POST', path, res.status, startedAt)
+  return (await res.json()) as T
+}
 
 // Extended audit types for new features
 export interface AuditEventExtended extends Omit<AuditEvent, 'details'> {
@@ -51,72 +89,61 @@ export interface RealtimeUpdate {
 // Extended API functions
 export const auditApiExtended = {
   // Original list function
-  list: (filters: AuditFilters, signal?: AbortSignal) => {
-    const query = new URLSearchParams()
-    for (const [key, value] of Object.entries(filters)) {
-      if (value !== undefined && value !== '') query.set(key, String(value))
-    }
-    return api.get<AuditPage>(`/api/admin/audit-history?${query.toString()}`, signal)
-  },
+  list: (filters: AuditFilters, signal?: AbortSignal) =>
+    auditPostAsViewer<AuditPage>('/api/admin/audit-history', { ...filters }, signal),
 
   // New statistics endpoint
-  getStatistics: (filters: AuditFilters, signal?: AbortSignal) => {
-    const query = new URLSearchParams()
-    for (const [key, value] of Object.entries(filters)) {
-      if (value !== undefined && value !== '') query.set(key, String(value))
-    }
-    return api.get<AuditStatistics>(`/api/admin/audit-statistics?${query.toString()}`, signal)
-  },
+  getStatistics: (filters: AuditFilters, signal?: AbortSignal) =>
+    auditPostAsViewer<AuditStatistics>('/api/admin/audit-statistics', { ...filters }, signal),
 
   // Export endpoint — returns a file blob (CSV / JSON / PDF), not JSON-parsed body.
-  // Must not go through api.get(), which always JSON.parse()'s the response.
+  // Must not go through api.post(), which always JSON.parse()'s the response.
   exportEvents: async (request: ExportRequest, signal?: AbortSignal): Promise<Blob> => {
-    const query = new URLSearchParams()
-    for (const [key, value] of Object.entries(request.filters)) {
-      if (value !== undefined && value !== '') query.set(key, String(value))
+    const path = '/api/admin/audit-export'
+    const body = {
+      ...request.filters,
+      format: request.format,
+      columns: request.columns.join(','),
     }
-    query.set('format', request.format)
-    query.set('columns', request.columns.join(','))
-
-    const path = `/api/admin/audit-export?${query.toString()}`
     const startedAt = apiCallStart()
     let res: Response
     try {
-      res = await fetch(path, {
-        method: 'GET',
+      res = await fetch(apiUrl(path), {
+        method: 'POST',
         headers: {
           Accept: '*/*',
+          'Content-Type': 'application/json',
           ...authHeaders(),
         },
+        body: JSON.stringify(body),
         signal,
       })
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') throw err
       const detail = 'Cannot reach the backend. Is it running on port 9000?'
-      logApiError('GET', path, 0, detail, startedAt)
+      logApiError('POST', path, 0, detail, startedAt)
       throw new ApiError(0, detail)
     }
 
     if (!res.ok) {
       let detail = `Export failed (${res.status})`
       try {
-        const body = await res.json()
-        if (typeof body?.detail === 'string') detail = body.detail
+        const errBody = await res.json()
+        if (typeof errBody?.detail === 'string') detail = errBody.detail
       } catch {
         /* body may be empty or non-JSON */
       }
-      logApiError('GET', path, res.status, detail, startedAt)
+      logApiError('POST', path, res.status, detail, startedAt)
       throw new ApiError(res.status, detail)
     }
 
-    logApiCall('GET', path, res.status, startedAt)
+    logApiCall('POST', path, res.status, startedAt)
     return res.blob()
   },
 
   // Get single event details
-  getEvent: (eventId: number, signal?: AbortSignal) => {
-    return api.get<AuditEventExtended>(`/api/admin/audit-history/${eventId}`, signal)
-  },
+  getEvent: (eventId: number, signal?: AbortSignal) =>
+    api.post<AuditEventExtended>(`/api/admin/audit-history/${eventId}`, {}, { signal }),
 
   // Real-time updates (WebSocket simulation via polling for now)
   subscribeUpdates: (_callback: (update: RealtimeUpdate) => void, signal?: AbortSignal) => {

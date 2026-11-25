@@ -22,7 +22,7 @@ export const tenantsApi = {
 
   getActiveTestTenant: () =>
     api
-      .get<{ active_test_tenant: string | null }>('/api/admin/tenants/active-test-tenant')
+      .post<{ active_test_tenant: string | null }>('/api/admin/tenants/active-test-tenant/current', {})
       .then((r) => r.active_test_tenant),
 
   setActiveTestTenant: (tenantId: string | null) =>
@@ -56,7 +56,8 @@ export const tenantsApi = {
     auto_scrape?: boolean
   }) => api.post<{ ok: boolean; tenant: Tenant }>('/api/admin/tenants', body),
 
-  remove: (id: string) => api.del<{ ok: boolean }>(`/api/admin/tenants/${encodeURIComponent(id)}`),
+  remove: (id: string) =>
+    api.post<{ ok: boolean }>(`/api/admin/tenants/${encodeURIComponent(id)}/delete`, {}),
 
   bindPhone: (id: string, waba_phone_id: string) =>
     api.post<{ ok: boolean }>(`/api/admin/tenants/${encodeURIComponent(id)}/phone-id`, {
@@ -114,13 +115,15 @@ export const tenantsApi = {
     ),
 
   versions: (id: string) =>
-    api.get<{ tenant_id: string; current_version: number; versions: VersionRecord[] }>(
+    api.post<{ tenant_id: string; current_version: number; versions: VersionRecord[] }>(
       `/api/admin/tenants/${encodeURIComponent(id)}/versions`,
+      {},
     ),
 
   version: (id: string, version: number) =>
-    api.get<Record<string, unknown>>(
+    api.post<Record<string, unknown>>(
       `/api/admin/tenants/${encodeURIComponent(id)}/versions/${version}`,
+      {},
     ),
 
   rollback: (id: string, version: number) =>
@@ -130,8 +133,9 @@ export const tenantsApi = {
     ),
 
   tokens: (id: string) =>
-    api.get<{ tenant_id: string; tokens: TenantToken[] }>(
-      `/api/admin/tenants/${encodeURIComponent(id)}/tokens`,
+    api.post<{ tenant_id: string; tokens: TenantToken[] }>(
+      `/api/admin/tenants/${encodeURIComponent(id)}/tokens/list`,
+      {},
     ),
 
   mintToken: (id: string, label: string) =>
@@ -141,7 +145,10 @@ export const tenantsApi = {
     ),
 
   revokeToken: (id: string, tokenId: number) =>
-    api.del<{ ok: boolean }>(`/api/admin/tenants/${encodeURIComponent(id)}/tokens/${tokenId}`),
+    api.post<{ ok: boolean }>(
+      `/api/admin/tenants/${encodeURIComponent(id)}/tokens/${tokenId}/delete`,
+      {},
+    ),
 
   testQuestion: (id: string, message: string) =>
     api.post<TestQuestionResult>(`/api/admin/tenants/${encodeURIComponent(id)}/test-question`, {
@@ -149,7 +156,7 @@ export const tenantsApi = {
     }),
 
   smoke: (id: string) =>
-    api.get<SmokeReport>(`/api/admin/tenants/${encodeURIComponent(id)}/smoke`),
+    api.post<SmokeReport>(`/api/admin/tenants/${encodeURIComponent(id)}/smoke`, {}),
 }
 
 // ── context ────────────────────────────────────────────────────────────────

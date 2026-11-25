@@ -45,11 +45,6 @@ export interface AuditPage {
 }
 
 export const auditApi = {
-  list: (filters: AuditFilters, signal?: AbortSignal) => {
-    const query = new URLSearchParams()
-    for (const [key, value] of Object.entries(filters)) {
-      if (value !== undefined && value !== '') query.set(key, String(value))
-    }
-    return api.get<AuditPage>(`/api/admin/audit-history?${query.toString()}`, signal)
-  },
+  list: (filters: AuditFilters, signal?: AbortSignal) =>
+    api.post<AuditPage>('/api/admin/audit-history', { ...filters }, { signal }),
 }

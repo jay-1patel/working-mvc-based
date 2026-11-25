@@ -118,15 +118,16 @@ def _enrich_with_tenant(rows) -> list:
     return out
 
 
-_AUTH_BODY_KEYS = frozenset({"username", "session_id"})
+_AUTH_BODY_KEYS = frozenset({"username", "user_id", "session_id"})
 
 
 async def _parse_body(request: Request, model):
     """Validate JSON after dropping panel auth fields the frontend always sends.
 
-    ``frontend/src/lib/api.ts`` attaches ``username`` + ``session_id`` to every
-    JSON body. Models use ``extra="forbid"``, so those auth-only keys must be
-    stripped before Pydantic runs or every submit returns HTTP 422.
+    ``frontend/src/lib/api.ts`` (and support Login reviewer calls) attach
+    ``user_id`` / ``username`` + ``session_id`` to every JSON body. Models use
+    ``extra="forbid"``, so those auth-only keys must be stripped before
+    Pydantic runs or every submit returns HTTP 422.
     """
     try:
         payload = await request.json()
@@ -583,11 +584,13 @@ def list_my_requests(current_admin: dict = Depends(get_current_admin)):
     return _list_my_requests_payload(current_admin)
 
 
-@router.get("/api/admin/tenant-change-requests")
-def list_all_requests(
-    status: Optional[RequestStatus] = Query(default=None),
-    current_admin: dict = Depends(get_current_admin),
-):
+class AdminTenantChangeListRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    status: Optional[RequestStatus] = None
+
+
+def _list_all_requests_payload(current_admin: dict, status: Optional[RequestStatus] = None) -> dict:
     _require_super_admin(current_admin)
     if use_mongodb():
         from db.mongo import Repository
@@ -615,11 +618,25 @@ def list_all_requests(
         conn.close()
 
 
-@router.get("/api/admin/tenant-change-requests/{request_id}/events")
-def list_request_events(
-    request_id: int,
+@router.get("/api/admin/tenant-change-requests")
+def list_all_requests(
+    status: Optional[RequestStatus] = Query(default=None),
     current_admin: dict = Depends(get_current_admin),
 ):
+    """Legacy GET; prefer POST /api/admin/tenant-change-requests."""
+    return _list_all_requests_payload(current_admin, status)
+
+
+@router.post("/api/admin/tenant-change-requests")
+def list_all_requests_post(
+    body: Optional[AdminTenantChangeListRequest] = None,
+    current_admin: dict = Depends(get_current_admin),
+):
+    status = body.status if body is not None else None
+    return _list_all_requests_payload(current_admin, status)
+
+
+def _list_request_events_payload(request_id: int, current_admin: dict) -> dict:
     _require_super_admin(current_admin)
     if use_mongodb():
         from db.mongo import Repository
@@ -646,6 +663,23 @@ def list_request_events(
         return {"events": [dict(row) for row in rows]}
     finally:
         conn.close()
+
+
+@router.get("/api/admin/tenant-change-requests/{request_id}/events")
+def list_request_events(
+    request_id: int,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Legacy GET; prefer POST .../events."""
+    return _list_request_events_payload(request_id, current_admin)
+
+
+@router.post("/api/admin/tenant-change-requests/{request_id}/events")
+def list_request_events_post(
+    request_id: int,
+    current_admin: dict = Depends(get_current_admin),
+):
+    return _list_request_events_payload(request_id, current_admin)
 
 
 # ── decision ────────────────────────────────────────────────────────────────
@@ -771,8 +805,20 @@ async def decide_request(
             ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Request not found")
-    if row["status"] != "pending":
-        raise HTTPException(status_code=409, detail="Only pending requests can be reviewed")
+    current_status = str(row.get("status") or "").strip()
+    if current_status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Request #{request_id} is already {current_status}"
+                + (
+                    f" by {row.get('reviewer_username')}"
+                    if row.get("reviewer_username")
+                    else ""
+                )
+                + " — refresh Business requests; only pending items can be reviewed"
+            ),
+        )
 
     if body.decision == "approved":
         record = dict(row)

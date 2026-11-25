@@ -273,13 +273,24 @@ export const operationsApi = {
     opts: { status?: string; order_type?: string; payment_status?: string; q?: string; limit?: number } = {},
     signal?: AbortSignal,
   ) =>
-    api.get<{ orders: Order[]; count: number; counts: OrderCounts }>(`${tenantBase(tenantId)}/orders${query(opts)}`, signal),
+    api.post<{ orders: Order[]; count: number; counts: OrderCounts }>(
+      `${tenantBase(tenantId)}/orders`,
+      {
+        status: opts.status,
+        order_type: opts.order_type,
+        payment_status: opts.payment_status,
+        q: opts.q ?? '',
+        limit: opts.limit ?? 200,
+      },
+      { signal },
+    ),
 
   /** Everyone the tenant can message (customers + distributors). */
   campaignRecipients: (tenantId: string, signal?: AbortSignal) =>
-    api.get<{ ok: boolean; recipients: CampaignRecipient[]; count: number }>(
+    api.post<{ ok: boolean; recipients: CampaignRecipient[]; count: number }>(
       `${tenantBase(tenantId)}/campaigns/recipients`,
-      signal,
+      {},
+      { signal },
     ),
 
   /** Fire one campaign at an admin-chosen list of recipients. */
@@ -305,9 +316,10 @@ export const operationsApi = {
     }>(`${tenantBase(tenantId)}/campaigns/${campaignId}/send`),
 
   campaigns: (tenantId: string, signal?: AbortSignal) =>
-    api.get<{ campaigns: Campaign[]; stats: CampaignStats }>(
-      `${tenantBase(tenantId)}/campaigns`,
-      signal,
+    api.post<{ campaigns: Campaign[]; stats: CampaignStats }>(
+      `${tenantBase(tenantId)}/campaigns/list`,
+      {},
+      { signal },
     ),
 
   distributors: (
@@ -315,24 +327,32 @@ export const operationsApi = {
     opts: { q?: string; region?: string; tier?: string } = {},
     signal?: AbortSignal,
   ) =>
-    api.get<{ distributors: Distributor[] }>(
-      `${tenantBase(tenantId)}/distributors${query(opts)}`,
-      signal,
+    api.post<{ distributors: Distributor[] }>(
+      `${tenantBase(tenantId)}/distributors/list`,
+      { q: opts.q ?? '', region: opts.region ?? '', tier: opts.tier ?? '' },
+      { signal },
     ),
 
   createDistributor: (tenantId: string, body: DistributorInput & { wa_id: string }) =>
     api.post<{ ok: boolean; wa_id: string }>(`${tenantBase(tenantId)}/distributors`, body),
 
   updateDistributor: (tenantId: string, waId: string, body: DistributorInput) =>
-    api.put<{ ok: boolean }>(`${tenantBase(tenantId)}/distributors/${encodeURIComponent(waId)}`, body),
+    api.post<{ ok: boolean }>(
+      `${tenantBase(tenantId)}/distributors/${encodeURIComponent(waId)}/update`,
+      body,
+    ),
 
   deleteDistributor: (tenantId: string, waId: string) =>
-    api.del<{ ok: boolean }>(`${tenantBase(tenantId)}/distributors/${encodeURIComponent(waId)}`),
+    api.post<{ ok: boolean }>(
+      `${tenantBase(tenantId)}/distributors/${encodeURIComponent(waId)}/delete`,
+      {},
+    ),
 
   campaignTemplates: (tenantId: string, signal?: AbortSignal) =>
-    api.get<{ templates: CampaignTemplate[] }>(
-      `${tenantBase(tenantId)}/campaigns/templates`,
-      signal,
+    api.post<{ templates: CampaignTemplate[] }>(
+      `${tenantBase(tenantId)}/campaigns/templates/list`,
+      {},
+      { signal },
     ),
 
   createCampaignTemplate: (
@@ -353,12 +373,12 @@ export const operationsApi = {
     ),
 
   setCampaignTemplateStatus: (tenantId: string, id: number, status: string) =>
-    api.put<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/templates/${id}`, {
+    api.post<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/templates/${id}/update`, {
       status,
     }),
 
   deleteCampaignTemplate: (tenantId: string, id: number) =>
-    api.del<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/templates/${id}`),
+    api.post<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/templates/${id}/delete`, {}),
 
   uploadCampaignMedia: (tenantId: string, file: File) => {
     const form = new FormData()
@@ -376,9 +396,10 @@ export const operationsApi = {
     ),
 
   campaignSegments: (tenantId: string, signal?: AbortSignal) =>
-    api.get<{ segments: CampaignSegment[] }>(
-      `${tenantBase(tenantId)}/campaigns/segments`,
-      signal,
+    api.post<{ segments: CampaignSegment[] }>(
+      `${tenantBase(tenantId)}/campaigns/segments/list`,
+      {},
+      { signal },
     ),
 
   createCampaignSegment: (
@@ -395,22 +416,22 @@ export const operationsApi = {
     id: number,
     body: { name: string; audience_type: string; criteria: Record<string, unknown> },
   ) =>
-    api.put<{ ok: boolean }>(
-      `${tenantBase(tenantId)}/campaigns/segments/${id}`,
+    api.post<{ ok: boolean }>(
+      `${tenantBase(tenantId)}/campaigns/segments/${id}/update`,
       body,
     ),
 
   deleteCampaignSegment: (tenantId: string, id: number) =>
-    api.del<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/segments/${id}`),
+    api.post<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/segments/${id}/delete`, {}),
 
   createCampaign: (tenantId: string, body: CampaignInput) =>
     api.post<{ ok: boolean; id: number }>(`${tenantBase(tenantId)}/campaigns`, body),
 
   updateCampaign: (tenantId: string, campaignId: number, body: CampaignInput) =>
-    api.put<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/${campaignId}`, body),
+    api.post<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/${campaignId}/update`, body),
 
   deleteCampaign: (tenantId: string, campaignId: number) =>
-    api.del<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/${campaignId}`),
+    api.post<{ ok: boolean }>(`${tenantBase(tenantId)}/campaigns/${campaignId}/delete`, {}),
 }
 
 export const ORDER_STATUSES = [

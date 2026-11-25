@@ -126,6 +126,15 @@ def list_integrations(
     return {"integrations": integrations}
 
 
+@router.post("/api/tenants/{tenant_id}/integrations")
+def list_integrations_post(
+    tenant_id: str,
+    current_admin: dict = Depends(require_tenant_access()),
+):
+    """Prefer POST over GET for panel clients."""
+    return list_integrations(tenant_id=tenant_id, current_admin=current_admin)
+
+
 @router.post("/api/tenants/{tenant_id}/integrations/{provider}/config")
 async def save_integration_config(
     tenant_id: str,
@@ -460,6 +469,16 @@ async def track_shipment(
         status_code=404,
         detail="No tracking integration is configured for this shipment",
     )
+
+
+@router.post("/api/tenants/{tenant_id}/shipping/track/{awb}")
+async def track_shipment_post(
+    tenant_id: str,
+    awb: str,
+    current_admin: dict = Depends(require_tenant_access()),
+):
+    """Prefer POST over GET for panel clients."""
+    return await track_shipment(tenant_id=tenant_id, awb=awb, current_admin=current_admin)
 
 
 # ── Webhook Handlers ──────────────────────────────────────────────────

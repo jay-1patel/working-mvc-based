@@ -3,6 +3,8 @@ import { useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import { formatDate, relativeTime } from '@/lib/format'
 import { auditApiExtended } from '@/lib/audit.extended'
+import { getActiveTenantId } from '@/lib/api'
+import { getImpersonatedTenantId } from '@/lib/impersonation'
 import { saveBlob } from '@/lib/uploads'
 import { cn } from '@/lib/cn'
 import {
@@ -415,10 +417,16 @@ const TimelineView = ({ events }: { events: AuditEventExtended[] }) => {
 
 // Main AuditHistory Component
 export function AuditHistory() {
-  const { identity } = useAuth()
+  const { identity, impersonating } = useAuth()
   // Tenant admins get this page scoped to their own tenant (role-panels
   // item 12): the filter is forced here and enforced again by the API.
-  const scopedTenant = identity?.role === 'admin' ? identity.tenant_id ?? '' : ''
+  // Support Login keeps a fake UI role of super_admin — still scope to the
+  // tenant that was Logged into so other tenants' activity stays hidden.
+  const scopedTenant = impersonating
+    ? getImpersonatedTenantId() || getActiveTenantId() || ''
+    : identity?.role === 'admin'
+      ? identity.tenant_id ?? ''
+      : ''
   const [exportError, setExportError] = useState<string | null>(null)
   const [filters, setFilters] = useState<AuditFiltersExtended>({
     limit: PAGE_SIZE,

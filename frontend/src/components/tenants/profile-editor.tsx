@@ -168,7 +168,9 @@ export function ProfileEditor({
         description={description}
         actions={
           readOnly ? undefined : editing ? (
-            isSuperAdmin ? (
+            // Support Login keeps a fake UI role of super_admin, but the API
+            // session is the tenant admin — always queue for confirmation.
+            isSuperAdmin && !impersonating ? (
               <>
                 <GhostButton
                   className={smallBtn}

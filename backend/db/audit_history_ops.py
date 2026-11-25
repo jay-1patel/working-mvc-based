@@ -8,10 +8,22 @@ from typing import Any, Optional
 
 from .core import get_db, use_mongodb
 from .audit import safe_audit_details
+from .timestamps import parse_stamp
 
 
-def _year_cutoff_iso() -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+def _year_cutoff_date() -> date:
+    return (datetime.now(timezone.utc) - timedelta(days=365)).date()
+
+
+def _event_day(row: dict) -> Optional[date]:
+    """Resolve the calendar day for an audit row.
+
+    Mongo stores ``created_at`` as ``DD-MM-YYYY HH:mm`` stamps (see
+    ``db.timestamps``). Never compare those with ISO ``YYYY-MM-DD`` strings —
+    lexicographic compares return empty Activity log results.
+    """
+    dt = parse_stamp(row.get("created_at"))
+    return dt.date() if dt else None
 
 
 def _matches_admin_audit_row(
@@ -27,12 +39,14 @@ def _matches_admin_audit_row(
     search: Optional[str],
     actor_roles: Optional[list[str]],
 ) -> bool:
-    created = str(row.get("created_at") or "")
-    if created < _year_cutoff_iso()[:19]:
+    event_day = _event_day(row)
+    if event_day is None:
         return False
-    if start_date and created[:10] < start_date.isoformat():
+    if event_day < _year_cutoff_date():
         return False
-    if end_date and created[:10] > end_date.isoformat():
+    if start_date and event_day < start_date:
+        return False
+    if end_date and event_day > end_date:
         return False
     if actor and actor.strip():
         if actor.strip().lower() not in str(row.get("actor_username") or "").lower():
@@ -90,8 +104,6 @@ def _format_audit_event(row: dict) -> dict:
 
 def _admin_audit_mongo_filter(
     *,
-    start_date: Optional[date],
-    end_date: Optional[date],
     actor: Optional[str],
     action: Optional[str],
     category_actions: Optional[list[str]],
@@ -100,16 +112,12 @@ def _admin_audit_mongo_filter(
     search: Optional[str],
     actor_roles: Optional[list[str]],
 ) -> dict:
-    """Push list filters into Mongo instead of loading the whole collection."""
+    """Equality / text filters only — dates are applied in Python.
+
+    ``created_at`` is stored as ``DD-MM-YYYY HH:mm``, so ISO range queries
+    silently match nothing.
+    """
     flt: dict[str, Any] = {}
-    created: dict[str, str] = {"$gte": _year_cutoff_iso()}
-    if start_date:
-        start_s = start_date.isoformat()
-        if start_s > created["$gte"][:10]:
-            created["$gte"] = start_s
-    if end_date:
-        created["$lt"] = (end_date + timedelta(days=1)).isoformat()
-    flt["created_at"] = created
     if tenant_id:
         flt["tenant_id"] = str(tenant_id).strip()
     if action:
@@ -159,8 +167,6 @@ def list_admin_audit_events(
         from .mongo import Repository
 
         flt = _admin_audit_mongo_filter(
-            start_date=start_date,
-            end_date=end_date,
             actor=actor,
             action=action,
             category_actions=category_actions,
@@ -170,15 +176,34 @@ def list_admin_audit_events(
             actor_roles=actor_roles,
         )
         repo = Repository("admin_audit_events")
+        # id order tracks insert time; stamp strings do not sort chronologically.
+        fetch_cap = None if tenant_id else 10000
+        rows = repo.find_all(flt, sort=[("id", -1)], limit=fetch_cap)
+        filtered = [
+            r for r in rows
+            if _matches_admin_audit_row(
+                r,
+                start_date=start_date,
+                end_date=end_date,
+                actor=None,  # already applied in Mongo
+                action=None,
+                category_actions=None,
+                tenant_id=None,
+                outcome=None,
+                search=None,
+                actor_roles=None,
+            )
+        ]
         sort_column = sort_by or "created_at"
-        sort_dir = -1 if reverse else 1
-        total = repo.count(flt)
-        page = repo.find_all(
-            flt,
-            sort=[(sort_column, sort_dir), ("id", -1)],
-            limit=max(0, int(limit or 50)),
-            offset=max(0, int(offset or 0)),
-        )
+        if sort_column == "created_at":
+            filtered.sort(
+                key=lambda r: (_event_day(r) or date.min, r.get("id") or 0),
+                reverse=reverse,
+            )
+        else:
+            filtered.sort(key=lambda r: (r.get(sort_column), r.get("id")), reverse=reverse)
+        total = len(filtered)
+        page = filtered[offset: offset + max(0, int(limit or 50))]
         events = [_format_audit_event(dict(r)) for r in page]
         return {"events": events, "total": total, "limit": limit, "offset": offset}
 
@@ -239,33 +264,9 @@ def list_admin_audit_events(
 
 def admin_audit_statistics(**kwargs) -> dict:
     category_map = kwargs.pop("category_map", None) or {}
-    if use_mongodb():
-        from .mongo import Repository
-
-        flt = _admin_audit_mongo_filter(
-            start_date=kwargs.get("start_date"),
-            end_date=kwargs.get("end_date"),
-            actor=kwargs.get("actor"),
-            action=kwargs.get("action"),
-            category_actions=kwargs.get("category_actions"),
-            tenant_id=kwargs.get("tenant_id"),
-            outcome=kwargs.get("outcome"),
-            search=kwargs.get("search"),
-            actor_roles=kwargs.get("actor_roles"),
-        )
-        repo = Repository("admin_audit_events")
-        # Cap stats scan so Activity log cannot pull the entire collection.
-        rows = repo.find_all(
-            flt,
-            sort=[("created_at", -1), ("id", -1)],
-            limit=5000,
-        )
-        events = [_format_audit_event(dict(r)) for r in rows]
-        total_events = repo.count(flt)
-    else:
-        result = list_admin_audit_events(limit=5000, offset=0, **kwargs)
-        events = result["events"]
-        total_events = result.get("total", len(events))
+    result = list_admin_audit_events(limit=5000, offset=0, **kwargs)
+    events = result["events"]
+    total_events = result.get("total", len(events))
     by_outcome = {"success": 0, "failure": 0}
     by_action: dict[str, int] = {}
     by_date: dict[str, int] = {}
@@ -277,9 +278,9 @@ def admin_audit_statistics(**kwargs) -> dict:
             by_outcome[outcome] = by_outcome.get(outcome, 0) + 1
         act = str(event.get("action") or "")
         by_action[act] = by_action.get(act, 0) + 1
-        day = str(event.get("created_at") or "")[:10]
+        day = _event_day(event)
         if day:
-            by_date[day] = by_date.get(day, 0) + 1
+            by_date[day.isoformat()] = by_date.get(day.isoformat(), 0) + 1
         actor_name = event.get("actor_username") or "unknown"
         by_actor[actor_name] = by_actor.get(actor_name, 0) + 1
         cat = category_map.get(act, "other")

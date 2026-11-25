@@ -1,0 +1,478 @@
+# Host: http://10.100.100.43:9000
+# Login uses username + session_id. All other APIs use user_id + session_id.
+
+# --- SUPER ADMIN ---
+# username=Customercare  user_id=3042  session_id=3042_1794914340_c8f3a72d9e6b  tenant=auto3
+curl -s -X POST -H 'Content-Type: application/json' -d '{"username":"Customercare","session_id":"3042_1794914340_c8f3a72d9e6b"}' 'http://10.100.100.43:9000/api/auth/login'
+
+# --- TENANT ADMIN ---
+# username=cars  user_id=6  session_id=7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0  tenant=c
+curl -s -X POST -H 'Content-Type: application/json' -d '{"username":"cars","session_id":"7HdvRi2jRnciOGVychQR-vUiwp-fS8WeFhmHGwuRxn0"}' 'http://10.100.100.43:9000/api/auth/login'
+
+# After login set:
+#   USER_ID=...  SESSION_ID=...  TENANT_ID=c   (or spiritual)
+
+# Total APIs: 112
+
+### 1. [Auth] POST /api/auth/login
+# roles: all
+# notes: Anonymous; returns user_id+session_id for later headers
+curl -s -X POST -H 'Content-Type: application/json' -d '{"username":"USERNAME","session_id":"SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/login'
+
+### 2. [Auth] POST /api/auth/status
+# roles: all
+# notes: Empty-DB gate
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/status'
+
+### 3. [Auth] POST /api/auth/me
+# roles: all
+# notes: During support Login use Customercare creds for reviewer reads
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/me'
+
+### 4. [Auth] POST /api/auth/onboarding-users
+# roles: customer_care
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/onboarding-users'
+
+### 5. [Auth] POST /api/auth/impersonate/{username}
+# roles: customer_care
+# notes: Then use returned user_id/session_id for tenant writes
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/impersonate/spiritual'
+
+### 6. [Auth] POST /api/auth/impersonate-tenant/{tenant_id}
+# roles: customer_care
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/impersonate-tenant/spiritual'
+
+### 7. [Auth] POST /api/auth/first-login/complete
+# roles: admin unbound
+# notes: Field names must match FirstLoginCompleteRequest
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "company_name":"Acme","vertical":"automotive","waba_phone_id":"1555"}' 'http://10.100.100.43:9000/api/auth/first-login/complete'
+
+### 8. [Platform] POST /api/admin/dashboard/overview
+# roles: super_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/dashboard/overview?days=7&limit=8'
+
+### 9. [Platform] POST /api/admin/tenant-change-requests
+# roles: super_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "status":"pending"}' 'http://10.100.100.43:9000/api/admin/tenant-change-requests'
+
+### 10. [Platform] POST /api/admin/integration-requests
+# roles: super_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "status":"pending"}' 'http://10.100.100.43:9000/api/admin/integration-requests'
+
+### 11. [Platform] POST /api/admin/tenants/list
+# roles: super_admin,admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/list'
+
+### 12. [Platform] POST /api/admin/tenants/active-test-tenant/current
+# roles: super_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/active-test-tenant/current'
+
+### 13. [Platform] POST /api/admin/tenants/active-test-tenant
+# roles: super_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "tenant_id":"spiritual"}' 'http://10.100.100.43:9000/api/admin/tenants/active-test-tenant'
+
+### 14. [Platform] POST /api/admin/tenants/{tenant_id}/delete
+# roles: super_admin
+# notes: Destructive
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/delete'
+
+### 15. [Platform] POST /api/admin/tenant-change-requests
+# roles: super_admin,customer_care
+# notes: Use Customercare creds while support Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "status":"pending"}' 'http://10.100.100.43:9000/api/admin/tenant-change-requests'
+
+### 16. [Platform] POST /api/admin/tenant-change-requests/{id}/decision
+# roles: super_admin,customer_care
+# notes: Only pending
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "decision":"approved","note":""}' 'http://10.100.100.43:9000/api/admin/tenant-change-requests/22/decision'
+
+### 17. [Platform] POST /api/tenant-change-requests/mine
+# roles: admin,sub_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/tenant-change-requests/mine'
+
+### 18. [Platform] POST /api/tenant-change-requests
+# roles: admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "request_type":"publish_profile","tenant_id":"spiritual","note":""}' 'http://10.100.100.43:9000/api/tenant-change-requests'
+
+### 19. [Platform] POST /api/admin/integration-requests
+# roles: super_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "status":"pending"}' 'http://10.100.100.43:9000/api/admin/integration-requests'
+
+### 20. [Platform] POST /api/admin/integration-requests/{id}/decision
+# roles: super_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "decision":"approved","note":""}' 'http://10.100.100.43:9000/api/admin/integration-requests/1/decision'
+
+### 21. [Platform] POST /api/auth/admins
+# roles: manage_admins
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/admins'
+
+### 22. [Platform] POST /api/auth/create
+# roles: manage_admins
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "username":"newadmin","role":"admin","tenant_id":"spiritual"}' 'http://10.100.100.43:9000/api/auth/create'
+
+### 23. [Platform] POST /api/auth/admins/{username}/update
+# roles: manage_admins
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "permissions":{"view_inbox":true}}' 'http://10.100.100.43:9000/api/auth/admins/spiritual/update'
+
+### 24. [Platform] POST /api/auth/admins/{username}/delete
+# roles: manage_admins
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/admins/someuser/delete'
+
+### 25. [Platform] POST /api/auth/admins/{username}/regenerate-session
+# roles: manage_admins
+# notes: Mismatch: UI may call /reset-password
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/admins/spiritual/regenerate-session'
+
+### 26. [Platform] POST /api/admin/audit-history
+# roles: super_admin,admin,customer_care
+# notes: Support Login: use operator creds
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "limit":50,"offset":0,"sort_by":"created_at","sort_order":"desc","start_date":"2026-11-19","end_date":"2026-11-25","tenant_id":"spiritual"}' 'http://10.100.100.43:9000/api/admin/audit-history'
+
+### 27. [Platform] POST /api/admin/audit-statistics
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "start_date":"2026-11-19","end_date":"2026-11-25","tenant_id":"spiritual"}' 'http://10.100.100.43:9000/api/admin/audit-statistics'
+
+### 28. [Platform] POST /api/admin/audit-export
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "format":"csv","tenant_id":"spiritual"}' 'http://10.100.100.43:9000/api/admin/audit-export'
+
+### 29. [Platform] POST /api/admin/errors
+# roles: super_admin,admin,customer_care
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/errors?limit=50&offset=0&tenant_id=spiritual'
+
+### 30. [Tenant] POST /api/admin/tenants/resolved
+# roles: all with tenant session
+# notes: Must use that tenant admin session after Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/resolved'
+
+### 31. [Tenant] POST /api/admin/tenants/send2-credentials/status
+# roles: all
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/send2-credentials/status'
+
+### 32. [Tenant] POST /api/admin/tenants/{tenant_id}/send2-credentials/resync
+# roles: super_admin
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/send2-credentials/resync'
+
+### 33. [Tenant] POST /api/admin/tenants/inbox
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "include_resolved":false}' 'http://10.100.100.43:9000/api/admin/tenants/inbox'
+
+### 34. [Tenant] POST /api/admin/tenants/chat-history
+# roles: all
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "days":1,"limit":500}' 'http://10.100.100.43:9000/api/admin/tenants/chat-history'
+
+### 35. [Tenant] POST /api/admin/tenants/crawl-runs
+# roles: all
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/crawl-runs'
+
+### 36. [Tenant] POST /api/admin/tenants/crawl-runs/staged
+# roles: all
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "run_id":1}' 'http://10.100.100.43:9000/api/admin/tenants/crawl-runs/staged'
+
+### 37. [Tenant] POST /api/admin/tenants/customers
+# roles: view_customers
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "limit":50,"q":"}' 'http://10.100.100.43:9000/api/admin/tenants/customers'
+
+### 38. [Tenant] POST /api/admin/tenants/{tenant_id}/detail
+# roles: all
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/detail'
+
+### 39. [Tenant] POST /api/admin/tenants/{tenant_id}/offerings/list
+# roles: view_products
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "include_inactive":false}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings/list'
+
+### 40. [Tenant] POST /api/admin/tenants/{tenant_id}/profile
+# roles: manage_operations
+# notes: Draft only
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "brand":{"name":"Demo"}}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/profile'
+
+### 41. [Tenant] POST /api/admin/tenants/{tenant_id}/publish
+# roles: manage_operations
+# notes: SA view-only without Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/publish'
+
+### 42. [Tenant] POST /api/admin/tenants/{tenant_id}/intents/{name}
+# roles: manage_operations
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "enabled":true}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/intents/faq'
+
+### 43. [Tenant] POST /api/admin/tenants/conversations
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "limit":100}' 'http://10.100.100.43:9000/api/admin/tenants/conversations'
+
+### 44. [Tenant] POST /api/admin/tenants/chat/thread
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "wa_id":"919999999999","limit":300}' 'http://10.100.100.43:9000/api/admin/tenants/chat/thread'
+
+### 45. [Tenant] POST /api/admin/tenants/agents
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/agents'
+
+### 46. [Tenant] POST /api/admin/tenants/inbox/reply
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "wa_id":"919999999999","text":"Hello"}' 'http://10.100.100.43:9000/api/admin/tenants/inbox/reply'
+
+### 47. [Tenant] POST /api/admin/tenants/inbox/menu
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "wa_id":"919999999999"}' 'http://10.100.100.43:9000/api/admin/tenants/inbox/menu'
+
+### 48. [Tenant] POST /api/admin/tenants/inbox/handover
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "wa_id":"919999999999","human":true}' 'http://10.100.100.43:9000/api/admin/tenants/inbox/handover'
+
+### 49. [Tenant] POST /api/admin/tenants/inbox/resolve
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "wa_id":"919999999999"}' 'http://10.100.100.43:9000/api/admin/tenants/inbox/resolve'
+
+### 50. [Tenant] POST /api/admin/tenants/inbox/assign
+# roles: view_inbox
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "wa_id":"919999999999","agent_id":"agent1"}' 'http://10.100.100.43:9000/api/admin/tenants/inbox/assign'
+
+### 51. [Tenant] POST /api/admin/tenants/inbox/attach
+# roles: view_inbox
+# notes: multipart
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/inbox/attach'
+
+### 52. [Tenant] GET /api/admin/tenants/inbox/events
+# roles: view_inbox
+# notes: KEEP_GET — EventSource requires GET
+curl -s -X GET -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/inbox/events'
+
+### 53. [Tenant SA] POST /api/admin/tenants/chat-history
+# roles: super_admin or Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "days":7,"limit":200}' 'http://10.100.100.43:9000/api/admin/tenants/chat-history'
+
+### 54. [Tenant SA] POST /api/admin/tenants/complaints
+# roles: super_admin or Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/complaints'
+
+### 55. [Tenant SA] POST /api/admin/tenants/complaints/update
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "id":1,"status":"resolved"}' 'http://10.100.100.43:9000/api/admin/tenants/complaints/update'
+
+### 56. [Tenant SA] POST /api/admin/tenants/complaints/reply
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "id":1,"message":"Done"}' 'http://10.100.100.43:9000/api/admin/tenants/complaints/reply'
+
+### 57. [Tenant SA] POST /api/admin/tenants/complaints/delete
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "id":1}' 'http://10.100.100.43:9000/api/admin/tenants/complaints/delete'
+
+### 58. [Tenant] POST /api/tenants/{tenant_id}/callbacks/list
+# roles: super_admin or Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "limit":20}' 'http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks/list'
+
+### 59. [Tenant] POST /api/tenants/{tenant_id}/callbacks
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "wa_id":"9199","slot":"2026-11-26T10:00:00"}' 'http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks'
+
+### 60. [Tenant] POST /api/tenants/{tenant_id}/callbacks/{id}/cancel
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks/1/cancel'
+
+### 61. [Tenant] POST /api/tenants/{tenant_id}/callbacks/{id}/complete
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks/1/complete'
+
+### 62. [Tenant] POST /api/admin/tenants/customers/export
+# roles: view_customers
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/customers/export'
+
+### 63. [Tenant] POST /api/admin/tenants/{tenant_id}/orders
+# roles: view_orders
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "limit":50}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/orders'
+
+### 64. [Tenant] POST /api/admin/tenants/{tenant_id}/distributors/list
+# roles: feature flag
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/distributors/list'
+
+### 65. [Tenant] POST /api/admin/tenants/{tenant_id}/distributors
+# roles: feature
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "wa_id":"9199","name":"Partner"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/distributors'
+
+### 66. [Tenant] POST /api/admin/tenants/{tenant_id}/distributors/{wa_id}/update
+# roles: feature
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "name":"Partner2"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/distributors/9199/update'
+
+### 67. [Tenant] POST /api/admin/tenants/{tenant_id}/distributors/{wa_id}/delete
+# roles: feature
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/distributors/9199/delete'
+
+### 68. [Tenant SA] POST /api/admin/tenants/{tenant_id}/campaigns/list
+# roles: super_admin or Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/list'
+
+### 69. [Tenant SA] POST /api/admin/tenants/{tenant_id}/campaigns/templates/list
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/templates/list'
+
+### 70. [Tenant SA] POST /api/admin/tenants/{tenant_id}/campaigns/segments/list
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/segments/list'
+
+### 71. [Tenant SA] POST /api/admin/tenants/{tenant_id}/campaigns
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "name":"Offer"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns'
+
+### 72. [Tenant SA] POST /api/admin/tenants/{tenant_id}/campaigns/{id}/send
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/1/send'
+
+### 73. [Tenant SA] POST /api/admin/tenants/{tenant_id}/offerings/list
+# roles: super_admin or Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "include_inactive":false}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings/list'
+
+### 74. [Tenant SA] POST /api/admin/tenants/{tenant_id}/offerings
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "name":"SKU1","price":100}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings'
+
+### 75. [Tenant SA] POST /api/admin/tenants/{tenant_id}/offerings/{oid}/update
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "price":120}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings/1/update'
+
+### 76. [Tenant SA] POST /api/admin/tenants/{tenant_id}/offerings/{oid}/delete
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "hard":false}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings/1/delete'
+
+### 77. [Tenant SA] POST /api/admin/tenants/{tenant_id}/record-schema
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/record-schema'
+
+### 78. [Tenant SA] POST /api/admin/tenants/{tenant_id}/record-schema/columns
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "key":"color","label":"Color"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/record-schema/columns'
+
+### 79. [Tenant] POST /api/admin/tenants/crawl
+# roles: upload perms
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "url":"https://example.com","max_pages":20}' 'http://10.100.100.43:9000/api/admin/tenants/crawl'
+
+### 80. [Tenant] POST /api/admin/tenants/crawl-runs/approve
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "run_id":1}' 'http://10.100.100.43:9000/api/admin/tenants/crawl-runs/approve'
+
+### 81. [Tenant] POST /api/admin/tenants/crawl-runs/reject
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "run_id":1}' 'http://10.100.100.43:9000/api/admin/tenants/crawl-runs/reject'
+
+### 82. [Tenant] POST /api/admin/tenants/files
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/files'
+
+### 83. [Tenant] POST /api/admin/tenants/files/upload
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/files/upload'
+
+### 84. [Tenant] POST /api/admin/tenants/files/delete
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "file_id":1}' 'http://10.100.100.43:9000/api/admin/tenants/files/delete'
+
+### 85. [Tenant] POST /api/admin/tenants/files/preview
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "file_id":1}' 'http://10.100.100.43:9000/api/admin/tenants/files/preview'
+
+### 86. [Tenant] POST /api/admin/tenants/files/download
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "file_id":1}' 'http://10.100.100.43:9000/api/admin/tenants/files/download'
+
+### 87. [Tenant] POST /api/admin/tenants/files/bifurcate-existing
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "file_id":1}' 'http://10.100.100.43:9000/api/admin/tenants/files/bifurcate-existing'
+
+### 88. [Tenant] POST /api/admin/tenants/knowledge-gaps
+# roles: manage_operations
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps'
+
+### 89. [Tenant] POST /api/admin/tenants/knowledge-gaps/resolve
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "id":1}' 'http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps/resolve'
+
+### 90. [Tenant] POST /api/admin/tenants/knowledge-gaps/create-faq
+# roles: same
+# notes: Bypasses approval queue
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "question":"Q","answer":"A"}' 'http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps/create-faq'
+
+### 91. [Tenant SA] POST /api/admin/tenants/{tenant_id}/versions
+# roles: super_admin or Login
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/versions'
+
+### 92. [Tenant SA] POST /api/admin/tenants/{tenant_id}/versions/{n}
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/versions/1'
+
+### 93. [Tenant SA] POST /api/admin/tenants/{tenant_id}/rollback
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "version":1}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/rollback'
+
+### 94. [Tenant SA] POST /api/admin/tenants/{tenant_id}/tokens/list
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/tokens/list'
+
+### 95. [Tenant SA] POST /api/admin/tenants/{tenant_id}/tokens
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "label":"ci"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/tokens'
+
+### 96. [Tenant SA] POST /api/admin/tenants/{tenant_id}/tokens/{tokenId}/delete
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/tokens/1/delete'
+
+### 97. [Tenant SA] POST /api/admin/tenants/{tenant_id}/test-question
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "question":"hours?"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/test-question'
+
+### 98. [Tenant SA] POST /api/admin/tenants/{tenant_id}/smoke
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/smoke'
+
+### 99. [Tenant SA] POST /api/admin/tenants/{tenant_id}/phone-id
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "waba_phone_id":"1555"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/phone-id'
+
+### 100. [Tenant SA] POST /api/test-simulator
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "tenant_id":"spiritual","wa_id":"9199","text":"hi"}' 'http://10.100.100.43:9000/api/test-simulator'
+
+### 101. [Tenant SA] POST /api/test-simulator/reset
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "tenant_id":"spiritual","wa_id":"9199"}' 'http://10.100.100.43:9000/api/test-simulator/reset'
+
+### 102. [Tenant] POST /api/integration-requests/mine
+# roles: manage_operations
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/integration-requests/mine'
+
+### 103. [Tenant] POST /api/integration-requests
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "provider":"razorpay","note":"need access"}' 'http://10.100.100.43:9000/api/integration-requests'
+
+### 104. [Tenant] POST /api/tenants/{tenant_id}/integrations
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/tenants/TENANT_ID/integrations'
+
+### 105. [Tenant] POST /api/tenants/{tenant_id}/integrations/{provider}/config
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "key":"x"}' 'http://10.100.100.43:9000/api/tenants/TENANT_ID/integrations/razorpay/config'
+
+### 106. [Tenant] POST /api/tenants/{tenant_id}/integrations/{provider}/test
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/tenants/TENANT_ID/integrations/razorpay/test'
+
+### 107. [Onboarding] POST /api/admin/onboarding-kits/{vertical}/{fmt}
+# roles: admin/SA
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/onboarding-kits/automotive/pdf'
+
+### 108. [Onboarding] POST /api/admin/tenants/{tenant_id}/onboarding/publish
+# roles: same
+# notes: auto_publish=True
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/onboarding/publish'
+
+### 109. [Onboarding] POST /api/admin/tenants/{tenant_id}/onboarding/stage
+# roles: same
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID"}' 'http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/onboarding/stage'
+
+### 110. [Infra] POST /api/client-errors
+# roles: all
+curl -s -X POST -H 'Content-Type: application/json' -H 'user_id: USER_ID' -H 'session_id: SESSION_ID' -H 'Accept: application/json' -d '{"user_id": "USER_ID", "session_id": "SESSION_ID", "message":"ui boom"}' 'http://10.100.100.43:9000/api/client-errors'
+
+### 111. [README] POST /api/auth/login
+# roles: integrator
+# notes: Flat /api/admin/tenants/* routes take tenant from session — Login as that tenant admin first
+curl -s -X POST -H 'Content-Type: application/json' -d '{"username":"USERNAME","session_id":"SESSION_ID"}' 'http://10.100.100.43:9000/api/auth/login'
+

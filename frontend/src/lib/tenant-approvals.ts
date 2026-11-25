@@ -95,15 +95,14 @@ export const tenantApprovalsApi = {
       })
     ).request,
 
-  all: async (status?: TenantChangeStatus, signal?: AbortSignal) => {
-    const query = status ? `?status=${encodeURIComponent(status)}` : ''
-    return (
-      await api.get<{ requests: TenantChangeRequest[] }>(
-        `/api/admin/tenant-change-requests${query}`,
-        signal,
+  all: async (status?: TenantChangeStatus, signal?: AbortSignal) =>
+    (
+      await api.post<{ requests: TenantChangeRequest[] }>(
+        '/api/admin/tenant-change-requests',
+        status ? { status } : {},
+        { signal },
       )
-    ).requests
-  },
+    ).requests,
 
   /**
    * Review queue as the super admin. While customer_care is logged into a
@@ -114,24 +113,30 @@ export const tenantApprovalsApi = {
     const operator = getImpersonator()
     if (!operator) return tenantApprovalsApi.all(status, signal)
 
-    const query = status ? `?status=${encodeURIComponent(status)}` : ''
-    const path = `/api/admin/tenant-change-requests${query}`
+    const path = '/api/admin/tenant-change-requests'
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    const payload: Record<string, unknown> = {
+      user_id: operator.userId,
+      session_id: operator.sessionId,
+    }
+    if (status) payload.status = status
     const res = await fetch(apiUrl(path), {
-      method: 'GET',
+      method: 'POST',
       headers: {
         Accept: 'application/json',
-        username: operator.username,
+        'Content-Type': 'application/json',
+        user_id: operator.userId,
         session_id: operator.sessionId,
       },
+      body: JSON.stringify(payload),
       signal,
     })
     if (!res.ok) {
       const detail = (await res.json().catch(() => null))?.detail || res.statusText
-      logApiError('GET', path, res.status, String(detail), startedAt)
+      logApiError('POST', path, res.status, String(detail), startedAt)
       throw new Error(typeof detail === 'string' ? detail : `Request failed (${res.status})`)
     }
-    logApiCall('GET', path, res.status, startedAt)
+    logApiCall('POST', path, res.status, startedAt)
     const body = (await res.json()) as { requests: TenantChangeRequest[] }
     return body.requests
   },
@@ -156,7 +161,7 @@ export const tenantApprovalsApi = {
     const body = {
       decision,
       note,
-      username: operator.username,
+      user_id: operator.userId,
       session_id: operator.sessionId,
     }
     const res = await fetch(apiUrl(path), {
@@ -164,7 +169,7 @@ export const tenantApprovalsApi = {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        username: operator.username,
+        user_id: operator.userId,
         session_id: operator.sessionId,
       },
       body: JSON.stringify(body),
@@ -180,9 +185,10 @@ export const tenantApprovalsApi = {
 
   events: async (id: number, signal?: AbortSignal) =>
     (
-      await api.get<{ events: TenantChangeEvent[] }>(
+      await api.post<{ events: TenantChangeEvent[] }>(
         `/api/admin/tenant-change-requests/${id}/events`,
-        signal,
+        {},
+        { signal },
       )
     ).events,
 }

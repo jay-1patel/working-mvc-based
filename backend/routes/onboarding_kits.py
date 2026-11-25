@@ -100,6 +100,12 @@ def download_onboarding_kit(vertical: str, fmt: str):
     )
 
 
+@router.post("/onboarding-kits/{vertical}/{fmt}")
+def download_onboarding_kit_post(vertical: str, fmt: str):
+    """Prefer POST over GET for panel clients."""
+    return download_onboarding_kit(vertical=vertical, fmt=fmt)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. Document Staging Endpoints (Parse & Preview before Publish)
 # ──────────────────────────────────────────────────────────────────────────────

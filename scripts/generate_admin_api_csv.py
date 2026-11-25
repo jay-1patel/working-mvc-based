@@ -89,7 +89,17 @@ def add(
     )
 
 
-SHOT = "image.png (shared admin + superadmin sidebar)"
+# Captured from http://localhost:5173/?mock=1 via scripts/capture_admin_screenshots.mjs
+SHOT_LOGIN = "images/admin-login.png"
+SHOT_DASH = "images/admin-dashboard.png"
+SHOT_CHATS = "images/admin-chats.png"
+SHOT_PROFILE = "images/admin-profile.png"
+SHOT_WA_MENU = "images/admin-whatsapp-menu.png"
+SHOT_PROF_MENU = "images/admin-profile-menu.png"
+SHOT_WA_SET = "images/admin-whatsapp-settings.png"
+SHOT_CRAWL = "images/admin-website-crawler.png"
+SHOT_CUST = "images/admin-customers.png"
+SHOT = SHOT_DASH  # default shared sidebar look
 SHOT_SA = "image.png → Manage (superadmin extra)"
 SHOT_ONB = "images/onboarding"
 
@@ -104,11 +114,11 @@ add(
     "POST",
     "/api/auth/login",
     f"curl -s -X POST -H \"Content-Type: application/json\" -d '{{\"username\":\"YOUR_USER\",\"session_id\":\"YOUR_SESSION\"}}' \"{BASE}/api/auth/login\"",
-    "",
+    SHOT_LOGIN,
     "Copy user_id + session_id into later curls",
 )
-add("Auth", "Login", "Current identity", "all", "POST", "/api/auth/me", curl_post("/api/auth/me"))
-add("Auth", "Login", "Empty-DB gate", "all", "POST", "/api/auth/status", curl_post("/api/auth/status"))
+add("Auth", "Login", "Current identity", "all", "POST", "/api/auth/me", curl_post("/api/auth/me"), SHOT_LOGIN)
+add("Auth", "Login", "Empty-DB gate", "all", "POST", "/api/auth/status", curl_post("/api/auth/status"), SHOT_LOGIN)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ONBOARDING (admin first-login)
@@ -570,6 +580,25 @@ add(
     SHOT_SA,
     "View-only on Profile/WhatsApp; approve/reject on Business requests",
 )
+
+# Remap admin page rows to captured localhost screenshots
+PAGE_SHOT = {
+    "Login": SHOT_LOGIN,
+    "Dashboard": SHOT_DASH,
+    "Chats": SHOT_CHATS,
+    "Profile": SHOT_PROFILE,
+    "WhatsApp menu": SHOT_WA_MENU,
+    "Profile menu": SHOT_PROF_MENU,
+    "WhatsApp Settings": SHOT_WA_SET,
+    "Website crawler": SHOT_CRAWL,
+    "Customers": SHOT_CUST,
+    "Tenant bootstrap": SHOT_DASH,
+}
+for r in rows:
+    if r["page_type"] in ("Admin", "Auth", "Shared (admin + superadmin)", "Superadmin"):
+        mapped = PAGE_SHOT.get(r["page"])
+        if mapped:
+            r["screenshot"] = mapped
 
 # ── Write ───────────────────────────────────────────────────────────────────
 out = Path(__file__).resolve().parents[1] / "admin-superadmin-apis-curls.csv"

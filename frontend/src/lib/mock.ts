@@ -31,6 +31,9 @@ export const mockIdentity: AdminIdentity = {
     manage_operations: true,
     view_inbox: true,
     view_customers: true,
+    upload_faq: true,
+    upload_kb: true,
+    view_files: true,
   },
 }
 

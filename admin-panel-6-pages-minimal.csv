@@ -1,0 +1,38 @@
+Page,Screen or Button,Method,Full URL,Request Body,Frontend Uses Response,After Success
+Chats,Inbox list,POST,http://10.100.100.43:9000/api/admin/tenants/inbox,"{""include_resolved"":true}",queue; count; handoff_count,Show conversations
+Chats,Conversation list,POST,http://10.100.100.43:9000/api/admin/tenants/conversations,"{""search"":"""",""limit"":100}",conversations; count,Show conversation rows
+Chats,Selected thread,POST,http://10.100.100.43:9000/api/admin/tenants/chat/thread,"{""wa_id"":""<WA_ID>"",""limit"":300}",wa_id; messages,Show messages
+Chats,Agents dropdown,POST,http://10.100.100.43:9000/api/admin/tenants/agents,{},agents,Fill assignee dropdown
+Chats,Take over as human,POST,http://10.100.100.43:9000/api/admin/tenants/inbox/handover,"{""wa_id"":""<WA_ID>"",""mode"":""human""}",status,Set chat mode to human
+Chats,Return to bot,POST,http://10.100.100.43:9000/api/admin/tenants/inbox/handover,"{""wa_id"":""<WA_ID>"",""mode"":""bot""}",status,Set chat mode to bot
+Chats,Assign agent,POST,http://10.100.100.43:9000/api/admin/tenants/inbox/assign,"{""wa_id"":""<WA_ID>"",""agent_id"":""<AGENT_ID>""}",status,Refresh inbox or update assigned agent
+Chats,Resolve conversation,POST,http://10.100.100.43:9000/api/admin/tenants/inbox/resolve,"{""wa_id"":""<WA_ID>"",""reply"":true}",status; notified,Mark conversation resolved and refresh inbox
+Chats,Send reply,POST,http://10.100.100.43:9000/api/admin/tenants/inbox/reply,"{""wa_id"":""<WA_ID>"",""message"":""<MESSAGE>""}",status; sent,Append message or reload thread
+Chats,Send menu button,POST,http://10.100.100.43:9000/api/admin/tenants/inbox/menu,"{""wa_id"":""<WA_ID>""}",status; sent,Show sent confirmation
+Chats,Upload attachment,POST,http://10.100.100.43:9000/api/admin/tenants/files/upload,multipart: module=inbox; file=@<FILE>,filename; status,Attach uploaded file then refresh thread
+Chats,Live inbox updates,GET,http://10.100.100.43:9000/api/admin/tenants/inbox/events,,SSE event inbox.updated,Reload inbox/thread on event
+Customer,Customer list/search,POST,http://10.100.100.43:9000/api/admin/tenants/customers,"{""q"":""<SEARCH>"",""limit"":200}",customers; count,Show customer table
+Customer,Export CSV,POST,http://10.100.100.43:9000/api/admin/tenants/customers/export,"{""format"":""csv""}",File/blob,Download customers.csv
+Customer,Export Excel,POST,http://10.100.100.43:9000/api/admin/tenants/customers/export,"{""format"":""xlsx""}",File/blob,Download customers.xlsx
+Onboard User,Load users,POST,http://10.100.100.43:9000/api/auth/onboarding-users,{},users; count,Show onboarded-user table
+Onboard User,Login selected tenant,POST,http://10.100.100.43:9000/api/auth/impersonate/<TARGET_USERNAME>,{},username; session_id; token; tenant_id; role,Store tenant session and open tenant console
+Menu Bot,Load published menu,POST,http://10.100.100.43:9000/api/admin/tenants/resolved,{},menu/profile/version,Display published menu
+Menu Bot,Load menu editor profile,POST,http://10.100.100.43:9000/api/admin/tenants/<TENANT_ID>/profile,"{""snapshot"":{}}",draft/profile/menu fields,Fill menu editor
+Menu Bot,Save menu draft,POST,http://10.100.100.43:9000/api/admin/tenants/<TENANT_ID>/profile,"{""snapshot"":<PROFILE_SNAPSHOT>}",validation; version; status,Show validation and saved draft
+Menu Bot,Publish menu,POST,http://10.100.100.43:9000/api/admin/tenants/<TENANT_ID>/publish,{},status; version; message,Show published version and reload menu
+Onboarding,Load onboarding kits,POST,http://10.100.100.43:9000/api/admin/onboarding-kits/list,{},templates,Show kit options
+Onboarding,Read kit,GET,http://10.100.100.43:9000/api/admin/onboarding-kits/<VERTICAL>/<FORMAT>,,kit content,Show/download kit
+Onboarding,Stage uploaded onboarding file,POST,http://10.100.100.43:9000/api/admin/onboarding/stage,"{""files"":[{""filename"":""<FILE_NAME>"",""content"":""<BASE64>""}]}",staged profile; validation,Show review screen
+Onboarding,Stage tenant onboarding,POST,http://10.100.100.43:9000/api/admin/tenants/<TENANT_ID>/onboarding/stage,"{""files"":[{""filename"":""<FILE_NAME>"",""content"":""<BASE64>""}],""lane"":""<LANE>""}",staged profile; validation,Show review screen
+Onboarding,Publish tenant onboarding,POST,http://10.100.100.43:9000/api/admin/tenants/<TENANT_ID>/onboarding/publish,{},status; version; tenant_id,Show completion and reload profile
+Website Crawler,Load crawl runs,POST,http://10.100.100.43:9000/api/admin/tenants/crawl-runs,{},latest; history; schedule,Show crawl history
+Website Crawler,Start crawl,POST,http://10.100.100.43:9000/api/admin/tenants/crawl,"{""url"":""<WEBSITE_URL>""}",run_id; run; status,Store run_id and refresh runs
+Website Crawler,Load staged result,POST,http://10.100.100.43:9000/api/admin/tenants/crawl-runs/staged,"{""run_id"":<RUN_ID>}",summary; payload,Show review tabs
+Website Crawler,Export crawl,POST,http://10.100.100.43:9000/api/admin/tenants/crawl-runs/export,"{""run_id"":<RUN_ID>,""format"":""json|csv|pdf""}",File/blob,Download export
+Website Crawler,Approve crawl,POST,http://10.100.100.43:9000/api/admin/tenants/crawl-runs/approve,"{""run_id"":<RUN_ID>}",ok; result,Show published status and reload runs
+Website Crawler,Reject crawl,POST,http://10.100.100.43:9000/api/admin/tenants/crawl-runs/reject,"{""run_id"":<RUN_ID>}",ok; result,Show rejected status and reload runs
+Website Crawler,Load files,POST,http://10.100.100.43:9000/api/admin/tenants/files,"{""module"":""<MODULE>""}",files,Show file list
+Website Crawler,Upload document,POST,http://10.100.100.43:9000/api/admin/tenants/files/upload,multipart: module=<MODULE>; file=@<FILE>,filename; status,Reload files and wait for processing
+Website Crawler,Delete file,POST,http://10.100.100.43:9000/api/admin/tenants/files/delete,"{""filename"":""<FILENAME>"",""module"":""<MODULE>""}",status,Remove file and reload list
+Website Crawler,Preview file,POST,http://10.100.100.43:9000/api/admin/tenants/files/preview,"{""filename"":""<FILENAME>"",""module"":""<MODULE>""}",File/blob,Open preview
+Website Crawler,Download file,POST,http://10.100.100.43:9000/api/admin/tenants/files/download,"{""filename"":""<FILENAME>"",""module"":""<MODULE>""}",File/blob,Download file

@@ -1,11 +1,8 @@
-"""Publish spiritual WhatsApp menu aligned to spiritual_mam.pdf.
+"""Publish spiritual WhatsApp menu: 3 events → places → details.
 
-Main:
-  Gangasagar, Kumbh Mela, Rath Yatra, Spiritual Guide,
-  Emergency, Lost & Found, Seva
-
-Event taps open modules: Calendar, Snan/Darshan, Travel, Stay,
-Food/Prasad, Temples, Puja/Rituals, Programmes, Medical.
+Main: Gangasagar, Kumbh Mela, Rath Yatra
+Each event opens Places; each place opens
+History / Darshan / Reach / Stay / Prasad / Parking / Contact.
 """
 from __future__ import annotations
 
@@ -32,8 +29,11 @@ from shared.tenancy.loader import reload_profile  # noqa: E402
 
 TENANT_ID = "spiritual"
 
-# Tombstone previous north/south temple rows + commerce leftovers.
 REMOVE_DEFAULTS = [
+    {"id": "menu_spiritual_guide", "__remove__": True},
+    {"id": "menu_emergency", "__remove__": True},
+    {"id": "menu_lost_found", "__remove__": True},
+    {"id": "menu_seva", "__remove__": True},
     {"id": "menu_north_temples", "__remove__": True},
     {"id": "menu_south_temples", "__remove__": True},
     {"id": "menu_north_yatra", "__remove__": True},
@@ -61,7 +61,7 @@ SPIRITUAL_BUTTONS = [
     {
         "id": "menu_gangasagar",
         "title": "Gangasagar",
-        "description": "Gangasagar Mela guidance & services",
+        "description": "Places at Gangasagar Mela",
         "section": "Events",
         "icon": "",
         "sort_order": 0,
@@ -71,7 +71,7 @@ SPIRITUAL_BUTTONS = [
     {
         "id": "menu_kumbh",
         "title": "Kumbh Mela",
-        "description": "Kumbh pilgrimage assistance",
+        "description": "Places at Kumbh Mela",
         "section": "Events",
         "icon": "",
         "sort_order": 1,
@@ -81,52 +81,12 @@ SPIRITUAL_BUTTONS = [
     {
         "id": "menu_rath_yatra",
         "title": "Rath Yatra",
-        "description": "Jagannath Rath Yatra assistance",
+        "description": "Places for Jagannath Rath Yatra",
         "section": "Events",
         "icon": "",
         "sort_order": 2,
         "enabled": True,
         "intent": "rath_yatra",
-    },
-    {
-        "id": "menu_spiritual_guide",
-        "title": "Spiritual Guide",
-        "description": "History, scriptures, rituals, mantras",
-        "section": "Guidance",
-        "icon": "",
-        "sort_order": 3,
-        "enabled": True,
-        "intent": "spiritual_guide",
-    },
-    {
-        "id": "menu_emergency",
-        "title": "Emergency",
-        "description": "Medical, safety & emergency help",
-        "section": "Support",
-        "icon": "",
-        "sort_order": 4,
-        "enabled": True,
-        "intent": "emergency_help",
-    },
-    {
-        "id": "menu_lost_found",
-        "title": "Lost Found",
-        "description": "Missing person / lost item help",
-        "section": "Support",
-        "icon": "",
-        "sort_order": 5,
-        "enabled": True,
-        "intent": "lost_found",
-    },
-    {
-        "id": "menu_seva",
-        "title": "Seva",
-        "description": "Donation, seva & volunteering",
-        "section": "Support",
-        "icon": "",
-        "sort_order": 6,
-        "enabled": True,
-        "intent": "seva_donation",
     },
 ]
 
@@ -146,7 +106,7 @@ def main() -> int:
         brand["name"] = "Universal Spiritual AI"
     brand["tagline"] = (
         brand.get("tagline")
-        or "AI companion for Melas, Yatras, temples and spiritual journeys"
+        or "AI companion for Melas, Yatras and pilgrimage places"
     )
     brand.setdefault("location_name", brand.get("bot_name") or "Aastha")
     brand.setdefault(
@@ -157,39 +117,19 @@ def main() -> int:
 
     intent_defs = {
         "gangasagar_mela": {
-            "examples": ["gangasagar", "gangasagar mela", "sagar mela"],
-            "keywords": ["gangasagar", "ganga sagar", "kapil muni"],
-            "answer": "Opening Gangasagar Mela services…",
+            "examples": ["gangasagar", "gangasagar mela"],
+            "keywords": ["gangasagar", "kapil muni"],
+            "answer": "Opening Gangasagar places…",
         },
         "kumbh_mela": {
-            "examples": ["kumbh", "kumbh mela", "maha kumbh"],
-            "keywords": ["kumbh", "kumbh mela", "sangam"],
-            "answer": "Opening Kumbh Mela services…",
+            "examples": ["kumbh", "kumbh mela"],
+            "keywords": ["kumbh", "sangam"],
+            "answer": "Opening Kumbh places…",
         },
         "rath_yatra": {
-            "examples": ["rath yatra", "jagannath", "puri yatra"],
+            "examples": ["rath yatra", "jagannath"],
             "keywords": ["rath yatra", "jagannath", "puri"],
-            "answer": "Opening Jagannath Rath Yatra services…",
-        },
-        "spiritual_guide": {
-            "examples": ["spiritual guide", "religious knowledge", "mantra meaning"],
-            "keywords": ["spiritual", "scripture", "mantra", "moksha"],
-            "answer": "Opening Spiritual Guide…",
-        },
-        "emergency_help": {
-            "examples": ["emergency", "ambulance", "medical help"],
-            "keywords": ["emergency", "ambulance", "hospital", "police"],
-            "answer": "Emergency assistance options…",
-        },
-        "lost_found": {
-            "examples": ["lost and found", "missing person", "lost bag"],
-            "keywords": ["lost", "missing", "found", "family"],
-            "answer": "Lost & Found assistance…",
-        },
-        "seva_donation": {
-            "examples": ["seva", "donation", "volunteer", "annadan"],
-            "keywords": ["seva", "donation", "volunteer", "annadan", "bhandara"],
-            "answer": "Seva and volunteering options…",
+            "answer": "Opening Rath Yatra places…",
         },
     }
     intents = list(base.get("intents") or [])
@@ -221,8 +161,8 @@ def main() -> int:
             "key": "kb_main",
             "header": brand.get("bot_name") or "Aastha",
             "body": (
-                "Namaste. I can help with Melas, Yatras, spiritual guidance, "
-                "travel, stay, emergency and seva. Choose an option:"
+                "Namaste. Choose a sacred event to explore places, "
+                "darshan, travel and stay:"
             ),
             "footer": "Or type your question directly",
             "button_text": "Show Options",

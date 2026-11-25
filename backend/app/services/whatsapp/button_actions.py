@@ -633,7 +633,7 @@ _SPIRITUAL_MENU_IDS = frozenset({
     "menu_advantage",
     "menu_history",
     "menu_vehicle_type",
-})
+})  # legacy ids kept so older profiles still detect as spiritual
 
 
 def _is_spiritual_tenant(profile, tenant_id: str | None) -> bool:
@@ -681,36 +681,20 @@ def get_contextual_buttons(
 
     picked_ids: list[str] = []
 
-    # 0. Spiritual / pilgrimage (PDF events; may still use vertical=generic)
+    # 0. Spiritual / pilgrimage (events → places → details)
     if _is_spiritual_tenant(profile, tid):
         if any(k in q for k in ("gangasagar", "menu_gangasagar", "kapil muni", "sagar")):
-            picked_ids = ["menu_kumbh", "menu_spiritual_guide", "main_menu"]
-        elif any(k in q for k in ("kumbh", "menu_kumbh", "sangam")):
+            picked_ids = ["menu_kumbh", "menu_rath_yatra", "main_menu"]
+        elif any(k in q for k in ("kumbh", "menu_kumbh", "sangam", "prayagraj", "haridwar")):
             picked_ids = ["menu_gangasagar", "menu_rath_yatra", "main_menu"]
-        elif any(k in q for k in ("rath yatra", "menu_rath_yatra", "jagannath", "puri")):
+        elif any(k in q for k in ("rath yatra", "menu_rath_yatra", "jagannath", "puri", "gundicha")):
             picked_ids = ["menu_gangasagar", "menu_kumbh", "main_menu"]
         elif any(k in q for k in (
-            "spiritual guide", "menu_spiritual_guide", "scripture", "mantra", "moksha",
-        )):
-            picked_ids = ["menu_gangasagar", "menu_kumbh", "main_menu"]
-        elif any(k in q for k in (
-            "emergency", "menu_emergency", "ambulance", "hospital", "police", "medical",
-        )):
-            picked_ids = ["menu_lost_found", "menu_gangasagar", "main_menu"]
-        elif any(k in q for k in (
-            "lost", "found", "missing", "menu_lost_found", "family assistance",
-        )):
-            picked_ids = ["menu_emergency", "menu_gangasagar", "main_menu"]
-        elif any(k in q for k in (
-            "seva", "donation", "volunteer", "annadan", "bhandara", "menu_seva",
-        )):
-            picked_ids = ["menu_gangasagar", "menu_spiritual_guide", "main_menu"]
-        elif any(k in q for k in (
-            "snan", "darshan", "travel", "stay", "prasad", "temple", "puja", "aarti",
+            "darshan", "history", "reach", "stay", "prasad", "parking", "contact",
         )):
             picked_ids = ["menu_gangasagar", "menu_kumbh", "main_menu"]
         else:
-            picked_ids = ["menu_gangasagar", "menu_kumbh", "menu_spiritual_guide"]
+            picked_ids = ["menu_gangasagar", "menu_kumbh", "menu_rath_yatra"]
 
     # 1. Healthcare Vertical
     elif vertical == "healthcare":

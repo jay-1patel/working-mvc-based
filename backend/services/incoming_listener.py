@@ -233,6 +233,56 @@ def _header_media_link(header_media: dict | None) -> tuple[str | None, str]:
     return url, htype if htype in ("image", "document", "video", "audio") else "document"
 
 
+def _poller_interactive_trigger(msg: dict) -> str:
+    """Extract menu/list/button id (or title) when Send2 leaves Message null.
+
+    Quick-reply taps often arrive with empty Message but a Button / List id.
+    Re-sending the main menu on those taps hid hierarchical submenus
+    (e.g. Gangasagar → places). Prefer routing the id through the orchestrator.
+    """
+    if not isinstance(msg, dict):
+        return ""
+    candidates = (
+        msg.get("Button"),
+        msg.get("button"),
+        msg.get("button_id"),
+        msg.get("ButtonId"),
+        msg.get("List"),
+        msg.get("list_id"),
+        msg.get("ListId"),
+        msg.get("Interactive"),
+        msg.get("interactive"),
+        msg.get("Type"),
+        msg.get("type"),
+    )
+    skip = {"", "null", "none", "text", "received", "button", "list", "interactive"}
+    for raw in candidates:
+        if raw is None:
+            continue
+        if isinstance(raw, dict):
+            for key in ("id", "Id", "title", "Title", "button_id", "list_id"):
+                val = str(raw.get(key) or "").strip()
+                if val and val.lower() not in skip:
+                    return val
+            continue
+        text = str(raw).strip()
+        if not text or text.lower() in skip:
+            continue
+        if text.startswith("{") or text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                return text
+            if isinstance(parsed, dict):
+                for key in ("id", "Id", "title", "Title", "button_id", "list_id"):
+                    val = str(parsed.get(key) or "").strip()
+                    if val and val.lower() not in skip:
+                        return val
+            continue
+        return text
+    return ""
+
+
 async def _send_reply(wa_id: str, messages: list, tenant_id: str = None) -> None:
     """Send the orchestrator's captured messages via send2.digital.
 
@@ -368,8 +418,19 @@ async def _send_reply(wa_id: str, messages: list, tenant_id: str = None) -> None
                 button_text = msg.get("button_text", "Menu")
                 sections = msg.get("sections", [])
                 if body and sections:
-                    send_whatsapp_list_menu(wa_id, header, body, button_text, sections)
-                    logger.info(f"Sent list reply to {wa_id}: {len(sections)} sections")
+                    ok = send_whatsapp_list_menu(
+                        wa_id, header, body, button_text, sections, tenant_id=tenant_id,
+                    )
+                    if ok:
+                        logger.info(f"Sent list reply to {wa_id}: {len(sections)} sections")
+                    else:
+                        from routing.whatsapp import format_list_menu_as_text
+                        fallback = format_list_menu_as_text(body, sections)
+                        send_whatsapp_message(wa_id, fallback, tenant_id=tenant_id)
+                        logger.warning(
+                            "LIST_SEND_FAILED_TEXT_FALLBACK | to=%s | sections=%s",
+                            wa_id, len(sections),
+                        )
 
             else:
                 logger.warning(f"Unknown message type '{msg_type}' for {wa_id}")
@@ -560,80 +621,28 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
                         continue
 
                     if not text:
-                        # send2 sometimes returns Message=null for button taps. Only
-                        # re-send the menu when an interactive id/title is present;
-                        # bare empty rows must not blast menus (looks unsolicited).
-                        interactive_hint = (
-                            msg.get("Button")
-                            or msg.get("button")
-                            or msg.get("button_id")
-                            or msg.get("ButtonId")
-                            or msg.get("List")
-                            or msg.get("list_id")
-                            or msg.get("ListId")
-                            or msg.get("Interactive")
-                            or msg.get("interactive")
-                            or msg.get("Type")
-                            or msg.get("type")
-                        )
-                        interactive_ok = bool(
-                            interactive_hint
-                            and str(interactive_hint).strip().lower()
-                            not in ("", "null", "none", "text", "received")
-                        )
+                        # send2 often returns Message=null for button/list taps, with
+                        # the machine id in Button / List fields. Route that id through
+                        # the orchestrator so hierarchical menus (Gangasagar → places)
+                        # open; only fall back to re-sending main menu if no id exists.
+                        interactive_trigger = _poller_interactive_trigger(msg)
                         if (
                             str(status).strip().lower() == "received"
-                            and interactive_ok
+                            and interactive_trigger
                         ):
                             logger.info(
-                                "Handling interactive null-text from %s id=%s hint=%s",
-                                wa_id, message_id[:20], str(interactive_hint)[:40],
+                                "Handling interactive null-text from %s id=%s trigger=%s",
+                                wa_id, message_id[:20], interactive_trigger[:80],
                             )
-                            try:
-                                from routing.whatsapp import send_whatsapp_list_menu
-                                from bots.customer_b2c.menus import get_main_menu
-
-                                menu_data = get_main_menu(wa_id, tenant_id=tenant_id)
-                                if menu_data.get("type") == "buttons":
-                                    from routing.whatsapp import send_whatsapp_interactive, normalize_reply_buttons
-                                    send_whatsapp_interactive(
-                                        wa_id,
-                                        menu_data.get("text", "Options"),
-                                        normalize_reply_buttons(menu_data.get("buttons", [])),
-                                    )
-                                else:
-                                    send_whatsapp_list_menu(
-                                        to=wa_id,
-                                        header_text=menu_data.get("header", "Menu"),
-                                        body_text=menu_data.get("body", "Please choose an option:"),
-                                        button_text=menu_data.get("button_text", "Show Options"),
-                                        sections=menu_data.get("sections", []),
-                                    )
-                                try:
-                                    from services.send_log import log_whatsapp_send
-                                    log_whatsapp_send(
-                                        wa_id=wa_id,
-                                        tenant_id=tenant_id,
-                                        reason="null_menu",
-                                        trigger_message_id=message_id,
-                                        snippet="main_menu_resend",
-                                    )
-                                except Exception:
-                                    logger.exception("SEND_LOG_RECORD_FAILED | wa=%s tenant=%s reason=null_menu", wa_id, tenant_id)
-                                logger.info(
-                                    "Re-sent tenant menu to %s after interactive null-text",
-                                    wa_id,
-                                )
-                            except Exception as ex:
-                                logger.error(f"Failed to handle null message fallback: {ex}")
+                            text = interactive_trigger
                         else:
                             logger.info(
                                 "Skipping empty inbound (no interactive payload) "
                                 "wa_id=%s id=%s status=%s",
                                 wa_id, message_id[:20], status,
                             )
-                        _record_processed(message_id, wa_id)
-                        continue
+                            _record_processed(message_id, wa_id)
+                            continue
 
                     logger.info(f"New message from {wa_id}: {text[:80]}... (id={message_id[:20]}...)")
 

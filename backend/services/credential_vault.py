@@ -232,21 +232,23 @@ def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]
             raise
         return str(creds["username"]), str(creds["password"])
 
+    # One shared CPaaS login for every tenant / business number.
+    try:
+        try:
+            from services.send2_accounts import shared_send2_credentials
+        except ImportError:
+            from backend.services.send2_accounts import shared_send2_credentials
+        pair = shared_send2_credentials()
+        if pair:
+            return pair
+    except Exception:
+        logger.debug("SEND2_SHARED_CREDS_SKIPPED | tenant=%s", tid, exc_info=True)
+
     if vault_fallback_enabled():
         from routing.config import SEND2_USERNAME, SEND2_PASSWORD
         if SEND2_USERNAME and SEND2_PASSWORD:
-            logger.warning(
-                "SEND2_VAULT_FALLBACK_USED | tenant=%s | reason=%s",
-                tid or "(none)",
-                "no_vault_record" if tid else "no_tenant",
-            )
             return str(SEND2_USERNAME), str(SEND2_PASSWORD)
 
-    if tid:
-        raise CredentialVaultError(
-            f"no Send2 vault credentials for tenant {tid} "
-            f"(set SEND2_VAULT_FALLBACK=true only to use the legacy global pair)"
-        )
     raise CredentialVaultError(
-        "no tenant context for Send2 credentials and vault fallback is disabled"
+        "SEND2_USERNAME/PASSWORD not configured (single CPaaS login for all numbers)"
     )

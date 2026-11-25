@@ -345,8 +345,12 @@ def list_tenants_post(
 def get_current_active_test_tenant(
     current_admin: dict = Depends(require_super_admin),
 ):
-    from database import get_active_test_tenant
-    return {"active_test_tenant": get_active_test_tenant()}
+    """Deprecated: always null. WhatsApp routes by tenants.waba_phone_id."""
+    return {
+        "active_test_tenant": None,
+        "disabled": True,
+        "detail": "Active Test Tenant override removed — route by waba_phone_id",
+    }
 
 
 @router.post("/active-test-tenant")
@@ -354,26 +358,20 @@ def set_current_active_test_tenant(
     body: ActiveTestTenantRequest,
     current_admin: dict = Depends(require_super_admin),
 ):
-    from database import set_active_test_tenant, get_active_test_tenant
-    tid = (body.tenant_id or "").strip() or None
-    try:
-        set_active_test_tenant(tid)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    stored = get_active_test_tenant()
+    """Deprecated no-op: clears leftover override; does not change routing."""
+    from database import set_active_test_tenant
+    set_active_test_tenant(None)
     logger.info(
-        "ACTIVE_TEST_TENANT_CHANGED | tenant=%s | by=%s",
-        stored, current_admin.get("username"),
+        "ACTIVE_TEST_TENANT_REJECTED | by=%s | routing uses waba_phone_id only",
+        current_admin.get("username"),
     )
-    # Push the new brand menu to the last WhatsApp tester so old list rows from
-    # the previous tenant are not the latest message on screen.
-    pushed_to = None
-    if stored:
-        try:
-            pushed_to = _push_active_test_menu(stored)
-        except Exception as exc:
-            logger.warning("ACTIVE_TEST_TENANT menu push failed: %s", exc)
-    return {"ok": True, "active_test_tenant": stored, "menu_pushed_to": pushed_to}
+    return {
+        "ok": True,
+        "active_test_tenant": None,
+        "menu_pushed_to": None,
+        "disabled": True,
+        "detail": "Active Test Tenant override removed — route by waba_phone_id",
+    }
 
 
 @router.post("/auto-onboard-preview")

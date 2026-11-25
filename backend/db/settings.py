@@ -55,80 +55,21 @@ def set_app_setting(key: str, value: str) -> None:
 
 
 def get_active_test_tenant() -> Optional[str]:
-    val = get_app_setting("active_test_tenant", "").strip()
-    return val or None
+    """Deprecated: phone→tenant routing only; override always off."""
+    return None
 
 
 def set_active_test_tenant(tenant_id: Optional[str]) -> None:
-    val = str(tenant_id or "").strip()
-    if val:
-        try:
-            from shared.tenancy import store
-            record = store.get_tenant(val)
-            if not record:
-                raise ValueError(f"Unknown tenant for WhatsApp test override: {val}")
-            val = str(record.get("slug") or record.get("id") or val)
-        except ValueError:
-            raise
-        except Exception:
-            # deliberate: an unreadable tenant record must not block the
-            # test-tenant override — the raw value is used as-is.
-            logger.debug("TEST_TENANT_VALIDATE_SKIPPED | val=%s", val, exc_info=True)
-    set_app_setting("active_test_tenant", val)
-    # Clear conversation user states and carts so tester starts completely fresh with greeting/menu
+    """Deprecated no-op: Active Test Tenant override removed.
+
+    Clears any leftover ``app_settings.active_test_tenant`` so old values
+    cannot linger. Routing uses ``tenants.waba_phone_id`` only.
+    """
+    del tenant_id
     try:
-        if use_mongodb():
-            from .mongo import Repository
-            Repository("user_states").delete_many({})
-            Repository("carts").delete_many({})
-            Repository("cart_items").delete_many({})
-        else:
-            with get_db_context() as conn:
-                conn.execute("DELETE FROM user_states")
-                conn.execute("DELETE FROM carts")
-                conn.execute("DELETE FROM cart_items")
-    except Exception as e:
-        logger.debug(f"Could not clear user_states: {e}")
-    try:
-        from shared.tenancy import cache as tenancy_cache
-        tenancy_cache.clear()
+        set_app_setting("active_test_tenant", "")
     except Exception:
-        # deliberate: cache clear is best-effort session hygiene.
-        logger.debug("TENANCY_CACHE_CLEAR_SKIPPED", exc_info=True)
-    # Fresh routing session: drop in-memory dedup + poller unrouted warnings so
-    # the next WhatsApp "hi" is answered by the newly selected tenant.
-    try:
-        from services.dedup import clear_ephemeral_caches
-        clear_ephemeral_caches()
-    except Exception:
-        try:
-            from backend.services.dedup import clear_ephemeral_caches
-            clear_ephemeral_caches()
-        except Exception:
-            # deliberate: cache clear is best-effort session hygiene.
-            logger.debug("DEDUP_CACHE_CLEAR_SKIPPED", exc_info=True)
-    try:
-        from services import incoming_listener as _il
-        _il._unrouted_warned_ids.clear()
-    except Exception:
-        try:
-            from backend.services import incoming_listener as _il
-            _il._unrouted_warned_ids.clear()
-        except Exception:
-            # deliberate: warned-id reset is best-effort session hygiene.
-            logger.debug("POLLER_WARNED_IDS_CLEAR_SKIPPED", exc_info=True)
-    # Content-fingerprint rows (c:…) block a repeated "hi" for ~25s across
-    # webhook+poller. Clear them on switch so the new tenant can greet.
-    try:
-        if use_mongodb():
-            from .mongo import Repository
-            Repository("webhook_dedup").delete_many({"message_id": {"$regex": "^c:"}})
-        else:
-            with get_db_context() as conn:
-                conn.execute("DELETE FROM webhook_dedup WHERE message_id LIKE 'c:%'")
-    except Exception as e:
-        logger.debug(f"Could not clear content dedup rows: {e}")
-    if val:
-        logger.info("ACTIVE_TEST_TENANT_READY | tenant=%s | WhatsApp will route here", val)
-    else:
-        logger.info("ACTIVE_TEST_TENANT_CLEARED | phone binding / default routing restored")
+        logger.debug("ACTIVE_TEST_TENANT_CLEAR_SKIPPED", exc_info=True)
+    logger.info(
+        "ACTIVE_TEST_TENANT_DISABLED | routing uses tenants.waba_phone_id only"
+    )

@@ -16,13 +16,23 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta
+from typing import Optional
 
 import httpx
 
 from routing.config import (
     SEND2_INCOMING_URL,
     SEND2_NUMBER,
+)
+from routing.whatsapp import (
+    send_whatsapp_message,
+    send_whatsapp_interactive,
+    send_whatsapp_list_menu,
+    send_whatsapp_cta_url,
+    normalize_reply_buttons,
+    format_list_menu_as_text,
 )
 
 
@@ -32,13 +42,14 @@ def _send2_login(tenant_id: str = None):
     except ImportError:
         from backend.services.credential_vault import resolve_send2_username_password
     return resolve_send2_username_password(tenant_id)
-from routing.whatsapp import (
-    send_whatsapp_message,
-    send_whatsapp_interactive,
-    send_whatsapp_list_menu,
-    send_whatsapp_cta_url,
-    normalize_reply_buttons,
-)
+
+
+def _list_poll_accounts():
+    try:
+        from services.send2_accounts import list_poll_accounts
+    except ImportError:
+        from backend.services.send2_accounts import list_poll_accounts
+    return list_poll_accounts()
 
 logger = logging.getLogger("IncomingListener")
 
@@ -424,7 +435,6 @@ async def _send_reply(wa_id: str, messages: list, tenant_id: str = None) -> None
                     if ok:
                         logger.info(f"Sent list reply to {wa_id}: {len(sections)} sections")
                     else:
-                        from routing.whatsapp import format_list_menu_as_text
                         fallback = format_list_menu_as_text(body, sections)
                         send_whatsapp_message(wa_id, fallback, tenant_id=tenant_id)
                         logger.warning(
@@ -457,12 +467,137 @@ async def _send_reply(wa_id: str, messages: list, tenant_id: str = None) -> None
         logger.exception("SEND_LOG_RECORD_FAILED | wa=%s tenant=%s", wa_id, tenant_id)
 
 
+def _resolve_poll_tenant(msg: dict) -> tuple[Optional[str], str]:
+    """Map a Send2 poll row → (tenant_id, business_number) via tenants.waba_phone_id."""
+    try:
+        from services.send2_accounts import business_number_from_poll_message
+    except ImportError:
+        from backend.services.send2_accounts import business_number_from_poll_message
+    from shared.tenancy.resolver import resolve_tenant_for_phone
+
+    business_number = business_number_from_poll_message(msg)
+    # Fallback: legacy single-number deployments may omit receiver fields.
+    if not business_number:
+        business_number = re.sub(r"\D", "", str(SEND2_NUMBER or ""))
+    if not business_number:
+        return None, ""
+    tenant_id = resolve_tenant_for_phone(business_number, allow_test_override=False)
+    return tenant_id, business_number
+
+
+async def _handle_polled_batch(messages: list) -> int:
+    """Process one inbound-report batch (shared CPaaS login, multi-number).
+
+    Each row is routed by the receiving business number → ``tenants.waba_phone_id``
+    (``15559227148`` → ``c``, ``15558072955`` → ``spiritual``).
+    """
+    skipped_known = 0
+    for msg in messages:
+        message_id = msg.get("messageid", "")
+        wa_id = str(msg.get("Number", "")).strip()
+        text = (msg.get("Message", "") or "").strip()
+        status = msg.get("status", "")
+        sender_name = str(msg.get("Name") or msg.get("SenderName") or "").strip()
+
+        if not message_id or not wa_id:
+            continue
+        if status and str(status).strip().lower() in (
+            "sent", "delivered", "failed", "read",
+        ):
+            continue
+
+        tenant_id, business_number = _resolve_poll_tenant(msg)
+        if not tenant_id:
+            if message_id not in _unrouted_warned_ids:
+                logger.warning(
+                    "POLL_UNROUTED | message_id=%s | business=%s has no tenants.waba_phone_id binding",
+                    message_id, business_number or "(unknown)",
+                )
+                _unrouted_warned_ids.add(message_id)
+            continue
+
+        if _was_processed(message_id):
+            skipped_known += 1
+            continue
+
+        if text and _is_duplicate_content(wa_id, text):
+            logger.debug(
+                "Skipping duplicate content from poller %s: %s",
+                wa_id, text[:40],
+            )
+            _record_processed(message_id, wa_id)
+            skipped_known += 1
+            continue
+
+        if not _claim_inbound(message_id, wa_id):
+            logger.debug(
+                "Skipping already-claimed inbound id from poller %s: %s",
+                wa_id, message_id[:24],
+            )
+            skipped_known += 1
+            continue
+
+        if not text:
+            interactive_trigger = _poller_interactive_trigger(msg)
+            if (
+                str(status).strip().lower() == "received"
+                and interactive_trigger
+            ):
+                logger.info(
+                    "Handling interactive null-text from %s id=%s trigger=%s",
+                    wa_id, message_id[:20], interactive_trigger[:80],
+                )
+                text = interactive_trigger
+            else:
+                logger.info(
+                    "Skipping empty inbound (no interactive payload) "
+                    "wa_id=%s id=%s status=%s",
+                    wa_id, message_id[:20], status,
+                )
+                _record_processed(message_id, wa_id)
+                continue
+
+        logger.info(
+            "New message from %s via %s (%s): %s... (id=%s...)",
+            wa_id, business_number, tenant_id, text[:80], message_id[:20],
+        )
+
+        try:
+            from services.orchestrator import process_incoming_message
+
+            result = await process_incoming_message(
+                wa_id, text, capture_only=True, tenant_id=tenant_id,
+            )
+            outgoing = result.get("messages", [])
+            if outgoing:
+                await _send_reply(wa_id, outgoing, tenant_id=tenant_id)
+                logger.info(
+                    "Processed and replied to %s (%s messages) tenant=%s",
+                    wa_id, len(outgoing), tenant_id,
+                )
+            else:
+                logger.info(
+                    "Processed %s but no outgoing messages | tenant=%s",
+                    wa_id, tenant_id,
+                )
+            _record_processed(message_id, wa_id)
+            _record_chat(wa_id, sender_name, text, outgoing)
+            _record_poll(wa_id, text, message_id=message_id, tenant_id=tenant_id)
+        except Exception as e:
+            _release_inbound(message_id)
+            logger.error(
+                "Failed to process message from %s (tenant=%s): %s",
+                wa_id, tenant_id, e, exc_info=True,
+            )
+    return skipped_known
+
+
 async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
     """Poll send2.digital for new incoming WhatsApp messages.
 
-    Runs forever, sleeping `POLL_INTERVAL_SECONDS` between polls, until
-    `stop_event` (if provided) is set. Each iteration fetches messages from
-    the last hour, processes them through the orchestrator, and sends replies.
+    Supports multiple business numbers: each account in ``list_poll_accounts()``
+    is queried with its own credentials and routed to its bound tenant
+    (``c`` / ``spiritual``).
     """
     if not SEND2_POLLER_ENABLED:
         logger.info("Incoming message listener disabled (SEND2_POLLER_ENABLED=0)")
@@ -472,18 +607,20 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
         logger.error("SEND2_INCOMING_URL not set — listener cannot start")
         return
 
-    try:
-        _send2_login()
-    except Exception as exc:
+    accounts = _list_poll_accounts()
+    if not accounts:
         logger.error(
-            "Send2 credentials unavailable — listener cannot start (%s)",
-            type(exc).__name__,
+            "Send2 poller has no pollable accounts — bind waba numbers and set "
+            "credentials (global SEND2_* for c, SEND2_SPIRITUAL_* after CPaaS)"
         )
         return
 
     logger.info(
-        "Incoming message listener started (interval=%ds, timeout=%.0fs, url=%s)",
-        POLL_INTERVAL_SECONDS, HTTP_TIMEOUT_SECONDS, SEND2_INCOMING_URL,
+        "Incoming message listener started (interval=%ds, timeout=%.0fs, url=%s, shared_login=%s)",
+        POLL_INTERVAL_SECONDS,
+        HTTP_TIMEOUT_SECONDS,
+        SEND2_INCOMING_URL,
+        bool(accounts),
     )
 
     consecutive_failures = 0
@@ -494,202 +631,62 @@ async def poll_incoming_messages(stop_event: asyncio.Event = None) -> None:
             break
 
         try:
-            # Fetch messages from the recent window (processed-ID ledger in
-            # SQLite makes overlap + restarts safe, so no 1-hour re-scan).
             now = datetime.now()
             from_date = (now - timedelta(minutes=POLL_WINDOW_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
             to_date = now.strftime("%Y-%m-%d %H:%M:%S")
 
-            username, password = _send2_login()
-            payload = {
-                "user_name": username,
-                "password": password,
-                "from_date": from_date,
-                "to_date": to_date,
-            }
+            accounts = _list_poll_accounts() or accounts
+            cycle_ok = False
+            skipped_known = 0
+            account = accounts[0]
 
             async with httpx.AsyncClient(trust_env=False, timeout=HTTP_TIMEOUT_SECONDS) as client:
+                payload = {
+                    "user_name": account["username"],
+                    "password": account["password"],
+                    "from_date": from_date,
+                    "to_date": to_date,
+                }
                 response = await client.post(SEND2_INCOMING_URL, json=payload)
-
-                # Any HTTP response means the API is reachable — clear backoff.
-                consecutive_failures = 0
+                cycle_ok = True
 
                 if response.status_code != 200:
-                    logger.warning("Incoming report returned non-200: %s", response.status_code)
-                    await asyncio.sleep(POLL_INTERVAL_SECONDS)
-                    continue
-
-                try:
-                    messages = response.json()
-                except json.JSONDecodeError:
-                    # send2 returns plain text "No Data Found.." when the poll
-                    # window has no new messages — that's a normal empty state,
-                    # not an error worth logging on every poll.
-                    if "No Data Found" in (response.text or ""):
-                        await asyncio.sleep(POLL_INTERVAL_SECONDS)
-                        continue
-                    logger.warning("Incoming report returned non-JSON: %s", response.text[:200])
-                    await asyncio.sleep(POLL_INTERVAL_SECONDS)
-                    continue
-
-                if not isinstance(messages, list):
-                    logger.warning("Incoming report returned unexpected format: %s", type(messages))
-                    await asyncio.sleep(POLL_INTERVAL_SECONDS)
-                    continue
-
-                # Process each new message.
-                skipped_known = 0
-                for msg in messages:
-                    message_id = msg.get("messageid", "")
-                    wa_id = str(msg.get("Number", "")).strip()
-                    text = (msg.get("Message", "") or "").strip()
-                    status = msg.get("status", "")
-                    date_str = msg.get("Date", "")
-                    sender_name = str(msg.get("Name") or msg.get("SenderName") or "").strip()
-
-                    # Skip if no message ID (test/dummy entries).
-                    if not message_id or not wa_id:
-                        continue
-
-                    # Only inbound rows spawn a bot reply + customer record;
-                    # outbound statuses (sent/delivered/failed/read) are handled
-                    # by the reporters and must not echo back.
-                    if status and str(status).strip().lower() in (
-                        "sent", "delivered", "failed", "read",
-                    ):
-                        continue
-
-                    # Single-number testing: Active Test Tenant from the admin
-                    # console always wins over a stale SEND2 phone binding so
-                    # switching tenants in the UI immediately changes the bot.
-                    # When no override is set, fall back to the phone binding.
-                    try:
-                        from shared.tenancy.resolver import resolve_tenant_for_phone
-
-                        tenant_id = resolve_tenant_for_phone(
-                            SEND2_NUMBER or "",
-                            allow_test_override=True,
-                        )
-                    except Exception as exc:
-                        logger.error(
-                            "Could not resolve configured Send2 business number; "
-                            "ignoring message %s: %s",
-                            message_id,
-                            exc,
-                        )
-                        tenant_id = None
-                    if not tenant_id:
-                        # Do NOT mark processed: once a tenant/active-test binding
-                        # appears, the same message id must still be answerable.
-                        # Only suppress log spam for ids we keep seeing unrouted.
-                        if message_id not in _unrouted_warned_ids:
-                            logger.warning(
-                                "POLL_UNROUTED | message_id=%s | no Active Test Tenant and "
-                                "SEND2_NUMBER has no tenant binding — pick a tenant in "
-                                "the admin Tenants page (WhatsApp test bot)",
-                                message_id,
-                            )
-                            _unrouted_warned_ids.add(message_id)
-                        continue
-
-                    # Already handled (or burned by an older bug) — check BEFORE
-                    # content dedup, otherwise a dead id still consumes the
-                    # short "hi" content window and blocks a fresh greeting.
-                    if _was_processed(message_id):
-                        skipped_known += 1
-                        continue
-
-                    # Claim content first (cross-channel), then message id.
-                    # Routine skips stay at DEBUG — Send2 re-lists the same
-                    # 15-minute inbox every poll, which used to flood INFO logs
-                    # with Hi / Careers / Technologies for every old row.
-                    if text and _is_duplicate_content(wa_id, text):
-                        logger.debug(
-                            "Skipping duplicate content from poller %s: %s",
-                            wa_id, text[:40],
-                        )
-                        _record_processed(message_id, wa_id)
-                        skipped_known += 1
-                        continue
-
-                    if not _claim_inbound(message_id, wa_id):
-                        logger.debug(
-                            "Skipping already-claimed inbound id from poller %s: %s",
-                            wa_id, message_id[:24],
-                        )
-                        skipped_known += 1
-                        continue
-
-                    if not text:
-                        # send2 often returns Message=null for button/list taps, with
-                        # the machine id in Button / List fields. Route that id through
-                        # the orchestrator so hierarchical menus (Gangasagar → places)
-                        # open; only fall back to re-sending main menu if no id exists.
-                        interactive_trigger = _poller_interactive_trigger(msg)
-                        if (
-                            str(status).strip().lower() == "received"
-                            and interactive_trigger
-                        ):
-                            logger.info(
-                                "Handling interactive null-text from %s id=%s trigger=%s",
-                                wa_id, message_id[:20], interactive_trigger[:80],
-                            )
-                            text = interactive_trigger
-                        else:
-                            logger.info(
-                                "Skipping empty inbound (no interactive payload) "
-                                "wa_id=%s id=%s status=%s",
-                                wa_id, message_id[:20], status,
-                            )
-                            _record_processed(message_id, wa_id)
-                            continue
-
-                    logger.info(f"New message from {wa_id}: {text[:80]}... (id={message_id[:20]}...)")
-
-                    try:
-                        # Import here to avoid circular imports at module load.
-                        from services.orchestrator import process_incoming_message
-
-                        # Process through the orchestrator (captures outgoing messages).
-                        result = await process_incoming_message(
-                            wa_id, text, capture_only=True, tenant_id=tenant_id
-                        )
-
-                        # Send the captured replies via send2.digital.
-                        outgoing = result.get("messages", [])
-                        if outgoing:
-                            await _send_reply(wa_id, outgoing, tenant_id=tenant_id)
-                            logger.info(f"Processed and replied to {wa_id} ({len(outgoing)} messages)")
-                        else:
-                            logger.info(f"Processed {wa_id} but no outgoing messages")
-
-                        # Claim already reserved the id; keep the durable mark and
-                        # chat/poll audit only after a successful process+send path.
-                        _record_processed(message_id, wa_id)
-                        _record_chat(wa_id, sender_name, text, outgoing)
-                        _record_poll(wa_id, text, message_id=message_id, tenant_id=tenant_id)
-
-                    except Exception as e:
-                        # Claim runs before send to stop double-answers; release so
-                        # the next poll can retry instead of permanently dropping.
-                        _release_inbound(message_id)
-                        logger.error(f"Failed to process message from {wa_id}: {e}", exc_info=True)
-
-                if skipped_known:
-                    logger.debug(
-                        "Poll skipped %d already-seen inbound row(s) in the %d-minute window",
-                        skipped_known, POLL_WINDOW_MINUTES,
+                    logger.warning(
+                        "Incoming report non-200 | status=%s", response.status_code,
                     )
+                else:
+                    try:
+                        messages = response.json()
+                    except json.JSONDecodeError:
+                        if "No Data Found" not in (response.text or ""):
+                            logger.warning(
+                                "Incoming report non-JSON | body=%s",
+                                (response.text or "")[:200],
+                            )
+                        messages = None
 
-                # Periodic cleanup of the processed-IDs set.
-                _cleanup_processed_ids()
+                    if isinstance(messages, list):
+                        skipped_known += await _handle_polled_batch(messages)
+                    elif messages is not None:
+                        logger.warning(
+                            "Incoming report unexpected format | type=%s",
+                            type(messages),
+                        )
 
-            if consecutive_failures:
-                logger.info(
-                    "Incoming listener recovered after %d failed poll(s)",
-                    consecutive_failures,
+            if skipped_known:
+                logger.debug(
+                    "Poll skipped %d already-seen inbound row(s) in the %d-minute window",
+                    skipped_known, POLL_WINDOW_MINUTES,
                 )
-            consecutive_failures = 0
+            _cleanup_processed_ids()
+
+            if cycle_ok:
+                if consecutive_failures:
+                    logger.info(
+                        "Incoming listener recovered after %d failed poll(s)",
+                        consecutive_failures,
+                    )
+                consecutive_failures = 0
             sleep_for = POLL_INTERVAL_SECONDS
 
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:

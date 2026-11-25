@@ -332,7 +332,23 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(incoming_listener, "SEND2_POLLER_ENABLED", True),
             patch.object(incoming_listener, "SEND2_INCOMING_URL", "https://example.test/incoming"),
             patch.object(incoming_listener, "_send2_login", return_value=("username", "password")),
+            patch.object(
+                incoming_listener,
+                "_list_poll_accounts",
+                return_value=[{
+                    "tenant_id": "",
+                    "number": "",
+                    "username": "username",
+                    "password": "password",
+                    "shared": True,
+                }],
+            ),
             patch.object(incoming_listener, "SEND2_NUMBER", "15550001111"),
+            patch.object(
+                incoming_listener,
+                "_resolve_poll_tenant",
+                return_value=("tenant-a", "15550001111"),
+            ),
             patch("shared.tenancy.store.find_tenant_by_phone_id", return_value="tenant-a"),
             patch("shared.tenancy.store.get_tenant", return_value={
                 "id": "tenant-a", "slug": "tenant-a", "status": "active",

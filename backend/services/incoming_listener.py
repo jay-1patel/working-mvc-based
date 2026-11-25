@@ -475,7 +475,7 @@ def _resolve_poll_tenant(msg: dict) -> tuple[Optional[str], str]:
     from shared.tenancy.resolver import resolve_tenant_for_phone
 
     business_number = business_number_from_poll_message(msg)
-    # No SEND2_NUMBER / hardcoded fallback — receiver must be present and match DB.
+    # Receiver must be present on the poll row and match tenants.waba_phone_id.
     if not business_number:
         return None, ""
     tenant_id = resolve_tenant_for_phone(business_number, allow_test_override=False)

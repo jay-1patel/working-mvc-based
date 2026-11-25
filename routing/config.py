@@ -34,7 +34,7 @@ def _int_env(name: str, default: int) -> int:
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
 SEND2_USERNAME = os.getenv("SEND2_USERNAME")
 SEND2_PASSWORD = os.getenv("SEND2_PASSWORD")
-SEND2_NUMBER = os.getenv("SEND2_NUMBER")
+# Business numbers: tenants.waba_phone_id in DB only (no SEND2_NUMBER env).
 # Per-tenant Send2 credentials live in the encrypted vault. The global
 # SEND2_USERNAME / SEND2_PASSWORD pair is only used when this switch is on
 # AND the tenant has no vault record.

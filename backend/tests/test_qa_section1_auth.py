@@ -113,9 +113,11 @@ class Section1AuthLive(unittest.TestCase):
         config = body.get("send2_config") or {}
         self.assertEqual(
             set(config),
-            {"username_set", "password_set", "number_set"},
+            {"username_set", "password_set", "waba_numbers_bound"},
         )
-        self.assertTrue(all(isinstance(value, bool) for value in config.values()))
+        self.assertIsInstance(config.get("username_set"), bool)
+        self.assertIsInstance(config.get("password_set"), bool)
+        self.assertIsInstance(config.get("waba_numbers_bound"), int)
 
 
 if __name__ == "__main__":

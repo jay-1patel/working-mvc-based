@@ -343,7 +343,6 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
                     "shared": True,
                 }],
             ),
-            patch.object(incoming_listener, "SEND2_NUMBER", "15550001111"),
             patch.object(
                 incoming_listener,
                 "_resolve_poll_tenant",

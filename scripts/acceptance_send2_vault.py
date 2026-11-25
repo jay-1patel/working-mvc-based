@@ -77,7 +77,7 @@ def main():
     check("AT4a vault resolve for throwaway tenant", u == test_user and p == test_pass)
 
     # 4b. Real Send2 session-msg-send probe using vault-resolved env pair when present
-    from routing.config import SEND2_SESSION_SEND_URL, SEND2_USERNAME, SEND2_PASSWORD, SEND2_NUMBER
+    from routing.config import SEND2_SESSION_SEND_URL, SEND2_USERNAME, SEND2_PASSWORD
     real_ok = False
     real_detail = "skipped — no SEND2_USERNAME/PASSWORD or SEND2_SESSION_SEND_URL in env"
     if SEND2_USERNAME and SEND2_PASSWORD and SEND2_SESSION_SEND_URL:
@@ -88,10 +88,11 @@ def main():
         )
         vu, vp = vault.resolve_send2_username_password(live_tenant)
         import httpx
+        # Probe contact is a placeholder; Send2 may reject it — we only check auth.
         payload = {
             "user_name": vu,
             "password": vp,
-            "contact_no": (SEND2_NUMBER or "0000000000"),
+            "contact_no": "0000000000",
             "message_type": "text",
             "message": "vault-accept-probe",
         }

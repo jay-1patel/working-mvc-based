@@ -26,7 +26,6 @@ load_dotenv(REPO / "routing" / ".env")
 from routing.config import (  # noqa: E402
     SEND2_USERNAME,
     SEND2_PASSWORD,
-    SEND2_NUMBER,
     SEND2_SESSION_MSG_URL,
     SEND2_INCOMING_URL,
     SEND2_INCOMING_ENTRY_URL,
@@ -104,7 +103,7 @@ def main() -> int:
 
     print("=== Send2 config ===")
     print(f"username     = {SEND2_USERNAME!r}")
-    print(f"business no  = {SEND2_NUMBER!r}")
+    print("business no  = (from tenants.waba_phone_id in DB)")
     print(f"probe to     = {to}")
     print(f"poller URL   = {SEND2_INCOMING_URL}")
     print(f"send URL     = {SEND2_SESSION_MSG_URL}")

@@ -2,7 +2,7 @@
 
     python scripts/tenant.py list
     python scripts/tenant.py add troogood --vertical ecommerce --display-name TrooGood
-    python scripts/tenant.py bind troogood --phone-id 15559227148
+    python scripts/tenant.py bind troogood --phone-id <waba_phone_digits>
     python scripts/tenant.py show troogood
     python scripts/tenant.py layers troogood
     python scripts/tenant.py publish troogood --draft clients/troogood/draft.json --by admin
@@ -28,7 +28,6 @@ from shared.tenancy import cache, loader, store  # noqa: E402
 from shared.tenancy.paths import ensure_client_dir  # noqa: E402
 
 BANNER = "troogood"
-SEND2_NUMBER = os.getenv("SEND2_NUMBER", "")
 
 
 def _default_tenant_id() -> str:
@@ -63,8 +62,7 @@ def cmd_add(args):
     print(f"registered '{args.tenant_id}' vertical={profile.vertical} "
           f"features_on={sum(1 for v in profile.features.model_dump().values() if v)}")
     if args.bind_number and not args.phone_id:
-        ok = store.set_waba_phone_id(args.tenant_id, SEND2_NUMBER)
-        print(f"bound SEND2_NUMBER={SEND2_NUMBER}: {ok}")
+        raise SystemExit("--bind-number requires --phone-id <digits> (numbers are not read from env)")
 
 
 def cmd_bind(args):
@@ -205,7 +203,7 @@ def main():
     p.add_argument("--display-name", default="")
     p.add_argument("--phone-id", default="")
     p.add_argument("--bind-number", action="store_true",
-                   help="bind this tenant to SEND2_NUMBER from the environment")
+                   help="require --phone-id and bind that WABA number on create")
     p.set_defaults(func=cmd_add)
 
     p = sub.add_parser("bind")

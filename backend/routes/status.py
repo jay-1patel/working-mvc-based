@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from routing.config import WHATSAPP_VERIFY_TOKEN, SEND2_USERNAME, SEND2_PASSWORD, SEND2_NUMBER
+from routing.config import WHATSAPP_VERIFY_TOKEN, SEND2_USERNAME, SEND2_PASSWORD
 from database import clear_webhook_logs, get_webhook_stats, list_webhook_logs
 import logging
 
@@ -7,6 +7,18 @@ from routes.auth import require_super_admin
 
 logger = logging.getLogger("chiki_webhook")
 router = APIRouter(prefix="/webhook")
+
+
+def _bound_waba_count() -> int:
+    try:
+        try:
+            from services.send2_accounts import list_bound_business_numbers
+        except ImportError:
+            from backend.services.send2_accounts import list_bound_business_numbers
+        return len(list_bound_business_numbers() or [])
+    except Exception:
+        logger.debug("STATUS_WABA_COUNT_SKIP", exc_info=True)
+        return 0
 
 
 @router.get("/logs")
@@ -27,6 +39,7 @@ def clear_webhook_logs_endpoint(current_admin: dict = Depends(require_super_admi
 @router.get("/status")
 def webhook_status():
     """Public status endpoint — never leaks secrets (see BUG-06 / M6)."""
+    bound = _bound_waba_count()
     return {
         "webhook_url": "/webhook",
         "verify_token_set": bool(WHATSAPP_VERIFY_TOKEN),
@@ -34,13 +47,13 @@ def webhook_status():
         "send2_config": {
             "username_set": bool(SEND2_USERNAME),
             "password_set": bool(SEND2_PASSWORD),
-            "number_set": bool(SEND2_NUMBER),
+            "waba_numbers_bound": bound,
         },
         "routing": "FAQ Assistant + Knowledge Base Assistant (single webhook)",
         "setup": {
             "step_1": "Login to https://cpaas.send2.digital/whatsapp/dev_desk",
             "step_2": "Set Webhook URL to: https://<your-domain>/webhook",
-            "step_3": "Fill SEND2_USERNAME, SEND2_PASSWORD, SEND2_NUMBER in .env",
+            "step_3": "Fill SEND2_USERNAME / SEND2_PASSWORD in .env; bind numbers on tenants.waba_phone_id",
             "step_4": "Start server: python main.py",
             "step_5": "Test via POST /test-message",
         },
@@ -55,7 +68,7 @@ def health_check(current_admin: dict = Depends(require_super_admin)):
     URL is itself a credential use, and an unauthenticated caller must not
     be able to trigger it.
     """
-    configured = bool(SEND2_USERNAME and SEND2_PASSWORD and SEND2_NUMBER)
+    configured = bool(SEND2_USERNAME and SEND2_PASSWORD)
     return {
         "all_healthy": configured,
         "services": {

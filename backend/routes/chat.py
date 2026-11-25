@@ -11,7 +11,6 @@ from typing import Optional
 from database import list_chat_thread, save_chat, touch_handover_activity
 from routes.auth import get_current_admin, scoped_tenant_id
 from routing.config import (
-    SEND2_NUMBER,
     SEND2_SESSION_SEND_URL,
     SEND_MEDIA,
 )

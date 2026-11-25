@@ -20,7 +20,6 @@ import httpx
 from kb.database import is_session_open, update_session_outbound
 from routing.config import (
     SEND2_SESSION_MSG_URL,
-    SEND2_NUMBER,
     SEND2_INCOMING_URL,
     SEND2_SESSION_SEND_URL,
     SEND2_LIST_MENU_URL,

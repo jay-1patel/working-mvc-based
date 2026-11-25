@@ -294,7 +294,7 @@ export function LiveInboxPanel({ tenantId }: { tenantId: string }) {
               {action.error && (
                 <Alert tone="danger" title="WhatsApp send failed">
                   {/502|could not be sent|send2|credentials/i.test(action.error)
-                    ? `${action.error} — Check SEND2_USERNAME / SEND2_PASSWORD / SEND2_NUMBER in routing/.env and restart the backend.`
+                    ? `${action.error} — Check SEND2_USERNAME / SEND2_PASSWORD in routing/.env and tenants.waba_phone_id, then restart the backend.`
                     : action.error}
                 </Alert>
               )}

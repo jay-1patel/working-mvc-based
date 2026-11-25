@@ -26,7 +26,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from database import init_db, get_db_context
 from services.template_manager import register_all_templates
 from routing.config import (
-    SEND2_USERNAME, SEND2_PASSWORD, SEND2_NUMBER,
+    SEND2_USERNAME, SEND2_PASSWORD,
     BUSINESS_NAME, BOT_NAME, logger
 )
 

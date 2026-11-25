@@ -1,7 +1,11 @@
-"""Hierarchical WhatsApp menus for the spiritual tenant.
+"""Hierarchical WhatsApp menus for the spiritual tenant (PDF-aligned).
 
-Main → category list → temple/yatra list → detail topics
-(prasad, arti, reach, stay, benefit, history, parking).
+Main (events + support):
+  Gangasagar · Kumbh Mela · Rath Yatra · Spiritual Guide ·
+  Emergency · Lost & Found · Seva
+
+Event tap → module list (calendar, snan, travel, stay, food, temples,
+puja, programmes, medical) → topic answer.
 """
 from __future__ import annotations
 
@@ -11,215 +15,292 @@ from typing import Any, Optional
 
 logger = logging.getLogger("services.spiritual_menu_flow")
 
-# ── Detail topics shown after a temple / yatra is chosen ─────────────────────
-
-DETAIL_TOPICS: list[dict[str, str]] = [
-    {
-        "key": "prasad",
-        "title": "Prasad",
-        "description": "Prasad offerings & timings",
-        "answer": (
-            "🛕 *Prasad — {name}*\n\n"
-            "Blessed prasad is distributed after morning and evening arti.\n"
-            "Timings and special bhog days vary by festival — ask if you need today's schedule."
-        ),
-    },
-    {
-        "key": "arti",
-        "title": "Arti",
-        "description": "Daily arti schedule",
-        "answer": (
-            "🪔 *Arti Time — {name}*\n\n"
-            "Morning and evening arti are offered daily.\n"
-            "Exact slots change on festival days — ask for today's morning or evening time."
-        ),
-    },
-    {
-        "key": "reach",
-        "title": "Reach",
-        "description": "How to reach",
-        "answer": (
-            "🗺️ *How to Reach — {name}*\n\n"
-            "Nearest rail / road links serve this sacred place.\n"
-            "Open Maps for turn-by-turn directions, or ask for the closest station/airport."
-        ),
-    },
-    {
-        "key": "stay",
-        "title": "Stay",
-        "description": "Where to stay",
-        "answer": (
-            "🛏️ *Where to Stay — {name}*\n\n"
-            "Dharamshalas, guest houses, and hotels are available nearby.\n"
-            "Book early in peak yatra season. Ask if you need budget or family stay options."
-        ),
-    },
-    {
-        "key": "advantage",
-        "title": "Benefit",
-        "description": "Spiritual benefits",
-        "answer": (
-            "✨ *Advantage — {name}*\n\n"
-            "A visit brings darshan, peace, and an opportunity for seva and charity.\n"
-            "Many devotees also offer prayers for family wellbeing here."
-        ),
-    },
-    {
-        "key": "history",
-        "title": "History",
-        "description": "Sacred history",
-        "answer": (
-            "📜 *History — {name}*\n\n"
-            "This is among India's revered pilgrimage destinations, with centuries of devotion.\n"
-            "Ask if you want the legend, architecture notes, or festival heritage."
-        ),
-    },
-    {
-        "key": "vehicle",
-        "title": "Parking",
-        "description": "Vehicle & parking",
-        "answer": (
-            "🚗 *Vehicle Type — {name}*\n\n"
-            "Car, two-wheeler, and bus parking are usually available near the approach road.\n"
-            "Large vehicles may need designated lots — ask for peak-hour parking tips."
-        ),
-    },
-]
-
-# ── Destinations (temples / yatras) ──────────────────────────────────────────
-
-NORTH_TEMPLES = [
-    {"slug": "somnath", "title": "Somnath", "place": "Gujarat"},
-    {"slug": "dwarka", "title": "Dwarka", "place": "Gujarat"},
-    {"slug": "ambaji", "title": "Ambaji", "place": "Gujarat"},
-    {"slug": "kashi", "title": "Kashi", "place": "Varanasi, UP"},
-    {"slug": "kedarnath", "title": "Kedarnath", "place": "Uttarakhand"},
-    {"slug": "badrinath", "title": "Badrinath", "place": "Uttarakhand"},
-    {"slug": "vaishnodevi", "title": "Vaishno Devi", "place": "Jammu"},
-]
-
-SOUTH_TEMPLES = [
-    {"slug": "tirupati", "title": "Tirupati", "place": "Andhra Pradesh"},
-    {"slug": "meenakshi", "title": "Meenakshi", "place": "Madurai, TN"},
-    {"slug": "rameswaram", "title": "Rameswaram", "place": "Tamil Nadu"},
-    {"slug": "brihadeeswar", "title": "Brihadeeswar", "place": "Thanjavur, TN"},
-    {"slug": "padmanabha", "title": "Padmanabha", "place": "Kerala"},
-    {"slug": "sabarimala", "title": "Sabarimala", "place": "Kerala"},
-    {"slug": "shirdi", "title": "Shirdi", "place": "Maharashtra"},
-]
-
-NORTH_PILGRIMAGE = [
-    {"slug": "chardham_uk", "title": "Char Dham UK", "place": "Uttarakhand"},
-    {"slug": "kashi_yatra", "title": "Kashi Yatra", "place": "Varanasi"},
-    {"slug": "vaishno_yatra", "title": "Vaishno Yatra", "place": "Jammu"},
-    {"slug": "somnath_dwarka", "title": "Somnath-Dwarka", "place": "Gujarat"},
-    {"slug": "ambaji_yatra", "title": "Ambaji Yatra", "place": "Gujarat"},
-    {"slug": "amarnath", "title": "Amarnath", "place": "Kashmir"},
-    {"slug": "mathura_vrindavan", "title": "Mathura-Vrindavan", "place": "UP"},
-]
-
-SOUTH_PILGRIMAGE = [
-    {"slug": "tirupati_yatra", "title": "Tirupati Yatra", "place": "Andhra"},
-    {"slug": "rameswaram_yatra", "title": "Rameswaram", "place": "Tamil Nadu"},
-    {"slug": "madurai_yatra", "title": "Madurai Yatra", "place": "Tamil Nadu"},
-    {"slug": "sabarimala_yatra", "title": "Sabarimala", "place": "Kerala"},
-    {"slug": "padmanabha_yatra", "title": "Padmanabha", "place": "Kerala"},
-    {"slug": "shirdi_yatra", "title": "Shirdi Yatra", "place": "Maharashtra"},
-    {"slug": "pandharpur", "title": "Pandharpur", "place": "Maharashtra"},
-]
-
-FOUR_DHAM = [
-    {"slug": "badrinath_dham", "title": "Badrinath", "place": "Uttarakhand"},
-    {"slug": "dwarka_dham", "title": "Dwarka", "place": "Gujarat"},
-    {"slug": "puri_dham", "title": "Jagannath Puri", "place": "Odisha"},
-    {"slug": "rameswaram_dham", "title": "Rameswaram", "place": "Tamil Nadu"},
-]
-
-GUJARAT_TEMPLES = [
-    {"slug": "somnath_gj", "title": "Somnath", "place": "Veraval"},
-    {"slug": "dwarka_gj", "title": "Dwarka", "place": "Devbhoomi Dwarka"},
-    {"slug": "ambaji_gj", "title": "Ambaji", "place": "Banaskantha"},
-    {"slug": "pavagadh", "title": "Pavagadh", "place": "Panchmahal"},
-    {"slug": "akshardham_gj", "title": "Akshardham", "place": "Gandhinagar"},
-    {"slug": "modhera", "title": "Modhera Sun", "place": "Mehsana"},
-    {"slug": "bahucharaji", "title": "Bahucharaji", "place": "Mehsana"},
-]
-
-CATEGORIES: dict[str, dict[str, Any]] = {
-    "menu_north_temples": {
-        "title": "North Temples",
-        "header": "North Temples",
-        "body": "Choose a North India temple:",
-        "items": NORTH_TEMPLES,
-    },
-    "menu_south_temples": {
-        "title": "South Temples",
-        "header": "South Temples",
-        "body": "Choose a South India temple:",
-        "items": SOUTH_TEMPLES,
-    },
-    "menu_north_yatra": {
-        "title": "North Yatra",
-        "header": "North Pilgrimage",
-        "body": "Choose a North India pilgrimage:",
-        "items": NORTH_PILGRIMAGE,
-    },
-    "menu_south_yatra": {
-        "title": "South Yatra",
-        "header": "South Pilgrimage",
-        "body": "Choose a South India pilgrimage:",
-        "items": SOUTH_PILGRIMAGE,
-    },
-    "menu_4_dham": {
-        "title": "4 Dham",
-        "header": "Char Dham",
-        "body": "Choose one of the four dhams:",
-        "items": FOUR_DHAM,
-    },
-    "menu_gujarat": {
-        "title": "Gujarat",
-        "header": "Famous Gujarat Temples",
-        "body": "Choose a famous Gujarat temple:",
-        "items": GUJARAT_TEMPLES,
-    },
-}
-
 
 def _norm(text: str) -> str:
     cleaned = re.sub(r"[\W_]+", " ", str(text or "")).strip().lower()
     return re.sub(r"\s+", " ", cleaned)
 
 
-# Flatten slug → destination meta
-_DEST_BY_SLUG: dict[str, dict[str, str]] = {}
-for _cat in CATEGORIES.values():
-    for _item in _cat["items"]:
-        _DEST_BY_SLUG[str(_item["slug"])] = {
-            "slug": str(_item["slug"]),
-            "title": str(_item["title"]),
-            "place": str(_item.get("place") or ""),
-        }
+# ── Event-specific modules (PDF Modules 2–9) ─────────────────────────────────
 
-_TOPIC_BY_KEY = {t["key"]: t for t in DETAIL_TOPICS}
+EVENT_MODULES: list[dict[str, str]] = [
+    {
+        "key": "calendar",
+        "title": "Calendar",
+        "description": "Dates, muhurat & schedules",
+        "answer": (
+            "📅 *Event Calendar — {event}*\n\n"
+            "Key dates, auspicious muhurat, snan/darshan windows and daily "
+            "programme timings will appear here once the organisers publish "
+            "the approved calendar.\n\n"
+            "Ask for a specific date or ceremony if you need help."
+        ),
+    },
+    {
+        "key": "snan",
+        "title": "Snan Darshan",
+        "description": "Holy bath & darshan info",
+        "answer": (
+            "🌊 *Snan & Darshan — {event}*\n\n"
+            "Guidance for holy bath (snan), darshan queues, rituals and "
+            "peak timings will be shared from verified event sources.\n\n"
+            "Ask about today's snan window or special bathing dates."
+        ),
+    },
+    {
+        "key": "travel",
+        "title": "Travel",
+        "description": "Train, road, ferry & routes",
+        "answer": (
+            "🗺️ *Travel Assistance — {event}*\n\n"
+            "Rail, road, airport and local transport options for this event "
+            "will be listed here (including ferry/water routes where applicable).\n\n"
+            "Tell us your starting city (e.g. Ahmedabad) for a step-by-step plan."
+        ),
+    },
+    {
+        "key": "stay",
+        "title": "Stay",
+        "description": "Dharamshala, hotel, shelter",
+        "answer": (
+            "🛏️ *Accommodation — {event}*\n\n"
+            "Official dharamshalas, ashrams, guest houses, tents and "
+            "senior-friendly stays will be listed from approved directories.\n\n"
+            "Ask for budget, family or government lodging options."
+        ),
+    },
+    {
+        "key": "food",
+        "title": "Food Prasad",
+        "description": "Annadan, prasad & facilities",
+        "answer": (
+            "🍲 *Food, Prasad & Facilities — {event}*\n\n"
+            "Annadan / bhandara points, prasad centres, drinking water, "
+            "toilets, cloakrooms and parking guidance will appear here.\n\n"
+            "Ask for the nearest facility type you need."
+        ),
+    },
+    {
+        "key": "temples",
+        "title": "Temples",
+        "description": "Temples & sacred places",
+        "answer": (
+            "🛕 *Temples & Places — {event}*\n\n"
+            "Directory of temples, ashrams and nearby sacred spots for this "
+            "event — with significance, timings and navigation tips.\n\n"
+            "Ask for a specific temple or place name."
+        ),
+    },
+    {
+        "key": "puja",
+        "title": "Puja Rituals",
+        "description": "Puja, tarpan, daan & more",
+        "answer": (
+            "🙏 *Puja & Rituals — {event}*\n\n"
+            "Educational guidance on puja, snan, tarpan, pind daan, "
+            "surya arghya, deepdaan, sankalp and prasad.\n\n"
+            "For specialised rites, we will point you to authorised priests."
+        ),
+    },
+    {
+        "key": "programmes",
+        "title": "Programmes",
+        "description": "Aarti, bhajan, pravachan",
+        "answer": (
+            "🎶 *Spiritual Programmes — {event}*\n\n"
+            "Daily aarti, bhajan, kirtan, satsang, discourses and cultural "
+            "programmes will be listed from the official schedule.\n\n"
+            "Ask for today's aarti or evening programmes."
+        ),
+    },
+    {
+        "key": "medical",
+        "title": "Medical",
+        "description": "Camps, hospitals & safety",
+        "answer": (
+            "🏥 *Medical & Safety — {event}*\n\n"
+            "Medical camps, hospital locators, ambulance contacts and "
+            "crowd/weather safety notes for this event.\n\n"
+            "In an emergency, call local emergency services first — then ask us for the nearest helpdesk."
+        ),
+    },
+]
 
-_CATEGORY_IDS = frozenset(CATEGORIES.keys())
-_CATEGORY_TITLE_KEYS = {
-    _norm(meta["title"]): cid for cid, meta in CATEGORIES.items()
+EVENTS: dict[str, dict[str, Any]] = {
+    "menu_gangasagar": {
+        "slug": "gangasagar",
+        "title": "Gangasagar",
+        "header": "Gangasagar Mela",
+        "body": (
+            "Gangasagar Mela — choose what you need:\n"
+            "calendar, snan, travel, stay, food, temples, rituals and more."
+        ),
+        "place": "Sagar Island, West Bengal",
+    },
+    "menu_kumbh": {
+        "slug": "kumbh",
+        "title": "Kumbh Mela",
+        "header": "Kumbh Mela",
+        "body": (
+            "Kumbh Mela — choose what you need:\n"
+            "calendar, snan, travel, stay, food, temples, rituals and more."
+        ),
+        "place": "Prayagraj / Haridwar / Nashik / Ujjain",
+    },
+    "menu_rath_yatra": {
+        "slug": "rath_yatra",
+        "title": "Rath Yatra",
+        "header": "Jagannath Rath Yatra",
+        "body": (
+            "Jagannath Rath Yatra — choose what you need:\n"
+            "calendar, darshan, travel, stay, food, temples, rituals and more."
+        ),
+        "place": "Puri, Odisha",
+    },
 }
-# Extra title aliases for Send2 plain-title taps
-_CATEGORY_TITLE_KEYS.update({
-    _norm("North Temples"): "menu_north_temples",
-    _norm("South Temples"): "menu_south_temples",
-    _norm("North Pilgrimage"): "menu_north_yatra",
-    _norm("South Pilgrimage"): "menu_south_yatra",
-    _norm("North Yatra"): "menu_north_yatra",
-    _norm("South Yatra"): "menu_south_yatra",
-    _norm("4 Dham"): "menu_4_dham",
-    _norm("Char Dham"): "menu_4_dham",
-    _norm("Famous Temple of Gujarat"): "menu_gujarat",
-    _norm("Gujarat Temples"): "menu_gujarat",
-    _norm("Gujarat"): "menu_gujarat",
+
+# ── Spiritual Guide topics (PDF Module 1) ────────────────────────────────────
+
+GUIDE_TOPICS: list[dict[str, str]] = [
+    {
+        "key": "history",
+        "title": "History",
+        "description": "History & mythology",
+        "answer": (
+            "📜 *Religious History*\n\n"
+            "Ask about the significance of Gangasagar, Kumbh, Rath Yatra, "
+            "Kapil Muni, Makar Sankranti, Moksha and related traditions.\n\n"
+            "Answers use approved scriptural and historical sources."
+        ),
+    },
+    {
+        "key": "scriptures",
+        "title": "Scriptures",
+        "description": "Hindu scriptures & teachings",
+        "answer": (
+            "📖 *Scriptures & Philosophy*\n\n"
+            "Ask about teachings from Hindu scriptures, moksha, dharma and "
+            "philosophical concepts — with clear distinction between history, "
+            "scripture and traditional belief."
+        ),
+    },
+    {
+        "key": "rituals",
+        "title": "Rituals",
+        "description": "Traditions & customs",
+        "answer": (
+            "🪔 *Rituals & Customs*\n\n"
+            "Learn about traditional rituals, customs and why they are performed. "
+            "For specialised ceremonies, seek a qualified priest."
+        ),
+    },
+    {
+        "key": "saints",
+        "title": "Saints",
+        "description": "Saints & spiritual leaders",
+        "answer": (
+            "🧘 *Saints & Leaders*\n\n"
+            "Ask about saints, sadhus, Kapil Muni and other spiritual figures "
+            "connected to pilgrimage traditions."
+        ),
+    },
+    {
+        "key": "mantras",
+        "title": "Mantras",
+        "description": "Mantras & shlokas",
+        "answer": (
+            "🕉️ *Mantras & Shlokas*\n\n"
+            "Ask for meanings of common mantras and shlokas used in pilgrimage "
+            "and daily prayer. We share educational meanings, not claims of magical results."
+        ),
+    },
+    {
+        "key": "meditation",
+        "title": "Meditation",
+        "description": "Prayer & meditation",
+        "answer": (
+            "🕊️ *Meditation & Prayer*\n\n"
+            "Ask for a short guided prayer thought or simple meditation practice "
+            "suitable for pilgrims and devotees."
+        ),
+    },
+]
+
+# ── Direct support answers (PDF Modules 9, 10, 12) ───────────────────────────
+
+DIRECT_ANSWERS: dict[str, dict[str, str]] = {
+    "menu_emergency": {
+        "title": "Emergency",
+        "answer": (
+            "🚨 *Emergency & Safety*\n\n"
+            "If you are in danger, call local emergency services immediately.\n\n"
+            "I can help with:\n"
+            "• Emergency contact directory\n"
+            "• Nearest medical camp / hospital\n"
+            "• Police / helpdesk pointers\n"
+            "• Weather & crowd safety notes\n\n"
+            "Tell me your event (Gangasagar / Kumbh / Rath Yatra) and what you need."
+        ),
+    },
+    "menu_lost_found": {
+        "title": "Lost Found",
+        "answer": (
+            "🧭 *Lost & Found / Family Assistance*\n\n"
+            "I can help you start a missing-person or lost-item report:\n"
+            "• Description and last-known location\n"
+            "• Photo (with consent)\n"
+            "• Emergency contact\n"
+            "• Case ID for tracking\n\n"
+            "Reply with *missing person* or *lost item*, and your event name. "
+            "Sensitive cases go to authorised helpdesk staff."
+        ),
+    },
+    "menu_seva": {
+        "title": "Seva",
+        "answer": (
+            "🤝 *Donation, Seva & Volunteering*\n\n"
+            "Connect with authorised seva activities:\n"
+            "• Annadan / Bhandara\n"
+            "• Medical seva\n"
+            "• Cleanliness drives\n"
+            "• Volunteer registration\n\n"
+            "Tell me which seva you want, and for which event."
+        ),
+    },
+}
+
+_MODULE_BY_KEY = {m["key"]: m for m in EVENT_MODULES}
+_GUIDE_BY_KEY = {g["key"]: g for g in GUIDE_TOPICS}
+_EVENT_IDS = frozenset(EVENTS.keys())
+_DIRECT_IDS = frozenset(DIRECT_ANSWERS.keys())
+_MAIN_IDS = _EVENT_IDS | _DIRECT_IDS | {"menu_spiritual_guide"}
+
+_EVENT_TITLE_KEYS: dict[str, str] = {}
+for _cid, _meta in EVENTS.items():
+    _EVENT_TITLE_KEYS[_norm(_meta["title"])] = _cid
+_EVENT_TITLE_KEYS.update({
+    _norm("Gangasagar Mela"): "menu_gangasagar",
+    _norm("Gangasagar"): "menu_gangasagar",
+    _norm("Kumbh"): "menu_kumbh",
+    _norm("Kumbh Mela"): "menu_kumbh",
+    _norm("Rath Yatra"): "menu_rath_yatra",
+    _norm("Jagannath Rath Yatra"): "menu_rath_yatra",
+    _norm("Jagannath"): "menu_rath_yatra",
 })
+
+_DIRECT_TITLE_KEYS = {
+    _norm("Emergency"): "menu_emergency",
+    _norm("Lost Found"): "menu_lost_found",
+    _norm("Lost & Found"): "menu_lost_found",
+    _norm("Seva"): "menu_seva",
+    _norm("Donation"): "menu_seva",
+    _norm("Seva Donation"): "menu_seva",
+}
+
+_GUIDE_TITLE_KEYS = {
+    _norm("Spiritual Guide"): "menu_spiritual_guide",
+    _norm("Spiritual Knowledge"): "menu_spiritual_guide",
+}
 
 
 def is_spiritual_tenant(tenant_id: str | None) -> bool:
@@ -234,7 +315,7 @@ def is_spiritual_tenant(tenant_id: str | None) -> bool:
             str(getattr(b, "id", "") or "")
             for b in (getattr(getattr(profile, "menu", None), "buttons", None) or [])
         }
-        return bool(ids & _CATEGORY_IDS)
+        return bool(ids & _MAIN_IDS)
     except Exception:
         return False
 
@@ -261,22 +342,16 @@ def _list_sections(rows: list[dict[str, str]], section_title: str = "Options") -
     }]
 
 
-async def _send_destination_list(
-    wa_id: str,
-    category_id: str,
-    *,
-    tenant_id: str | None,
-) -> bool:
-    meta = CATEGORIES[category_id]
+async def _send_event_modules(wa_id: str, category_id: str, *, tenant_id: str | None) -> bool:
+    meta = EVENTS[category_id]
+    slug = meta["slug"]
     rows = []
-    for item in meta["items"][:10]:
-        place = item.get("place") or ""
+    for mod in EVENT_MODULES:
         rows.append({
-            "id": f"tpl_{item['slug']}",
-            "title": str(item["title"])[:24],
-            "description": place[:72],
+            "id": f"em_{slug}_{mod['key']}",
+            "title": mod["title"][:24],
+            "description": mod["description"][:72],
         })
-    # Back to main
     rows.append({
         "id": "main_menu",
         "title": "Main Menu",
@@ -287,106 +362,131 @@ async def _send_destination_list(
         wa_id,
         str(meta["header"])[:60],
         str(meta["body"])[:1024],
-        "View List",
-        _list_sections(rows, "Choose"),
+        "View Options",
+        _list_sections(rows, "Services"),
         tenant_id=tenant_id,
     )
 
 
-async def _send_detail_menu(
-    wa_id: str,
-    slug: str,
-    *,
-    tenant_id: str | None,
-) -> bool:
-    dest = _DEST_BY_SLUG.get(slug) or {"slug": slug, "title": slug.replace("_", " ").title(), "place": ""}
-    name = dest["title"]
-    place = dest.get("place") or ""
+async def _send_guide_menu(wa_id: str, *, tenant_id: str | None) -> bool:
     rows = []
-    for topic in DETAIL_TOPICS:
+    for topic in GUIDE_TOPICS:
         rows.append({
-            "id": f"td_{slug}_{topic['key']}",
+            "id": f"sg_{topic['key']}",
             "title": topic["title"][:24],
             "description": topic["description"][:72],
         })
     rows.append({
-        "id": "spiritual_back_categories",
-        "title": "All Categories",
-        "description": "Back to main spiritual menu",
+        "id": "main_menu",
+        "title": "Main Menu",
+        "description": "Back to all options",
     })
-    body = f"*{name}*"
-    if place:
-        body += f"\n_{place}_"
-    body += "\n\nWhat would you like to know?"
     sender = _sender()
     return await sender.send_list_menu(
         wa_id,
-        name[:60],
-        body[:1024],
-        "Options",
-        _list_sections(rows, "Details"),
+        "Spiritual Guide",
+        "Ask about history, scriptures, rituals, saints, mantras or meditation:",
+        "Topics",
+        _list_sections(rows, "Guide"),
         tenant_id=tenant_id,
     )
 
 
-def _detail_answer(slug: str, topic_key: str) -> str:
-    dest = _DEST_BY_SLUG.get(slug) or {
-        "title": slug.replace("_", " ").title(),
-        "place": "",
-    }
-    topic = _TOPIC_BY_KEY.get(topic_key) or DETAIL_TOPICS[0]
-    name = dest["title"]
-    place = dest.get("place") or ""
-    label = f"{name}" + (f" ({place})" if place else "")
-    return str(topic["answer"]).format(name=label)
+async def _send_main(wa_id: str, *, tenant_id: str | None) -> None:
+    try:
+        from bots.customer_b2c.workflows import _send_main_menu
+        await _send_main_menu(wa_id, tenant_id=tenant_id)
+        return
+    except Exception:
+        pass
+    from app.services.whatsapp.flows.customer_b2c.menus import get_main_menu
+    payload = get_main_menu(wa_id, tenant_id=tenant_id)
+    sender = _sender()
+    if payload.get("type") == "buttons":
+        await sender.send_button_message(
+            wa_id, payload.get("text", "Options"), payload.get("buttons", []),
+            tenant_id=tenant_id,
+        )
+    else:
+        await sender.send_list_menu(
+            wa_id,
+            payload.get("header", ""),
+            payload.get("body", "Choose an option"),
+            payload.get("button_text", "Show Options"),
+            payload.get("sections", []),
+            tenant_id=tenant_id,
+        )
 
 
-def _match_category(text: str) -> Optional[str]:
+def _event_label(slug: str) -> str:
+    for meta in EVENTS.values():
+        if meta["slug"] == slug:
+            place = meta.get("place") or ""
+            return f"{meta['header']}" + (f" ({place})" if place else "")
+    return slug.replace("_", " ").title()
+
+
+def _parse_event_module(text: str) -> Optional[tuple[str, str]]:
     raw = str(text or "").strip()
-    if raw in _CATEGORY_IDS:
+    m = re.match(r"^em[_:]([a-z0-9_]+)_([a-z0-9]+)$", raw, re.I)
+    if not m:
+        return None
+    slug, key = m.group(1).lower(), m.group(2).lower()
+    known = {meta["slug"] for meta in EVENTS.values()}
+    if slug not in known or key not in _MODULE_BY_KEY:
+        return None
+    return slug, key
+
+
+def _parse_guide(text: str) -> Optional[str]:
+    raw = str(text or "").strip()
+    m = re.match(r"^sg[_:]([a-z0-9]+)$", raw, re.I)
+    if m:
+        key = m.group(1).lower()
+        return key if key in _GUIDE_BY_KEY else None
+    key = _norm(raw)
+    for g in GUIDE_TOPICS:
+        if _norm(g["title"]) == key:
+            return g["key"]
+    return None
+
+
+def _match_main(text: str) -> Optional[str]:
+    raw = str(text or "").strip()
+    if raw in _MAIN_IDS:
         return raw
     key = _norm(raw)
-    if key in _CATEGORY_TITLE_KEYS:
-        return _CATEGORY_TITLE_KEYS[key]
-    # id without menu_ prefix
+    if key in _EVENT_TITLE_KEYS:
+        return _EVENT_TITLE_KEYS[key]
+    if key in _DIRECT_TITLE_KEYS:
+        return _DIRECT_TITLE_KEYS[key]
+    if key in _GUIDE_TITLE_KEYS:
+        return _GUIDE_TITLE_KEYS[key]
     compact = key.replace(" ", "_")
-    for cid in _CATEGORY_IDS:
+    for cid in _MAIN_IDS:
         if compact == cid or compact == cid.replace("menu_", ""):
             return cid
     return None
 
 
-def _parse_tpl(text: str) -> Optional[str]:
-    raw = str(text or "").strip()
-    m = re.match(r"^tpl[_:]([a-z0-9_]+)$", raw, re.I)
-    if m:
-        slug = m.group(1).lower()
-        return slug if slug in _DEST_BY_SLUG else None
-    # title match
-    key = _norm(raw)
-    for slug, dest in _DEST_BY_SLUG.items():
-        if _norm(dest["title"]) == key:
-            return slug
-    return None
-
-
-def _parse_detail(text: str) -> Optional[tuple[str, str]]:
-    raw = str(text or "").strip()
-    m = re.match(r"^td[_:]([a-z0-9_]+)_([a-z0-9]+)$", raw, re.I)
-    if not m:
-        return None
-    slug, topic = m.group(1).lower(), m.group(2).lower()
-    if slug not in _DEST_BY_SLUG:
-        return None
-    if topic not in _TOPIC_BY_KEY:
-        # allow arti_time alias
-        aliases = {"arti_time": "arti", "how_to_reach": "reach", "where_to_stay": "stay",
-                   "advantage": "advantage", "history": "history", "vehicle_type": "vehicle",
-                   "parking": "vehicle", "benefit": "advantage"}
-        topic = aliases.get(topic, topic)
-    if topic not in _TOPIC_BY_KEY:
-        return None
-    return slug, topic
+def _followup_buttons(kind: str, slug: str = "") -> list[dict]:
+    if kind == "event" and slug:
+        return [
+            {"id": f"em_{slug}_travel", "title": "Travel"},
+            {"id": f"em_{slug}_stay", "title": "Stay"},
+            {"id": "main_menu", "title": "Main Menu"},
+        ]
+    if kind == "guide":
+        return [
+            {"id": "menu_gangasagar", "title": "Gangasagar"},
+            {"id": "menu_kumbh", "title": "Kumbh Mela"},
+            {"id": "main_menu", "title": "Main Menu"},
+        ]
+    return [
+        {"id": "menu_gangasagar", "title": "Gangasagar"},
+        {"id": "menu_emergency", "title": "Emergency"},
+        {"id": "main_menu", "title": "Main Menu"},
+    ]
 
 
 async def handle_spiritual_menu_action(
@@ -395,7 +495,7 @@ async def handle_spiritual_menu_action(
     *,
     tenant_id: str | None = None,
 ) -> Optional[dict]:
-    """Handle spiritual category / temple / detail taps. Returns handled dict or None."""
+    """Handle spiritual PDF menu taps. Returns handled dict or None."""
     if not is_spiritual_tenant(tenant_id):
         return None
 
@@ -403,80 +503,47 @@ async def handle_spiritual_menu_action(
     if not text:
         return None
 
-    # Back to main categories
     if text in {"spiritual_back_categories", "spiritual_main"} or _norm(text) in {
         "all categories", "main spiritual menu",
     }:
-        try:
-            from bots.customer_b2c.workflows import _send_main_menu
-            await _send_main_menu(wa_id, tenant_id=tenant_id)
-        except Exception:
-            from app.services.whatsapp.flows.customer_b2c.menus import get_main_menu
-            payload = get_main_menu(wa_id, tenant_id=tenant_id)
-            sender = _sender()
-            if payload.get("type") == "buttons":
-                await sender.send_button_message(
-                    wa_id, payload.get("text", "Options"), payload.get("buttons", []),
-                    tenant_id=tenant_id,
-                )
-            else:
-                await sender.send_list_menu(
-                    wa_id,
-                    payload.get("header", ""),
-                    payload.get("body", "Choose an option"),
-                    payload.get("button_text", "Show Options"),
-                    payload.get("sections", []),
-                    tenant_id=tenant_id,
-                )
+        await _send_main(wa_id, tenant_id=tenant_id)
         return {"handled": True, "action": "spiritual_main"}
 
-    category_id = _match_category(text)
-    if category_id:
-        await _send_destination_list(wa_id, category_id, tenant_id=tenant_id)
-        return {"handled": True, "action": "spiritual_category", "category": category_id}
+    main_id = _match_main(text)
+    if main_id in _EVENT_IDS:
+        await _send_event_modules(wa_id, main_id, tenant_id=tenant_id)
+        return {"handled": True, "action": "spiritual_event", "category": main_id}
 
-    slug = _parse_tpl(text)
-    if slug:
-        await _send_detail_menu(wa_id, slug, tenant_id=tenant_id)
-        return {"handled": True, "action": "spiritual_temple", "slug": slug}
+    if main_id == "menu_spiritual_guide":
+        await _send_guide_menu(wa_id, tenant_id=tenant_id)
+        return {"handled": True, "action": "spiritual_guide"}
 
-    parsed = _parse_detail(text)
+    if main_id in _DIRECT_IDS:
+        payload = DIRECT_ANSWERS[main_id]
+        await _sender().send_button_message(
+            wa_id,
+            payload["answer"],
+            _followup_buttons("direct"),
+            tenant_id=tenant_id,
+        )
+        return {"handled": True, "action": "spiritual_direct", "category": main_id}
+
+    parsed = _parse_event_module(text)
     if parsed:
-        slug, topic = parsed
-        answer = _detail_answer(slug, topic)
-        sender = _sender()
-        # Follow-up: other details + main menu (max 3 reply buttons)
-        buttons = [
-            {"id": f"td_{slug}_prasad", "title": "Prasad"},
-            {"id": f"td_{slug}_arti", "title": "Arti"},
-            {"id": "main_menu", "title": "Main Menu"},
-        ]
-        # Prefer contextual siblings for the topic just opened
-        if topic == "prasad":
-            buttons = [
-                {"id": f"td_{slug}_arti", "title": "Arti"},
-                {"id": f"td_{slug}_reach", "title": "Reach"},
-                {"id": "main_menu", "title": "Main Menu"},
-            ]
-        elif topic in {"arti"}:
-            buttons = [
-                {"id": f"td_{slug}_prasad", "title": "Prasad"},
-                {"id": f"td_{slug}_reach", "title": "Reach"},
-                {"id": "main_menu", "title": "Main Menu"},
-            ]
-        elif topic in {"reach", "stay", "vehicle"}:
-            buttons = [
-                {"id": f"td_{slug}_stay", "title": "Stay"},
-                {"id": f"td_{slug}_vehicle", "title": "Parking"},
-                {"id": "main_menu", "title": "Main Menu"},
-            ]
-        elif topic in {"history", "advantage"}:
-            buttons = [
-                {"id": f"td_{slug}_advantage", "title": "Benefit"},
-                {"id": f"td_{slug}_history", "title": "History"},
-                {"id": "main_menu", "title": "Main Menu"},
-            ]
-        await sender.send_button_message(wa_id, answer, buttons, tenant_id=tenant_id)
-        return {"handled": True, "action": "spiritual_detail", "slug": slug, "topic": topic}
+        slug, key = parsed
+        mod = _MODULE_BY_KEY[key]
+        answer = mod["answer"].format(event=_event_label(slug))
+        await _sender().send_button_message(
+            wa_id, answer, _followup_buttons("event", slug), tenant_id=tenant_id,
+        )
+        return {"handled": True, "action": "spiritual_event_module", "slug": slug, "topic": key}
+
+    guide_key = _parse_guide(text)
+    if guide_key:
+        topic = _GUIDE_BY_KEY[guide_key]
+        await _sender().send_button_message(
+            wa_id, topic["answer"], _followup_buttons("guide"), tenant_id=tenant_id,
+        )
+        return {"handled": True, "action": "spiritual_guide_topic", "topic": guide_key}
 
     return None

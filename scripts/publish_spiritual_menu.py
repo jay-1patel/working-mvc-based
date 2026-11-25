@@ -1,10 +1,11 @@
-"""Publish spiritual WhatsApp hierarchical menu.
+"""Publish spiritual WhatsApp menu aligned to spiritual_mam.pdf.
 
 Main:
-  North Temples, South Temples, North Yatra, South Yatra, 4 Dham, Gujarat
+  Gangasagar, Kumbh Mela, Rath Yatra, Spiritual Guide,
+  Emergency, Lost & Found, Seva
 
-North/South Temples (and other categories) open a destination list; each
-destination opens Prasad / Arti / Reach / Stay / Benefit / History / Parking.
+Event taps open modules: Calendar, Snan/Darshan, Travel, Stay,
+Food/Prasad, Temples, Puja/Rituals, Programmes, Medical.
 """
 from __future__ import annotations
 
@@ -31,8 +32,14 @@ from shared.tenancy.loader import reload_profile  # noqa: E402
 
 TENANT_ID = "spiritual"
 
-# Tombstone old flat spiritual rows + commerce leftovers so they leave the menu.
+# Tombstone previous north/south temple rows + commerce leftovers.
 REMOVE_DEFAULTS = [
+    {"id": "menu_north_temples", "__remove__": True},
+    {"id": "menu_south_temples", "__remove__": True},
+    {"id": "menu_north_yatra", "__remove__": True},
+    {"id": "menu_south_yatra", "__remove__": True},
+    {"id": "menu_4_dham", "__remove__": True},
+    {"id": "menu_gujarat", "__remove__": True},
     {"id": "menu_prasad", "__remove__": True},
     {"id": "menu_arti_time", "__remove__": True},
     {"id": "menu_how_to_reach", "__remove__": True},
@@ -50,67 +57,76 @@ REMOVE_DEFAULTS = [
     {"id": "menu_human", "__remove__": True},
 ]
 
-# Titles stay short (WhatsApp list row title <= 24, reply button <= 20).
 SPIRITUAL_BUTTONS = [
     {
-        "id": "menu_north_temples",
-        "title": "North Temples",
-        "description": "7 sacred temples of North India",
-        "section": "Temples",
+        "id": "menu_gangasagar",
+        "title": "Gangasagar",
+        "description": "Gangasagar Mela guidance & services",
+        "section": "Events",
         "icon": "",
         "sort_order": 0,
         "enabled": True,
-        "intent": "north_temples",
+        "intent": "gangasagar_mela",
     },
     {
-        "id": "menu_south_temples",
-        "title": "South Temples",
-        "description": "7 sacred temples of South India",
-        "section": "Temples",
+        "id": "menu_kumbh",
+        "title": "Kumbh Mela",
+        "description": "Kumbh pilgrimage assistance",
+        "section": "Events",
         "icon": "",
         "sort_order": 1,
         "enabled": True,
-        "intent": "south_temples",
+        "intent": "kumbh_mela",
     },
     {
-        "id": "menu_north_yatra",
-        "title": "North Yatra",
-        "description": "North India pilgrimage journeys",
-        "section": "Pilgrimage",
+        "id": "menu_rath_yatra",
+        "title": "Rath Yatra",
+        "description": "Jagannath Rath Yatra assistance",
+        "section": "Events",
         "icon": "",
         "sort_order": 2,
         "enabled": True,
-        "intent": "north_pilgrimage",
+        "intent": "rath_yatra",
     },
     {
-        "id": "menu_south_yatra",
-        "title": "South Yatra",
-        "description": "South India pilgrimage journeys",
-        "section": "Pilgrimage",
+        "id": "menu_spiritual_guide",
+        "title": "Spiritual Guide",
+        "description": "History, scriptures, rituals, mantras",
+        "section": "Guidance",
         "icon": "",
         "sort_order": 3,
         "enabled": True,
-        "intent": "south_pilgrimage",
+        "intent": "spiritual_guide",
     },
     {
-        "id": "menu_4_dham",
-        "title": "4 Dham",
-        "description": "Badrinath, Dwarka, Puri, Rameswaram",
-        "section": "Pilgrimage",
+        "id": "menu_emergency",
+        "title": "Emergency",
+        "description": "Medical, safety & emergency help",
+        "section": "Support",
         "icon": "",
         "sort_order": 4,
         "enabled": True,
-        "intent": "four_dham",
+        "intent": "emergency_help",
     },
     {
-        "id": "menu_gujarat",
-        "title": "Gujarat",
-        "description": "Famous temples of Gujarat",
-        "section": "Temples",
+        "id": "menu_lost_found",
+        "title": "Lost Found",
+        "description": "Missing person / lost item help",
+        "section": "Support",
         "icon": "",
         "sort_order": 5,
         "enabled": True,
-        "intent": "gujarat_temples",
+        "intent": "lost_found",
+    },
+    {
+        "id": "menu_seva",
+        "title": "Seva",
+        "description": "Donation, seva & volunteering",
+        "section": "Support",
+        "icon": "",
+        "sort_order": 6,
+        "enabled": True,
+        "intent": "seva_donation",
     },
 ]
 
@@ -122,48 +138,58 @@ def main() -> int:
 
     brand = dict(base.get("brand") or {})
     brand.setdefault("bot_name", "Aastha")
-    brand.setdefault("signature", "May peace and blessings be with you. — Aastha")
+    brand.setdefault(
+        "signature",
+        "May peace and blessings be with you. — Aastha",
+    )
     if not str(brand.get("name") or "").strip() or brand.get("name") == "Brand":
-        brand["name"] = "LEEWAY SOFT TECH PRIVATE LIMITED"
+        brand["name"] = "Universal Spiritual AI"
+    brand["tagline"] = (
+        brand.get("tagline")
+        or "AI companion for Melas, Yatras, temples and spiritual journeys"
+    )
     brand.setdefault("location_name", brand.get("bot_name") or "Aastha")
     brand.setdefault(
         "location_address",
         brand.get("location_address")
-        or "LEEWAY SOFT TECH PRIVATE LIMITED — update address in brand profile",
+        or "Update event venue address in brand profile",
     )
 
-    # Category intents exist so profile_button_status marks rows available.
-    # Actual lists are opened by spiritual_menu_flow (not these answers).
     intent_defs = {
-        "north_temples": {
-            "examples": ["north temples", "temples in north"],
-            "keywords": ["north temple", "north temples"],
-            "answer": "Northern temples list is opening…",
+        "gangasagar_mela": {
+            "examples": ["gangasagar", "gangasagar mela", "sagar mela"],
+            "keywords": ["gangasagar", "ganga sagar", "kapil muni"],
+            "answer": "Opening Gangasagar Mela services…",
         },
-        "south_temples": {
-            "examples": ["south temples", "temples in south"],
-            "keywords": ["south temple", "south temples"],
-            "answer": "Southern temples list is opening…",
+        "kumbh_mela": {
+            "examples": ["kumbh", "kumbh mela", "maha kumbh"],
+            "keywords": ["kumbh", "kumbh mela", "sangam"],
+            "answer": "Opening Kumbh Mela services…",
         },
-        "north_pilgrimage": {
-            "examples": ["north pilgrimage", "north yatra"],
-            "keywords": ["north yatra", "north pilgrimage"],
-            "answer": "North pilgrimage list is opening…",
+        "rath_yatra": {
+            "examples": ["rath yatra", "jagannath", "puri yatra"],
+            "keywords": ["rath yatra", "jagannath", "puri"],
+            "answer": "Opening Jagannath Rath Yatra services…",
         },
-        "south_pilgrimage": {
-            "examples": ["south pilgrimage", "south yatra"],
-            "keywords": ["south yatra", "south pilgrimage"],
-            "answer": "South pilgrimage list is opening…",
+        "spiritual_guide": {
+            "examples": ["spiritual guide", "religious knowledge", "mantra meaning"],
+            "keywords": ["spiritual", "scripture", "mantra", "moksha"],
+            "answer": "Opening Spiritual Guide…",
         },
-        "four_dham": {
-            "examples": ["4 dham", "char dham", "four dham"],
-            "keywords": ["4 dham", "char dham", "four dham"],
-            "answer": "Char Dham list is opening…",
+        "emergency_help": {
+            "examples": ["emergency", "ambulance", "medical help"],
+            "keywords": ["emergency", "ambulance", "hospital", "police"],
+            "answer": "Emergency assistance options…",
         },
-        "gujarat_temples": {
-            "examples": ["gujarat temples", "famous temples of gujarat"],
-            "keywords": ["gujarat", "gujarat temple"],
-            "answer": "Famous Gujarat temples list is opening…",
+        "lost_found": {
+            "examples": ["lost and found", "missing person", "lost bag"],
+            "keywords": ["lost", "missing", "found", "family"],
+            "answer": "Lost & Found assistance…",
+        },
+        "seva_donation": {
+            "examples": ["seva", "donation", "volunteer", "annadan"],
+            "keywords": ["seva", "donation", "volunteer", "annadan", "bhandara"],
+            "answer": "Seva and volunteering options…",
         },
     }
     intents = list(base.get("intents") or [])
@@ -187,14 +213,17 @@ def main() -> int:
     draft = {
         **base,
         "vertical": base.get("vertical") or "generic",
-        "display_name": base.get("display_name") or "LEEWAY SOFT TECH PRIVATE LIMITED",
+        "display_name": base.get("display_name") or "Universal Spiritual AI",
         "brand": brand,
         "vocabulary": vocabulary,
         "intents": intents,
         "menu": {
             "key": "kb_main",
             "header": brand.get("bot_name") or "Aastha",
-            "body": "Welcome. Choose a sacred path to explore:",
+            "body": (
+                "Namaste. I can help with Melas, Yatras, spiritual guidance, "
+                "travel, stay, emergency and seva. Choose an option:"
+            ),
             "footer": "Or type your question directly",
             "button_text": "Show Options",
             "buttons": [*SPIRITUAL_BUTTONS, *REMOVE_DEFAULTS],

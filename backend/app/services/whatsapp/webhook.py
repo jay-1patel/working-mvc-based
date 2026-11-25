@@ -529,6 +529,30 @@ async def _process_and_reply(wa_id, sender_name, user_text, msg_type, message, m
             except Exception as e:
                 logger.error(f"Profile flow start failed for button {pressed_id}: {e}")
 
+        # ── SPIRITUAL HIERARCHICAL MENUS ────────────────────────────────
+        # Category → temple/yatra list → detail topics. Must run before
+        # informational panels so North/South Temples open lists, not text.
+        try:
+            from backend.services import spiritual_menu_flow
+            spiritual_trigger = pressed_id or user_text
+            spiritual_result = await spiritual_menu_flow.handle_spiritual_menu_action(
+                wa_id, spiritual_trigger, tenant_id=tenant_id,
+            )
+            if spiritual_result and spiritual_result.get("handled"):
+                action = spiritual_result.get("action")
+                save_chat(wa_id, sender_name, user_text, f"[spiritual] {action}", "spiritual")
+                logger.info(
+                    "SPIRITUAL_MENU | %s | action=%s | trigger=%r",
+                    wa_id, action, (spiritual_trigger or "")[:80],
+                )
+                response_time_ms = int((time.time() - start_time) * 1000)
+                log_webhook("outgoing", "/webhook/spiritual", json.dumps({
+                    "to": wa_id, "action": action
+                }), 200, f"Spiritual {action}", response_time_ms=response_time_ms, wa_id=wa_id, tenant_id=tenant_id, message_id=msg_id)
+                return
+        except Exception as e:
+            logger.error(f"Spiritual menu browsing failed for {user_text!r}: {e}")
+
         # ── TOUR PACKAGE BROWSING ───────────────────────────────────────
         # The package catalogue is an interactive list menu, not a text
         # answer: a tapped row shows the package card and a booking button.

@@ -374,6 +374,29 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
         except Exception as exc:
             logger.debug(f"stale foreign menu check failed for {wa_id}: {exc}")
 
+        # 1b3. Spiritual hierarchical menus: category → temple/yatra list →
+        # detail topics (prasad/arti/reach/…). Must run before intent answers
+        # so category rows open lists instead of static panel text.
+        try:
+            try:
+                from services import spiritual_menu_flow
+            except ImportError:
+                from backend.services import spiritual_menu_flow
+            spiritual_result = await spiritual_menu_flow.handle_spiritual_menu_action(
+                wa_id, message, tenant_id=tenant_id,
+            )
+            if spiritual_result and spiritual_result.get("handled"):
+                return {
+                    "status": "processed",
+                    "messages": drain_captured(),
+                    "new_state": "B2C_MAIN_MENU",
+                    "human_handover": False,
+                    "user_type": "b2c",
+                    "error": None,
+                }
+        except Exception as exc:
+            logger.debug(f"spiritual menu browsing failed for {wa_id}: {exc}")
+
         # 1c. Tour package browsing: the package catalogue (list menu), a
         # package card with its booking button, and the booking enquiry.
         # Runs after the running flow (a live form keeps the reply) but

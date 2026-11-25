@@ -1,4 +1,11 @@
-"""Publish spiritual WhatsApp menu with temple/guidance options."""
+"""Publish spiritual WhatsApp hierarchical menu.
+
+Main:
+  North Temples, South Temples, North Yatra, South Yatra, 4 Dham, Gujarat
+
+North/South Temples (and other categories) open a destination list; each
+destination opens Prasad / Arti / Reach / Stay / Benefit / History / Parking.
+"""
 from __future__ import annotations
 
 import os
@@ -24,10 +31,15 @@ from shared.tenancy.loader import reload_profile  # noqa: E402
 
 TENANT_ID = "spiritual"
 
-# Remove offerings/FAQ/support leftovers only.
-# Do NOT tombstone short ids like "prasad" — merge treats them as clones of
-# menu_prasad and would delete the live spiritual rows.
+# Tombstone old flat spiritual rows + commerce leftovers so they leave the menu.
 REMOVE_DEFAULTS = [
+    {"id": "menu_prasad", "__remove__": True},
+    {"id": "menu_arti_time", "__remove__": True},
+    {"id": "menu_how_to_reach", "__remove__": True},
+    {"id": "menu_where_to_stay", "__remove__": True},
+    {"id": "menu_advantage", "__remove__": True},
+    {"id": "menu_history", "__remove__": True},
+    {"id": "menu_vehicle_type", "__remove__": True},
     {"id": "menu_offerings", "__remove__": True},
     {"id": "browse_offerings", "__remove__": True},
     {"id": "menu_faq", "__remove__": True},
@@ -38,78 +50,67 @@ REMOVE_DEFAULTS = [
     {"id": "menu_human", "__remove__": True},
 ]
 
-# Titles stay short (<=10 chars). WhatsApp reply buttons cap at 20 chars;
-# list row titles at 24. Do not put emoji in title — it eats the budget.
+# Titles stay short (WhatsApp list row title <= 24, reply button <= 20).
 SPIRITUAL_BUTTONS = [
     {
-        "id": "menu_prasad",
-        "title": "Prasad",
-        "description": "Prasad offerings & timings",
-        "section": "Temple",
+        "id": "menu_north_temples",
+        "title": "North Temples",
+        "description": "7 sacred temples of North India",
+        "section": "Temples",
         "icon": "",
         "sort_order": 0,
         "enabled": True,
-        "intent": "prasad_info",
+        "intent": "north_temples",
     },
     {
-        "id": "menu_arti_time",
-        "title": "Arti",
-        "description": "Daily arti & aarti schedule",
-        "section": "Temple",
+        "id": "menu_south_temples",
+        "title": "South Temples",
+        "description": "7 sacred temples of South India",
+        "section": "Temples",
         "icon": "",
         "sort_order": 1,
         "enabled": True,
-        "intent": "arti_time",
+        "intent": "south_temples",
     },
     {
-        "id": "menu_how_to_reach",
-        "title": "Reach",
-        "description": "Directions & travel guidance",
-        "section": "Visit",
+        "id": "menu_north_yatra",
+        "title": "North Yatra",
+        "description": "North India pilgrimage journeys",
+        "section": "Pilgrimage",
         "icon": "",
         "sort_order": 2,
         "enabled": True,
-        "intent": "how_to_reach",
+        "intent": "north_pilgrimage",
     },
     {
-        "id": "menu_where_to_stay",
-        "title": "Stay",
-        "description": "Stay options near the temple",
-        "section": "Visit",
+        "id": "menu_south_yatra",
+        "title": "South Yatra",
+        "description": "South India pilgrimage journeys",
+        "section": "Pilgrimage",
         "icon": "",
         "sort_order": 3,
         "enabled": True,
-        "intent": "where_to_stay",
+        "intent": "south_pilgrimage",
     },
     {
-        "id": "menu_advantage",
-        "title": "Benefit",
-        "description": "Benefits of visiting & seva",
-        "section": "About",
+        "id": "menu_4_dham",
+        "title": "4 Dham",
+        "description": "Badrinath, Dwarka, Puri, Rameswaram",
+        "section": "Pilgrimage",
         "icon": "",
         "sort_order": 4,
         "enabled": True,
-        "intent": "advantage_info",
+        "intent": "four_dham",
     },
     {
-        "id": "menu_history",
-        "title": "History",
-        "description": "Sacred history & heritage",
-        "section": "About",
+        "id": "menu_gujarat",
+        "title": "Gujarat",
+        "description": "Famous temples of Gujarat",
+        "section": "Temples",
         "icon": "",
         "sort_order": 5,
         "enabled": True,
-        "intent": "history_info",
-    },
-    {
-        "id": "menu_vehicle_type",
-        "title": "Parking",
-        "description": "Parking & vehicle guidance",
-        "section": "Visit",
-        "icon": "",
-        "sort_order": 6,
-        "enabled": True,
-        "intent": "vehicle_type",
+        "intent": "gujarat_temples",
     },
 ]
 
@@ -124,57 +125,45 @@ def main() -> int:
     brand.setdefault("signature", "May peace and blessings be with you. — Aastha")
     if not str(brand.get("name") or "").strip() or brand.get("name") == "Brand":
         brand["name"] = "LEEWAY SOFT TECH PRIVATE LIMITED"
-    # Location pin fields used by Send2 /whatsapp/attachment/location on How to Reach.
     brand.setdefault("location_name", brand.get("bot_name") or "Aastha")
     brand.setdefault(
         "location_address",
         brand.get("location_address")
         or "LEEWAY SOFT TECH PRIVATE LIMITED — update address in brand profile",
     )
-    # Set real temple coordinates when available, e.g. brand["latitude"]=23.02
 
-    # Ensure every spiritual menu intent exists and is enabled, otherwise
-    # profile_button_status used to mark the WhatsApp row unavailable.
+    # Category intents exist so profile_button_status marks rows available.
+    # Actual lists are opened by spiritual_menu_flow (not these answers).
     intent_defs = {
-        "prasad_info": {
-            "examples": ["prasad", "prasad timing", "prasad offerings"],
-            "keywords": ["prasad", "prasadam", "blessed food"],
-            "answer": "🛕 *Prasad*\n\nPrasad details will be shared here. Please ask if you need today's timing.",
+        "north_temples": {
+            "examples": ["north temples", "temples in north"],
+            "keywords": ["north temple", "north temples"],
+            "answer": "Northern temples list is opening…",
         },
-        "arti_time": {
-            "examples": ["arti time", "aarti timing", "when is arti"],
-            "keywords": ["arti", "aarti", "timing", "puja time"],
-            "answer": "🪔 *Arti Time*\n\nDaily arti timings will be shared here. Ask for morning or evening schedule.",
+        "south_temples": {
+            "examples": ["south temples", "temples in south"],
+            "keywords": ["south temple", "south temples"],
+            "answer": "Southern temples list is opening…",
         },
-        "how_to_reach": {
-            "examples": ["how to reach", "directions", "location", "address", "map"],
-            "keywords": ["reach", "directions", "location", "address", "map", "route"],
-            "answer": (
-                "🗺️ *How to Reach*\n\n"
-                "We have shared the location pin above.\n"
-                "Open it in Maps for turn-by-turn directions.\n"
-                "For help on the way, call our support number."
-            ),
+        "north_pilgrimage": {
+            "examples": ["north pilgrimage", "north yatra"],
+            "keywords": ["north yatra", "north pilgrimage"],
+            "answer": "North pilgrimage list is opening…",
         },
-        "where_to_stay": {
-            "examples": ["where to stay", "stay options", "lodging", "dharamshala"],
-            "keywords": ["stay", "lodge", "hotel", "dharamshala", "accommodation"],
-            "answer": "🛏️ *Where to Stay*\n\nStay options near the temple will be shared here.",
+        "south_pilgrimage": {
+            "examples": ["south pilgrimage", "south yatra"],
+            "keywords": ["south yatra", "south pilgrimage"],
+            "answer": "South pilgrimage list is opening…",
         },
-        "advantage_info": {
-            "examples": ["advantage", "benefits", "why visit"],
-            "keywords": ["advantage", "benefits", "seva", "blessing"],
-            "answer": "✨ *Advantage*\n\nBenefits of visiting and seva will be shared here.",
+        "four_dham": {
+            "examples": ["4 dham", "char dham", "four dham"],
+            "keywords": ["4 dham", "char dham", "four dham"],
+            "answer": "Char Dham list is opening…",
         },
-        "history_info": {
-            "examples": ["history", "heritage", "origin"],
-            "keywords": ["history", "heritage", "origin", "story"],
-            "answer": "📜 *History*\n\nSacred history and heritage will be shared here.",
-        },
-        "vehicle_type": {
-            "examples": ["vehicle type", "parking", "car parking"],
-            "keywords": ["vehicle", "parking", "car", "bike", "bus"],
-            "answer": "🚗 *Vehicle Type*\n\nParking and vehicle guidance will be shared here.",
+        "gujarat_temples": {
+            "examples": ["gujarat temples", "famous temples of gujarat"],
+            "keywords": ["gujarat", "gujarat temple"],
+            "answer": "Famous Gujarat temples list is opening…",
         },
     }
     intents = list(base.get("intents") or [])
@@ -205,7 +194,7 @@ def main() -> int:
         "menu": {
             "key": "kb_main",
             "header": brand.get("bot_name") or "Aastha",
-            "body": "Welcome. How may we guide your spiritual journey today?",
+            "body": "Welcome. Choose a sacred path to explore:",
             "footer": "Or type your question directly",
             "button_text": "Show Options",
             "buttons": [*SPIRITUAL_BUTTONS, *REMOVE_DEFAULTS],
@@ -220,7 +209,7 @@ def main() -> int:
     profile = reload_profile(TENANT_ID)
     print("published version", version)
     print("visible menu:")
-    for b in profile.menu.buttons:
+    for b in profile.menu.visible_buttons(profile.features):
         print(f"  {b.sort_order}. {b.id} | {b.title} | {b.description}")
     return 0
 

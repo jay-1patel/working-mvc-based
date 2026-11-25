@@ -115,7 +115,13 @@ BUTTONS: dict[str, str] = {
     "menu_test_drive": "Test Drive",
     "menu_onroad_price": "On-Road Price",
     "menu_customer_care": "Customer Care",
-    # Spiritual / temple (keep <= 12 chars — emoji must not be prepended)
+    # Spiritual / temple hierarchy (titles <= 20; emoji must not be prepended)
+    "menu_north_temples": "North Temples",
+    "menu_south_temples": "South Temples",
+    "menu_north_yatra": "North Yatra",
+    "menu_south_yatra": "South Yatra",
+    "menu_4_dham": "4 Dham",
+    "menu_gujarat": "Gujarat",
     "menu_prasad": "Prasad",
     "menu_arti_time": "Arti",
     "menu_how_to_reach": "Reach",
@@ -600,6 +606,12 @@ def registry_prompt_text(tenant_id: str | None = None) -> str:
 
 
 _SPIRITUAL_MENU_IDS = frozenset({
+    "menu_north_temples",
+    "menu_south_temples",
+    "menu_north_yatra",
+    "menu_south_yatra",
+    "menu_4_dham",
+    "menu_gujarat",
     "menu_prasad",
     "menu_arti_time",
     "menu_how_to_reach",
@@ -657,38 +669,50 @@ def get_contextual_buttons(
 
     # 0. Spiritual / temple (may still use vertical=generic)
     if _is_spiritual_tenant(profile, tid):
-        if any(k in q for k in ("prasad", "prasadam", "bhog", "menu_prasad", "prasad_info")):
-            picked_ids = ["menu_arti_time", "menu_how_to_reach", "main_menu"]
+        if any(k in q for k in ("north temple", "menu_north_temples", "north_temples")):
+            picked_ids = ["menu_south_temples", "menu_north_yatra", "main_menu"]
+        elif any(k in q for k in ("south temple", "menu_south_temples", "south_temples")):
+            picked_ids = ["menu_north_temples", "menu_south_yatra", "main_menu"]
+        elif any(k in q for k in ("north yatra", "north pilgrimage", "menu_north_yatra")):
+            picked_ids = ["menu_north_temples", "menu_4_dham", "main_menu"]
+        elif any(k in q for k in ("south yatra", "south pilgrimage", "menu_south_yatra")):
+            picked_ids = ["menu_south_temples", "menu_4_dham", "main_menu"]
+        elif any(k in q for k in ("4 dham", "char dham", "four dham", "menu_4_dham")):
+            picked_ids = ["menu_north_yatra", "menu_gujarat", "main_menu"]
+        elif any(k in q for k in ("gujarat", "menu_gujarat", "gujarat temple")):
+            picked_ids = ["menu_north_temples", "menu_4_dham", "main_menu"]
+        elif any(k in q for k in ("prasad", "prasadam", "bhog", "menu_prasad", "prasad_info")):
+            picked_ids = ["menu_north_temples", "menu_south_temples", "main_menu"]
         elif any(k in q for k in (
             "arti", "aarti", "puja time", "menu_arti", "arti_time",
             "timing", "timings", "schedule",
         )):
-            picked_ids = ["menu_prasad", "menu_how_to_reach", "main_menu"]
+            picked_ids = ["menu_north_temples", "menu_south_temples", "main_menu"]
         elif any(k in q for k in (
             "reach", "direction", "location", "address", "map", "route",
             "menu_how_to_reach", "how_to_reach",
         )):
-            picked_ids = ["menu_where_to_stay", "menu_vehicle_type", "main_menu"]
+            picked_ids = ["menu_north_temples", "menu_gujarat", "main_menu"]
         elif any(k in q for k in (
             "stay", "lodge", "hotel", "dharamshala", "accommodation",
             "menu_where_to_stay", "where_to_stay",
         )):
-            picked_ids = ["menu_how_to_reach", "menu_vehicle_type", "main_menu"]
+            picked_ids = ["menu_north_yatra", "menu_south_yatra", "main_menu"]
         elif any(k in q for k in (
             "vehicle", "parking", "car", "bike", "bus", "scooter",
             "menu_vehicle", "vehicle_type",
         )):
-            picked_ids = ["menu_how_to_reach", "menu_where_to_stay", "main_menu"]
+            picked_ids = ["menu_north_temples", "menu_south_temples", "main_menu"]
         elif any(k in q for k in (
             "advantage", "benefit", "blessing", "seva", "menu_advantage", "advantage_info",
         )):
-            picked_ids = ["menu_history", "menu_prasad", "main_menu"]
+            picked_ids = ["menu_north_temples", "menu_4_dham", "main_menu"]
         elif any(k in q for k in (
             "history", "heritage", "origin", "legend", "menu_history", "history_info",
         )):
-            picked_ids = ["menu_advantage", "menu_how_to_reach", "main_menu"]
+            picked_ids = ["menu_gujarat", "menu_4_dham", "main_menu"]
         else:
-            picked_ids = ["menu_prasad", "menu_arti_time", "menu_how_to_reach"]
+            picked_ids = ["menu_north_temples", "menu_south_temples", "menu_4_dham"]
 
     # 1. Healthcare Vertical
     elif vertical == "healthcare":

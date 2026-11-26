@@ -52,11 +52,29 @@ def resolve_outbound_from_number(tenant_id: str | None = None) -> str:
 def _with_from_number(payload: dict, tenant_id: str | None = None) -> dict:
     """Stamp Send2 payload so the reply leaves from the inbound business number."""
     from_no = resolve_outbound_from_number(tenant_id)
+    customer = (
+        payload.get("contact_no")
+        or payload.get("number")
+        or payload.get("to")
+        or ""
+    )
     if from_no:
         payload["from_number"] = from_no
         payload["display_phone_number"] = from_no
+        logger.info(
+            "MSG_OUT | reply_from=%s | customer=%s | tenant=%s | type=%s",
+            from_no,
+            customer or "?",
+            tenant_id or "",
+            payload.get("message_type") or payload.get("interactive", {}).get("type") or "?",
+        )
         logger.info("OUTBOUND_FROM_NUMBER | from=%s | tenant=%s", from_no, tenant_id or "")
     else:
+        logger.warning(
+            "MSG_OUT | reply_from=(MISSING) | customer=%s | tenant=%s | Send2 may use account default number",
+            customer or "?",
+            tenant_id or "",
+        )
         logger.warning("OUTBOUND_FROM_NUMBER_MISSING | tenant=%s", tenant_id or "")
     return payload
 
@@ -313,7 +331,14 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tena
                         json=payload,
                         timeout=timeout,
                     )
-                    logger.info(f"Reply sent to {to} [{norm_type}], status={resp.status_code}, body={resp.text[:300]}")
+                    logger.info(
+                        "MSG_OUT_RESULT | reply_from=%s | customer=%s | type=%s | status=%s | body=%s",
+                        payload.get("from_number") or "(none)",
+                        clean_to,
+                        norm_type,
+                        resp.status_code,
+                        (resp.text or "")[:300],
+                    )
                     from routing.hookdeck import tee_outbound
                     tee_outbound(SEND2_SESSION_SEND_URL, payload, resp.status_code, resp.text, to=clean_to)
                     if _send2_response_ok(resp.status_code, resp.text):
@@ -349,7 +374,14 @@ def send_whatsapp_message(to, text, msg_type="text", timeout=15, retries=2, tena
                     json=payload,
                     timeout=timeout,
                 )
-                logger.info(f"Reply sent to {to} [{norm_type}], status={resp.status_code}, body={resp.text[:300]}")
+                logger.info(
+                    "MSG_OUT_RESULT | reply_from=%s | customer=%s | type=%s | status=%s | body=%s",
+                    payload.get("from_number") or "(none)",
+                    clean_to,
+                    norm_type,
+                    resp.status_code,
+                    (resp.text or "")[:300],
+                )
                 from routing.hookdeck import tee_outbound
                 tee_outbound(SEND2_SESSION_SEND_URL, payload, resp.status_code, resp.text, to=clean_to)
                 return _send2_response_ok(resp.status_code, resp.text)

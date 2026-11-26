@@ -105,17 +105,30 @@ def _guess_media_type(filename: str, content_type: str = "") -> str:
 
 # ── Send via send2.digital ────────────────────────────────────────────────
 
+def _stamp_outbound_from(payload: dict, tenant_id: str = None) -> dict:
+    """Reply from inbound display_phone_number / tenants.waba_phone_id."""
+    try:
+        from routing.whatsapp import resolve_outbound_from_number
+        from_no = resolve_outbound_from_number(tenant_id)
+        if from_no:
+            payload["from_number"] = from_no
+            payload["display_phone_number"] = from_no
+    except Exception:
+        logger.debug("CHAT_OUTBOUND_FROM_SKIP | tenant=%s", tenant_id or "", exc_info=True)
+    return payload
+
+
 def _send_text_via_send2(wa_id: str, text: str, tenant_id: str = None) -> dict:
     """Send text message via send2.digital."""
     url = SEND2_SESSION_SEND_URL
     username, password = _send2_login(tenant_id)
-    payload = {
+    payload = _stamp_outbound_from({
         "user_name": username,
         "password": password,
         "contact_no": wa_id,
         "message_type": "text",
         "message": text,
-    }
+    }, tenant_id)
     try:
         resp = httpx.post(url, json=payload, timeout=15)
         resp.raise_for_status()
@@ -129,13 +142,13 @@ def _send_media_via_send2(wa_id: str, media_type: str, media_url: str, caption: 
     """Send media message via send2.digital."""
     url = SEND2_SESSION_SEND_URL
     username, password = _send2_login(tenant_id)
-    payload = {
+    payload = _stamp_outbound_from({
         "user_name": username,
         "password": password,
         "contact_no": wa_id,
         "message_type": media_type,
         "message": media_url,
-    }
+    }, tenant_id)
     if caption:
         payload["caption"] = caption
     try:

@@ -331,6 +331,14 @@ async def _process_and_reply(
             logger.debug("WABA_PHONE_DB_LOOKUP_SKIP | tenant=%s", tenant_id, exc_info=True)
     set_request_waba_phone(from_phone)
     logger.info(
+        "NUMBER_CHECK | msg_received_on=%s | reply_will_come_from=%s | customer=%s | tenant=%s | same=%s",
+        waba_phone or "(none)",
+        from_phone or "(none)",
+        wa_id,
+        tenant_id,
+        "YES" if (re.sub(r"\D", "", str(waba_phone or "")) == from_phone and from_phone) else "NO",
+    )
+    logger.info(
         "OUTBOUND_REPLY_LINE | wa_id=%s | tenant=%s | from_number=%s",
         wa_id, tenant_id, from_phone or "(none)",
     )
@@ -1032,6 +1040,14 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         user_text = f"[{msg_type} message]"
 
     logger.info(f"Incoming message from {sender_name} ({wa_id}): {user_text[:100]}")
+    logger.info(
+        "MSG_IN | received_on=%s | phone_number_id=%s | customer=%s | type=%s | text=%s",
+        business_display or "(none)",
+        business_phone_id or "(none)",
+        wa_id or "?",
+        msg_type or "?",
+        (user_text or "")[:120],
+    )
     log_webhook("incoming", "/webhook/message", json.dumps({
         "wa_id": wa_id, "sender_name": sender_name, "type": msg_type,
         "message": user_text, "message_id": msg_id

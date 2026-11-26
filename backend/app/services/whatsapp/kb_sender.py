@@ -73,22 +73,72 @@ def _send2_login(tenant_id: str = None) -> tuple:
     return resolve_send2_username_password(tenant_id)
 
 
+def _stamp_from_number(payload: dict, tenant_id: str = None) -> dict:
+    """Force Send2 to reply from the inbound business line (display_phone_number).
+
+    Without ``from_number``, a multi-number CPaaS login defaults to the account
+    primary line — so a message to 15558072955 can be answered from 15559227148.
+    """
+    try:
+        from routing.whatsapp import resolve_outbound_from_number
+    except Exception:
+        try:
+            from backend.app.services.whatsapp.routing_sender import (
+                resolve_outbound_from_number,
+            )
+        except Exception:
+            logger.warning("OUTBOUND_FROM_HELPER_MISSING | tenant=%s", tenant_id or "")
+            return payload
+    from_no = resolve_outbound_from_number(tenant_id)
+    customer = (
+        payload.get("contact_no")
+        or payload.get("number")
+        or payload.get("to")
+        or ""
+    )
+    if from_no:
+        payload["from_number"] = from_no
+        payload["display_phone_number"] = from_no
+        logger.info(
+            "MSG_OUT | reply_from=%s | customer=%s | tenant=%s | type=%s | via=kb_sender",
+            from_no,
+            customer or "?",
+            tenant_id or "",
+            payload.get("message_type") or "?",
+        )
+        logger.info("OUTBOUND_FROM_NUMBER | from=%s | tenant=%s", from_no, tenant_id or "")
+    else:
+        logger.warning(
+            "MSG_OUT | reply_from=(MISSING) | customer=%s | tenant=%s | via=kb_sender | "
+            "Send2 may use account default number",
+            customer or "?",
+            tenant_id or "",
+        )
+        logger.warning("OUTBOUND_FROM_NUMBER_MISSING | tenant=%s", tenant_id or "")
+    return payload
+
 
 def _cred_user_pass(tenant_id: str = None) -> dict:
     username, password = _send2_login(tenant_id)
-    return {"user_name": username, "password": password}
+    return _stamp_from_number(
+        {"user_name": username, "password": password},
+        tenant_id,
+    )
 
 
 def _cred_username_pass(tenant_id: str = None) -> dict:
     username, password = _send2_login(tenant_id)
-    return {"username": username, "password": password}
+    return _stamp_from_number(
+        {"username": username, "password": password},
+        tenant_id,
+    )
 
 def _inject_credentials(payload: dict, tenant_id: str = None) -> dict:
     """Inject send2.digital credentials into payload (vault → optional fallback)."""
     username, password = _send2_login(tenant_id)
     payload["username"] = username
     payload["password"] = password
-    return payload
+    return _stamp_from_number(payload, tenant_id)
 
 
 def _redacted_payload_preview(payload: dict) -> str:
@@ -300,6 +350,13 @@ async def send_text_message(contact_no: str, text: str) -> bool:
                     # it must never affect the actual send.
                     logger.debug("TEE_OUTBOUND_FAILED | to=%s", contact_no, exc_info=True)
 
+                logger.info(
+                    "MSG_OUT_RESULT | reply_from=%s | customer=%s | type=text | status=%s | body=%s",
+                    payload.get("from_number") or "(none)",
+                    contact_no,
+                    response.status_code,
+                    (response.text or "")[:300],
+                )
                 if response.status_code == 200:
                     try:
                         update_session_outbound(contact_no)

@@ -558,6 +558,13 @@ async def _handle_polled_batch(messages: list) -> int:
             "New message from %s via %s (%s): %s... (id=%s...)",
             wa_id, business_number, tenant_id, text[:80], message_id[:20],
         )
+        logger.info(
+            "MSG_IN | received_on=%s | customer=%s | tenant=%s | text=%s",
+            business_number or "(none)",
+            wa_id,
+            tenant_id,
+            (text or "")[:120],
+        )
 
         try:
             from services.orchestrator import process_incoming_message
@@ -574,6 +581,14 @@ async def _handle_polled_batch(messages: list) -> int:
             if outgoing:
                 set_request_waba_phone(business_number)
                 await _send_reply(wa_id, outgoing, tenant_id=tenant_id)
+                logger.info(
+                    "NUMBER_CHECK | msg_received_on=%s | reply_will_come_from=%s | customer=%s | tenant=%s | same=%s",
+                    business_number or "(none)",
+                    business_number or "(none)",
+                    wa_id,
+                    tenant_id,
+                    "YES" if business_number else "NO",
+                )
                 logger.info(
                     "Processed and replied to %s (%s messages) tenant=%s",
                     wa_id, len(outgoing), tenant_id,

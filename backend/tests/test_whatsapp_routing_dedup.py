@@ -28,6 +28,51 @@ from routing import webhook as webhook_router
 
 
 class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
+    def test_kb_sender_stamps_inbound_display_phone_as_from_number(self):
+        """KB path must not default to the CPaaS primary line (e.g. 15559227148)."""
+        from backend.app.services.whatsapp import kb_sender
+        from database import set_request_waba_phone
+
+        set_request_waba_phone("15558072955")
+        with patch.object(kb_sender, "_send2_login", return_value=("u", "p")):
+            creds = kb_sender._cred_user_pass()
+        self.assertEqual(creds.get("from_number"), "15558072955")
+        self.assertEqual(creds.get("display_phone_number"), "15558072955")
+
+    async def test_process_and_reply_binds_webhook_display_phone_for_outbound(self):
+        """Webhook display_phone_number must become the Send2 from_number."""
+        from database import get_request_waba_phone
+
+        with (
+            patch("shared.tenancy.resolver.resolve_effective_tenant_id", return_value="tenant-a"),
+            patch.object(webhook_router, "log_incoming_message", new_callable=AsyncMock),
+            patch.object(webhook_router, "log_outgoing_message", new_callable=AsyncMock),
+            patch.object(webhook_router, "save_chat"),
+            patch.object(webhook_router, "log_webhook"),
+            patch.object(webhook_router, "_is_handover_active", return_value=False),
+            patch.object(webhook_router, "_wants_human_agent", return_value=False),
+            patch("backend.services.flow_runner.is_running", return_value=False),
+            patch.object(webhook_router, "_is_doc_button_reply", return_value=False),
+            patch("routing.database.touch_customer"),
+            patch.object(webhook_router.config, "SEND2_USERNAME", "test-user"),
+            patch.object(webhook_router.config, "SEND2_PASSWORD", "test-password"),
+            patch.object(webhook_router, "send_whatsapp_typing"),
+            patch.object(webhook_router, "send_whatsapp_message") as send,
+            patch.object(
+                webhook_router, "process_message", new_callable=AsyncMock,
+                return_value={"answer": "ok", "query_type": "faq"},
+            ),
+        ):
+            await webhook_router._process_and_reply(
+                "919512777899", "chat", "check num 15558072955", "text",
+                {"text": {"body": "check num 15558072955"}},
+                "wamid.check.155582729575.001",
+                tenant_id="tenant-a",
+                waba_phone="15558072955",
+            )
+            self.assertEqual(get_request_waba_phone(), "15558072955")
+            send.assert_called()
+
     async def test_typed_careers_uses_explicit_tenant_profile(self):
         tenant_id = "leewaysoftech"
         expected = "Configured careers response"

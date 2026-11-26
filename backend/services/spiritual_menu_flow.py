@@ -46,168 +46,31 @@ EVENTS: dict[str, dict[str, Any]] = {
     },
 }
 
-# ── Sub-menu (platform components) ──────────────────────────────────────────
+# ── Sub-menu topics. Answers come from tenant FAQ/KB retrieval, never here. ──
 
 EVENT_TOPICS: list[dict[str, Any]] = [
+    {"key": "guide", "title": "AI Spiritual Guide", "description": "Spiritual guidance"},
+    {"key": "knowledge", "title": "Religious Knowledge", "description": "Sacred knowledge"},
+    {"key": "calendar", "title": "Religious Calendar", "description": "Event schedule & key dates"},
+    {"key": "bathing", "title": "Holy Bathing Info", "description": "Snan / ritual bathing guidance"},
+    {"key": "travel", "title": "Travel Assistance", "description": "How to reach the event"},
+    {"key": "stay", "title": "Accommodation", "description": "Local stay options"},
     {
-        "key": "guide",
-        "title": "AI Spiritual Guide",
-        "description": "Common spiritual guidance",
-        "kind": "text",
-        "answers": {
-            "kumbh": (
-                "🙏 *AI Spiritual Guide — Kumbh Mela*\n\n"
-                "Ask about sankalp, snan etiquette, mantras, or how to plan "
-                "your Kumbh day with calm and devotion.\n\n"
-                "Type your question anytime."
-            ),
-            "gangasagar": (
-                "🙏 *AI Spiritual Guide — Gangasagar Mela*\n\n"
-                "Ask about Kapil Muni darshan, snan sankalp, or how to keep "
-                "your Gangasagar yatra peaceful and safe.\n\n"
-                "Type your question anytime."
-            ),
-            "rath_yatra": (
-                "🙏 *AI Spiritual Guide — Jagannath Rath Yatra*\n\n"
-                "Ask about darshan, chariot pull etiquette, or the meaning of "
-                "Rath Yatra rituals in Puri.\n\n"
-                "Type your question anytime."
-            ),
-        },
+        "key": "temple_darshan",
+        "title": "Temple Darshan",
+        "description": "Temple darshan information",
+        "events": ("gangasagar", "rath_yatra"),
     },
     {
-        "key": "knowledge",
-        "title": "Religious Knowledge",
-        "description": "Event-specific sacred knowledge",
-        "kind": "text",
-        "answers": {
-            "kumbh": (
-                "📜 *Religious Knowledge — Kumbh Mela*\n\n"
-                "Kumbh-specific heritage: four sacred cities, Amrit Snan cycles, "
-                "akhara traditions and the spiritual meaning of the Sangam.\n\n"
-                "Ask for mythology, history, or rituals."
-            ),
-            "gangasagar": (
-                "📜 *Religious Knowledge — Gangasagar Mela*\n\n"
-                "Gangasagar-specific heritage: Kapil Muni, Ganga-Sagar sangam, "
-                "Makar Sankranti snan and local pilgrimage customs.\n\n"
-                "Ask for mythology, history, or rituals."
-            ),
-            "rath_yatra": (
-                "📜 *Religious Knowledge — Jagannath Rath Yatra*\n\n"
-                "Rath Yatra-specific heritage: Jagannath, Balabhadra, Subhadra, "
-                "Gundicha yatra and the meaning of the chariots.\n\n"
-                "Ask for mythology, history, or rituals."
-            ),
-        },
-    },
-    {
-        "key": "calendar",
-        "title": "Religious Calendar",
-        "description": "Event schedule & key dates",
-        "kind": "text",
-        "answers": {
-            "kumbh": (
-                "📅 *Religious Calendar — Kumbh*\n\n"
-                "Kumbh schedule highlights: Shahi Snan / Amrit Snan dates, "
-                "parikrama windows and peak crowd days (verify with official mela notice).\n\n"
-                "Ask which city (Prayagraj / Haridwar / Nashik / Ujjain)."
-            ),
-            "gangasagar": (
-                "📅 *Religious Calendar — Gangasagar*\n\n"
-                "Mela schedule highlights: Makar Sankranti snan day, "
-                "approach dates and ferry / snan windows "
-                "(verify with official mela notice)."
-            ),
-            "rath_yatra": (
-                "📅 *Religious Calendar — Rath Yatra*\n\n"
-                "Rath Yatra schedule highlights: Snana Yatra, Gundicha, "
-                "Bahuda Yatra and return dates "
-                "(verify with Sri Jagannath Temple / official notice)."
-            ),
-        },
-    },
-    {
-        "key": "bathing",
-        "title": "Holy Bathing Info",
-        "description": "Snan / ritual bathing guidance",
-        "kind": "text",
-        "answers": {
-            "kumbh": (
-                "🛁 *Holy Bathing — Kumbh*\n\n"
-                "Snan locations and guidance for Kumbh ghats (Sangam and city-specific snan points). "
-                "Follow local volunteers for safe entry/exit.\n\n"
-                "Ask which ghat or city you are visiting."
-            ),
-            "gangasagar": (
-                "🛁 *Holy Bathing — Gangasagar*\n\n"
-                "Sangam snan guidance near Kapil Muni / main snan ghat. "
-                "Mind tides, ferry timings and crowd flow.\n\n"
-                "Ask for morning snan tips if needed."
-            ),
-            "rath_yatra": (
-                "🛁 *Holy Bathing / Rituals — Rath Yatra*\n\n"
-                "Applicable rituals around Jagannath Rath Yatra "
-                "(Snana Yatra, chariot procession etiquette). "
-                "Follow temple / police guidance on Bada Danda."
-            ),
-        },
-    },
-    {
-        "key": "travel",
-        "title": "Travel Assistance",
-        "description": "How to reach the event",
-        "kind": "text",
-        "answers": {
-            "kumbh": (
-                "🗺️ *Travel Assistance — Kumbh*\n\n"
-                "Event-specific travel: nearest rail/road for your Kumbh city, "
-                "shuttle tips and peak-day advice.\n\n"
-                "Tell us your starting city."
-            ),
-            "gangasagar": (
-                "🗺️ *Travel Assistance — Gangasagar*\n\n"
-                "Event-specific travel: how to reach via Kakdwip / Kachuberia, "
-                "ferry and last-mile tips.\n\n"
-                "Tell us your starting city."
-            ),
-            "rath_yatra": (
-                "🗺️ *Travel Assistance — Rath Yatra*\n\n"
-                "Event-specific travel: reaching Puri (rail/road), "
-                "Bada Danda access and crowd-day tips.\n\n"
-                "Tell us your starting city."
-            ),
-        },
-    },
-    {
-        "key": "stay",
-        "title": "Accommodation",
-        "description": "Local stay options",
-        "kind": "text",
-        "answers": {
-            "kumbh": (
-                "🛏️ *Accommodation — Kumbh*\n\n"
-                "Local facilities: tent cities, dharamshalas, ashrams and hotels "
-                "near the mela zone (book early for Shahi Snan days)."
-            ),
-            "gangasagar": (
-                "🛏️ *Accommodation — Gangasagar*\n\n"
-                "Local facilities: ashrams, dharamshalas and lodges near the mela / jetty approach. "
-                "Book ahead for Makar Sankranti."
-            ),
-            "rath_yatra": (
-                "🛏️ *Accommodation — Rath Yatra*\n\n"
-                "Local facilities: hotels, dharamshalas and lodges in Puri "
-                "(near temple / beach / railway). Book early for yatra week."
-            ),
-        },
+        "key": "temple_arti",
+        "title": "Temple Arti",
+        "description": "Temple arti information",
+        "events": ("gangasagar", "rath_yatra"),
     },
     {
         "key": "emergency",
         "title": "Emergency Support",
         "description": "Local authorities & help pins",
-        "kind": "emergency",
-        "answers": {},
     },
 ]
 
@@ -573,6 +436,8 @@ async def _send_event_topics(
     _set_active_event(wa_id, slug, tenant_id=tenant_id)
     rows = []
     for topic in EVENT_TOPICS:
+        if topic.get("events") and slug not in topic["events"]:
+            continue
         if slug == "rath_yatra" and topic["key"] == "bathing":
             continue
         rows.append({
@@ -653,10 +518,13 @@ def _parse_event_topic(text: str) -> Optional[tuple[str, str]]:
         return None
     rest = m.group(1)
     for topic in _TOPIC_BY_KEY:
+        allowed_events = _TOPIC_BY_KEY[topic].get("events")
         suffix = f"_{topic}"
         if rest.endswith(suffix):
             event_slug = rest[: -len(suffix)]
-            if event_slug in _EVENT_BY_SLUG:
+            if event_slug in _EVENT_BY_SLUG and (
+                not allowed_events or event_slug in allowed_events
+            ):
                 return event_slug, topic
     return None
 
@@ -667,6 +535,8 @@ def _parse_event_topic_title(text: str, event_slug: str) -> Optional[tuple[str, 
         return None
     title = _norm(text)
     for topic in EVENT_TOPICS:
+        if topic.get("events") and event_slug not in topic["events"]:
+            continue
         if event_slug == "rath_yatra" and topic["key"] == "bathing":
             continue
         if title == _norm(topic["title"]):
@@ -697,14 +567,36 @@ def _parse_sea(text: str) -> Optional[tuple[str, str]]:
     return None
 
 
-def _topic_answer(event_slug: str, topic_key: str) -> str:
+async def _topic_answer_from_knowledge(
+    event_slug: str,
+    topic_key: str,
+    *,
+    tenant_id: str | None,
+) -> str:
+    """Retrieve tenant knowledge and have the LLM answer the selected topic."""
     topic = _TOPIC_BY_KEY[topic_key]
-    answers = topic.get("answers") or {}
-    return str(
-        answers.get(event_slug)
-        or answers.get("kumbh")
-        or f"*{topic['title']}* for this event will appear here soon."
-    )
+    event_id = _EVENT_BY_SLUG.get(event_slug, "")
+    event = EVENTS.get(event_id, {})
+    event_label = str(event.get("event_label") or event_slug.replace("_", " ").title())
+    query = f"What {topic['title']} information is available for {event_label}?"
+    try:
+        try:
+            from faq.service import synthesize_intent_answer
+        except ImportError:
+            from backend.faq.service import synthesize_intent_answer
+        answer = await synthesize_intent_answer(
+            raw_content="",
+            intent_name=f"{event_label} — {topic['title']}",
+            user_query=query,
+            tenant_id=tenant_id,
+        )
+        return str(answer or "").strip()
+    except Exception:
+        logger.exception(
+            "SPIRITUAL_KB_ANSWER_FAILED | tenant=%s event=%s topic=%s",
+            tenant_id, event_slug, topic_key,
+        )
+        return "I couldn't retrieve that information right now. Please try again shortly."
 
 
 async def handle_spiritual_menu_action(
@@ -787,10 +679,13 @@ async def handle_spiritual_menu_action(
         if topic == "emergency":
             await _send_emergency_menu(wa_id, event_slug, tenant_id=tenant_id)
             return {"handled": True, "action": "spiritual_emergency_menu"}
-        answer = _topic_answer(event_slug, topic)
+        answer = await _topic_answer_from_knowledge(
+            event_slug, topic, tenant_id=tenant_id,
+        )
+        await _sender().send_text_message(wa_id, answer)
         await _sender().send_button_message(
             wa_id,
-            answer,
+            "Choose what you'd like to do next:",
             _event_followup_buttons(event_slug),
             tenant_id=tenant_id,
         )

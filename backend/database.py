@@ -23,6 +23,7 @@ try:  # backend/ on sys.path (the normal import mode)
         DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
         _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
         get_request_tenant, set_request_waba_phone, get_request_waba_phone,
+        set_request_waba_phone_id, get_request_waba_phone_id,
         set_audit_request_context, clear_audit_request_context,
         trusted_client_ip, _resolve_db_path,
     )
@@ -103,6 +104,7 @@ except ImportError:  # imported as part of the `backend` package
         DB_PATH, BASE_DIR, PROJECT_ROOT, logger, get_db, get_db_context,
         _ensure_columns, _loads_json, _current_tenant, set_request_tenant,
         get_request_tenant, set_request_waba_phone, get_request_waba_phone,
+        set_request_waba_phone_id, get_request_waba_phone_id,
         set_audit_request_context, clear_audit_request_context,
         trusted_client_ip, _resolve_db_path,
     )

@@ -89,24 +89,48 @@ def _stamp_from_number(payload: dict, tenant_id: str = None) -> dict:
         except Exception:
             logger.warning("OUTBOUND_FROM_HELPER_MISSING | tenant=%s", tenant_id or "")
             return payload
+    try:
+        from routing.whatsapp import resolve_outbound_phone_number_id
+    except Exception:
+        try:
+            from backend.app.services.whatsapp.routing_sender import (
+                resolve_outbound_phone_number_id,
+            )
+        except Exception:
+            resolve_outbound_phone_number_id = None  # type: ignore
     from_no = resolve_outbound_from_number(tenant_id)
+    phone_id = (
+        resolve_outbound_phone_number_id(tenant_id)
+        if resolve_outbound_phone_number_id
+        else from_no
+    )
     customer = (
         payload.get("contact_no")
         or payload.get("number")
         or payload.get("to")
         or ""
     )
-    if from_no:
-        payload["from_number"] = from_no
-        payload["display_phone_number"] = from_no
+    if from_no or phone_id:
+        if from_no:
+            payload["from_number"] = from_no
+            payload["display_phone_number"] = from_no
+            payload["from"] = from_no
+            payload["whatsapp_number"] = from_no
+        if phone_id:
+            payload["phone_number_id"] = phone_id
         logger.info(
-            "MSG_OUT | reply_from=%s | customer=%s | tenant=%s | type=%s | via=kb_sender",
-            from_no,
+            "MSG_OUT | reply_from=%s | phone_number_id=%s | customer=%s | tenant=%s | "
+            "type=%s | via=kb_sender",
+            from_no or "(none)",
+            phone_id or "(none)",
             customer or "?",
             tenant_id or "",
             payload.get("message_type") or "?",
         )
-        logger.info("OUTBOUND_FROM_NUMBER | from=%s | tenant=%s", from_no, tenant_id or "")
+        logger.info(
+            "OUTBOUND_FROM_NUMBER | from=%s | phone_number_id=%s | tenant=%s",
+            from_no or "(none)", phone_id or "(none)", tenant_id or "",
+        )
     else:
         logger.warning(
             "MSG_OUT | reply_from=(MISSING) | customer=%s | tenant=%s | via=kb_sender | "

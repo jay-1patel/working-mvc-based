@@ -571,10 +571,12 @@ async def _handle_polled_batch(messages: list) -> int:
         try:
             from services.orchestrator import process_incoming_message
             try:
-                from database import set_request_waba_phone
+                from database import set_request_waba_phone, set_request_waba_phone_id
             except ImportError:
-                from backend.database import set_request_waba_phone
+                from backend.database import set_request_waba_phone, set_request_waba_phone_id
             set_request_waba_phone(business_number)
+            # Poll rows usually carry the display/business number, not Meta Graph id.
+            set_request_waba_phone_id(business_number)
 
             result = await process_incoming_message(
                 wa_id, text, capture_only=True, tenant_id=tenant_id,
@@ -582,6 +584,7 @@ async def _handle_polled_batch(messages: list) -> int:
             outgoing = result.get("messages", [])
             if outgoing:
                 set_request_waba_phone(business_number)
+                set_request_waba_phone_id(business_number)
                 await _send_reply(wa_id, outgoing, tenant_id=tenant_id)
                 logger.info(
                     "NUMBER_CHECK | msg_received_on=%s | reply_will_come_from=%s | customer=%s | tenant=%s | same=%s",

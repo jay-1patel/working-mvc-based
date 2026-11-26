@@ -49,26 +49,56 @@ def resolve_outbound_from_number(tenant_id: str | None = None) -> str:
         return ""
 
 
+def resolve_outbound_phone_number_id(tenant_id: str | None = None) -> str:
+    """Meta Graph phone_number_id for outbound Cloud API routing (if known)."""
+    try:
+        from database import get_request_waba_phone_id
+        cur = _digits_phone(get_request_waba_phone_id() or "")
+        if len(cur) >= 10:
+            return cur
+    except Exception:
+        logger.debug("OUTBOUND_PHONE_ID_CTX_SKIP", exc_info=True)
+    # Fall back to display digits when webhook used the same value for both.
+    return resolve_outbound_from_number(tenant_id)
+
+
 def _with_from_number(payload: dict, tenant_id: str | None = None) -> dict:
-    """Stamp Send2 payload so the reply leaves from the inbound business number."""
+    """Stamp Send2 payload so the reply leaves from the inbound business number.
+
+    Send2 multi-number accounts often ignore a lone display number and fall back
+    to the account primary line. Stamp every common selector Send2/Cloud accept:
+    display number + Meta ``phone_number_id``.
+    """
     from_no = resolve_outbound_from_number(tenant_id)
+    phone_id = resolve_outbound_phone_number_id(tenant_id)
     customer = (
         payload.get("contact_no")
         or payload.get("number")
         or payload.get("to")
         or ""
     )
-    if from_no:
-        payload["from_number"] = from_no
-        payload["display_phone_number"] = from_no
+    if from_no or phone_id:
+        if from_no:
+            payload["from_number"] = from_no
+            payload["display_phone_number"] = from_no
+            payload["from"] = from_no
+            payload["whatsapp_number"] = from_no
+        if phone_id:
+            payload["phone_number_id"] = phone_id
         logger.info(
-            "MSG_OUT | reply_from=%s | customer=%s | tenant=%s | type=%s",
-            from_no,
+            "MSG_OUT | reply_from=%s | phone_number_id=%s | customer=%s | tenant=%s | type=%s",
+            from_no or "(none)",
+            phone_id or "(none)",
             customer or "?",
             tenant_id or "",
-            payload.get("message_type") or payload.get("interactive", {}).get("type") or "?",
+            payload.get("message_type") or (
+                (payload.get("interactive") or {}).get("type") if isinstance(payload.get("interactive"), dict) else None
+            ) or "?",
         )
-        logger.info("OUTBOUND_FROM_NUMBER | from=%s | tenant=%s", from_no, tenant_id or "")
+        logger.info(
+            "OUTBOUND_FROM_NUMBER | from=%s | phone_number_id=%s | tenant=%s",
+            from_no or "(none)", phone_id or "(none)", tenant_id or "",
+        )
     else:
         logger.warning(
             "MSG_OUT | reply_from=(MISSING) | customer=%s | tenant=%s | Send2 may use account default number",

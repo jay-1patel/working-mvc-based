@@ -10,6 +10,7 @@ from fastapi.responses import PlainTextResponse
 import routing.config as config
 from routing.database import (
     log_webhook, save_chat, set_request_tenant, set_request_waba_phone,
+    set_request_waba_phone_id,
 )
 from routing.whatsapp import (
     send_whatsapp_message,
@@ -305,7 +306,8 @@ def _is_duplicate(msg_id: str, wa_id: str) -> bool:
 
 
 async def _process_and_reply(
-    wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id=None, waba_phone: str = "",
+    wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id=None,
+    waba_phone: str = "", waba_phone_id: str = "",
 ):
     start_time = time.time()
     # Active Test Tenant from the admin console wins for single-number testing.
@@ -320,8 +322,10 @@ async def _process_and_reply(
         return
     set_request_tenant(tenant_id)
     # Reply must leave from the same business line as webhook display_phone_number
-    # (else tenants.waba_phone_id for this tenant).
+    # (else tenants.waba_phone_id for this tenant). Also keep Meta phone_number_id
+    # — Send2 often routes Cloud sends by that id, not the display digits.
     from_phone = re.sub(r"\D", "", str(waba_phone or ""))
+    from_phone_id = re.sub(r"\D", "", str(waba_phone_id or ""))
     if len(from_phone) < 10:
         try:
             from shared.tenancy import store as tenancy_store
@@ -329,26 +333,33 @@ async def _process_and_reply(
             from_phone = re.sub(r"\D", "", str(row.get("waba_phone_id") or ""))
         except Exception:
             logger.debug("WABA_PHONE_DB_LOOKUP_SKIP | tenant=%s", tenant_id, exc_info=True)
+    if len(from_phone_id) < 10:
+        from_phone_id = from_phone
     set_request_waba_phone(from_phone)
+    set_request_waba_phone_id(from_phone_id)
     logger.info(
-        "BACKGROUND_REPLY_START | customer=%s | tenant=%s | received_on=%s | reply_from=%s | text=%r",
+        "BACKGROUND_REPLY_START | customer=%s | tenant=%s | received_on=%s | "
+        "reply_from=%s | phone_number_id=%s | text=%r",
         wa_id,
         tenant_id,
         waba_phone or "(none)",
         from_phone or "(none)",
+        from_phone_id or "(none)",
         (user_text or "")[:80],
     )
     logger.info(
-        "NUMBER_CHECK | msg_received_on=%s | reply_will_come_from=%s | customer=%s | tenant=%s | same=%s",
+        "NUMBER_CHECK | msg_received_on=%s | reply_will_come_from=%s | phone_number_id=%s | "
+        "customer=%s | tenant=%s | same=%s",
         waba_phone or "(none)",
         from_phone or "(none)",
+        from_phone_id or "(none)",
         wa_id,
         tenant_id,
         "YES" if (re.sub(r"\D", "", str(waba_phone or "")) == from_phone and from_phone) else "NO",
     )
     logger.info(
-        "OUTBOUND_REPLY_LINE | wa_id=%s | tenant=%s | from_number=%s",
-        wa_id, tenant_id, from_phone or "(none)",
+        "OUTBOUND_REPLY_LINE | wa_id=%s | tenant=%s | from_number=%s | phone_number_id=%s",
+        wa_id, tenant_id, from_phone or "(none)", from_phone_id or "(none)",
     )
     # D7: exactly ONE incoming-entry log per inbound message, here at the
     # top. receive_webhook's dedupe checks run before dispatch, so every
@@ -983,10 +994,20 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
 
     if "statuses" in value:
         status = value["statuses"][0]
+        logger.info(
+            "STATUS_CALLBACK | msg_id=%s | status=%s | sent_from_display=%s | "
+            "sent_from_phone_number_id=%s | customer=%s",
+            status.get("id"),
+            status.get("status"),
+            business_display or "(none)",
+            business_phone_id or "(none)",
+            status.get("recipient_id") or "?",
+        )
         logger.info(f"Status callback: id={status.get('id')} status={status.get('status')} "
                     f"timestamp={status.get('timestamp')}")
         log_webhook("incoming", "/webhook/status", json.dumps(status), 200,
-                    f"Status: {status.get('status')} for msg_id: {status.get('id')}",
+                    f"Status: {status.get('status')} for msg_id: {status.get('id')} "
+                    f"from_display={business_display}",
                     wa_id=status.get("recipient_id"), message_id=status.get("id"))
         return {"status": "ok", "type": "status"}
 
@@ -1142,9 +1163,13 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     if _handle_campaign_opt_out(user_text, wa_id, sender_name, tenant_id):
         return {"status": "ok", "type": "campaign_consent"}
 
-    waba_phone = re.sub(r"\D", "", business_display or business_phone_id or "")
+    waba_phone = re.sub(r"\D", "", business_display or "")
+    waba_phone_id = re.sub(r"\D", "", business_phone_id or "")
+    if not waba_phone:
+        waba_phone = waba_phone_id
     background_tasks.add_task(
         _process_and_reply,
-        wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id, waba_phone,
+        wa_id, sender_name, user_text, msg_type, message, msg_id, tenant_id,
+        waba_phone, waba_phone_id,
     )
     return {"status": "ok", "type": "accepted"}

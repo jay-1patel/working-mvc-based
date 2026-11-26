@@ -78,6 +78,7 @@ def _loads_json(value, default=None):
 
 _current_tenant: contextvars.ContextVar = contextvars.ContextVar("current_tenant", default=None)
 _current_waba_phone: contextvars.ContextVar = contextvars.ContextVar("current_waba_phone", default=None)
+_current_waba_phone_id: contextvars.ContextVar = contextvars.ContextVar("current_waba_phone_id", default=None)
 _audit_request_context: contextvars.ContextVar = contextvars.ContextVar("audit_request_context", default=None)
 
 
@@ -144,6 +145,19 @@ def set_request_waba_phone(phone: str | None) -> None:
 
 def get_request_waba_phone() -> str | None:
     return _current_waba_phone.get()
+
+
+def set_request_waba_phone_id(phone_number_id: str | None) -> None:
+    """Meta Graph ``phone_number_id`` for the inbound business line (digits).
+
+    Send2 / Cloud API often route outbound by this id, not the display number.
+    """
+    digits = re.sub(r"\D", "", str(phone_number_id or ""))
+    _current_waba_phone_id.set(digits or None)
+
+
+def get_request_waba_phone_id() -> str | None:
+    return _current_waba_phone_id.get()
 
 
 # ── Connection helpers ───────────────────────────────────────────────────

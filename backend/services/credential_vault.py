@@ -208,7 +208,12 @@ def vault_fallback_enabled() -> bool:
 
 
 def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]:
-    """Credentials for one Send2 API call: vault first, optional global fallback.
+    """Credentials for one Send2 API call.
+
+    Order:
+      1. encrypted vault for the tenant
+      2. ``admins`` row for the tenant (Send2 Base64 username + recoverable password)
+      3. any recoverable admin / optional env fallback (``SEND2_VAULT_FALLBACK``)
 
     Failed decryption stops the call — never sends garbage to Send2.
     """
@@ -232,23 +237,37 @@ def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]
             raise
         return str(creds["username"]), str(creds["password"])
 
-    # One shared CPaaS login for every tenant / business number.
     try:
         try:
-            from services.send2_accounts import shared_send2_credentials
+            from services.send2_accounts import (
+                credentials_from_admins,
+                shared_send2_credentials,
+            )
         except ImportError:
-            from backend.services.send2_accounts import shared_send2_credentials
+            from backend.services.send2_accounts import (
+                credentials_from_admins,
+                shared_send2_credentials,
+            )
+        if tid:
+            pair = credentials_from_admins(tid)
+            if pair:
+                return pair
         pair = shared_send2_credentials()
         if pair:
             return pair
     except Exception:
-        logger.debug("SEND2_SHARED_CREDS_SKIPPED | tenant=%s", tid, exc_info=True)
+        logger.debug("SEND2_ADMINS_CREDS_SKIPPED | tenant=%s", tid, exc_info=True)
 
     if vault_fallback_enabled():
         from routing.config import SEND2_USERNAME, SEND2_PASSWORD
         if SEND2_USERNAME and SEND2_PASSWORD:
+            logger.warning(
+                "SEND2_ENV_FALLBACK_USED | tenant=%s | set admins password for this tenant",
+                tid or "-",
+            )
             return str(SEND2_USERNAME), str(SEND2_PASSWORD)
 
     raise CredentialVaultError(
-        "SEND2_USERNAME/PASSWORD not configured (single CPaaS login for all numbers)"
+        "Send2 username/password not found in vault or admins table "
+        "(store recoverable password on the tenant admin; do not rely on .env)"
     )

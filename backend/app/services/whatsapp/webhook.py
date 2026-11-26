@@ -32,6 +32,19 @@ from backend.integrations.company_api import log_incoming_message, log_outgoing_
 logger = logging.getLogger("chiki_webhook")
 router = APIRouter()
 
+
+def _send2_ready(tenant_id: str | None = None) -> bool:
+    """True when Send2 username/password can be resolved (admins/vault, not .env)."""
+    try:
+        try:
+            from services.credential_vault import resolve_send2_username_password
+        except ImportError:
+            from backend.services.credential_vault import resolve_send2_username_password
+        user, password = resolve_send2_username_password(tenant_id)
+        return bool(user and password)
+    except Exception:
+        return False
+
 # Phrases that trigger human handover
 # Campaign consent (WhatsApp policy): STOP unsubscribes from broadcasts,
 # START resubscribes. Every audience count excludes opted-out contacts.
@@ -239,13 +252,13 @@ async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, st
         blocked = _handover_blocked(wa_id)
         if blocked:
             save_chat(wa_id, sender_name, action["title"], blocked["message"], "refusal")
-            if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+            if _send2_ready():
                 send_whatsapp_message(wa_id, blocked["message"])
             logger.info(f"HANDOVER_BLOCKED | {wa_id} | human_handover off for tenant")
             return True
         _set_human_handover(wa_id, enabled=True)
         save_chat(wa_id, sender_name, action["title"], HANDOVER_CONFIRMATION, "human_handover")
-        if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+        if _send2_ready():
             send_whatsapp_message(wa_id, HANDOVER_CONFIRMATION)
         logger.info(f"HANDOVER_TRIGGERED | {wa_id} | via button {action['id']}")
         return True
@@ -258,7 +271,7 @@ async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, st
             "Please ask your question and I'll answer it right here. 🙏"
         )
         save_chat(wa_id, sender_name, action["title"], response_text, "faq")
-        if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+        if _send2_ready():
             send_whatsapp_message(wa_id, response_text)
         logger.info(f"BUTTON_DOC_DISABLED_AS_TEXT | {wa_id} | action={action['id']}")
         return True
@@ -274,7 +287,7 @@ async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, st
             media_url = None
             media_type = None
         save_chat(wa_id, sender_name, action["title"], response_text, response.get("query_type", "faq"))
-        if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+        if _send2_ready():
             interactive = response.get("interactive")
             if interactive and interactive.get("type") == "button" and interactive.get("buttons"):
                 sent = send_whatsapp_interactive(wa_id, response_text, interactive["buttons"])
@@ -469,7 +482,7 @@ async def _process_and_reply(
                 # User wants to resume bot mode (even if an agent has not connected yet)
                 _set_human_handover(wa_id, enabled=False)
                 save_chat(wa_id, sender_name, user_text, HANDOVER_BOT_RESUME, "human_handover")
-                if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                if _send2_ready():
                     send_whatsapp_message(wa_id, HANDOVER_BOT_RESUME)
                 logger.info(f"HANDOVER_RESUMED | {wa_id} | user requested bot resume")
                 # Continue with bot processing below
@@ -486,13 +499,13 @@ async def _process_and_reply(
                 # The tenant switched human handover off: refuse politely and
                 # let the bot keep the conversation.
                 save_chat(wa_id, sender_name, user_text, blocked["message"], "refusal")
-                if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                if _send2_ready():
                     send_whatsapp_message(wa_id, blocked["message"])
                 logger.info(f"HANDOVER_BLOCKED | {wa_id} | human_handover off for tenant")
                 return
             _set_human_handover(wa_id, enabled=True)
             save_chat(wa_id, sender_name, user_text, HANDOVER_CONFIRMATION, "human_handover")
-            if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+            if _send2_ready():
                 send_whatsapp_message(wa_id, HANDOVER_CONFIRMATION)
             logger.info(f"HANDOVER_TRIGGERED | {wa_id} | user requested human agent")
             return
@@ -507,7 +520,7 @@ async def _process_and_reply(
                 outcome = flow_runner.handle_reply(wa_id, user_text, tenant_id=tenant_id)
                 if outcome and outcome.get("handled"):
                     for msg in outcome.get("messages", []):
-                        if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                        if _send2_ready():
                             send_whatsapp_message(wa_id, flow_runner.message_to_text(msg))
                     reply_text = flow_runner.messages_text(outcome.get("messages", []))
                     save_chat(wa_id, sender_name, user_text, reply_text, "flow")
@@ -527,7 +540,7 @@ async def _process_and_reply(
                     else:
                         transition_msg = "Got it! Let me answer that for you... 🙏"
                         save_chat(wa_id, sender_name, user_text, transition_msg, "flow_break")
-                        if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                        if _send2_ready():
                             send_whatsapp_message(wa_id, transition_msg)
                         logger.info(
                             f"FLOW_BREAK | {wa_id} | flow={outcome.get('flow')} "
@@ -545,7 +558,7 @@ async def _process_and_reply(
                 "I no longer share documents in this chat, but I'd be happy to "
                 "answer your question right here. Go ahead and ask! 🙏"
             )
-            if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+            if _send2_ready():
                 send_whatsapp_message(wa_id, note)
                 await log_outgoing_message(wa_id, note, "text")
             save_chat(wa_id, sender_name, user_text, note, "faq")
@@ -569,14 +582,14 @@ async def _process_and_reply(
                 )
                 if exists and not available:
                     note = "That menu option is no longer available. Please choose another option or ask our team for help."
-                    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                    if _send2_ready():
                         send_whatsapp_message(wa_id, note)
                     save_chat(wa_id, sender_name, user_text, note, "menu_unavailable")
                     await log_outgoing_message(wa_id, note, "text")
                     return
                 if not exists and pressed_id.startswith("menu_") and not pressed_id.startswith(("menu_faq", "menu_human", "menu_view_cart", "menu_new_arrivals")):
                     note = "That menu option is no longer available. Please type your question or ask our team for help."
-                    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                    if _send2_ready():
                         send_whatsapp_message(wa_id, note)
                     save_chat(wa_id, sender_name, user_text, note, "menu_unavailable")
                     await log_outgoing_message(wa_id, note, "text")
@@ -598,7 +611,7 @@ async def _process_and_reply(
                     )
                     if outcome.get("handled") and outcome.get("messages"):
                         for msg in outcome["messages"]:
-                            if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                            if _send2_ready():
                                 send_whatsapp_message(wa_id, flow_runner.message_to_text(msg))
                         reply_text = flow_runner.messages_text(outcome["messages"])
                         save_chat(wa_id, sender_name, user_text, reply_text, "flow")
@@ -681,7 +694,7 @@ async def _process_and_reply(
                         user_query=user_text,
                         tenant_id=tenant_id,
                     )
-                    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                    if _send2_ready():
                         send_whatsapp_message(wa_id, panel_answer)
                     save_chat(wa_id, sender_name, user_text, panel_answer, "intent")
                     await log_outgoing_message(wa_id, panel_answer, "text")
@@ -728,7 +741,7 @@ async def _process_and_reply(
                 )
                 if outcome.get("handled") and outcome.get("messages"):
                     for msg in outcome["messages"]:
-                        if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+                        if _send2_ready():
                             send_whatsapp_message(wa_id, flow_runner.message_to_text(msg))
                     reply_text = flow_runner.messages_text(outcome["messages"])
                     save_chat(wa_id, sender_name, user_text, reply_text, "flow")
@@ -774,7 +787,7 @@ async def _process_and_reply(
         if whatsapp_sent:
             send_status = "sent_by_kb_bot"
             logger.info(f"KB bot already sent interactive reply to {wa_id}")
-        elif config.SEND2_USERNAME and config.SEND2_PASSWORD:
+        elif _send2_ready():
             is_direct = is_direct_media_query(user_text)
 
             if is_direct and config.SEND_MEDIA:

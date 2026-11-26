@@ -3,8 +3,6 @@ import re
 import requests
 import httpx
 from routing.config import (
-    SEND2_USERNAME,
-    SEND2_PASSWORD,
     SEND2_SESSION_SEND_URL,
     SEND2_LIST_MENU_URL,
     SEND2_QUICK_BUTTON_URL,
@@ -278,12 +276,11 @@ def send_whatsapp_typing(to: str, tenant_id: str = None) -> bool:
 
 
 def get_tenant_send2_credentials(tenant_id: str = None) -> tuple:
-    """Retrieve Send2 username/password for the given tenant from the vault.
+    """Retrieve Send2 username/password for the given tenant.
 
-    Prefers the encrypted per-tenant vault. The legacy global
-    SEND2_USERNAME / SEND2_PASSWORD pair is used only when
-    SEND2_VAULT_FALLBACK=true and the tenant has no vault record.
-    Decryption failures raise — never send garbage credentials to Send2.
+    Order: encrypted vault → admins table → optional env only if
+    SEND2_VAULT_FALLBACK=true. Decryption failures raise — never send
+    garbage credentials to Send2.
     """
     try:
         from services.credential_vault import (

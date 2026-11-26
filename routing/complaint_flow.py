@@ -172,8 +172,20 @@ def _buttons():
     ]
 
 
+def _send2_ready() -> bool:
+    try:
+        try:
+            from services.credential_vault import resolve_send2_username_password
+        except ImportError:
+            from backend.services.credential_vault import resolve_send2_username_password
+        user, password = resolve_send2_username_password(None)
+        return bool(user and password)
+    except Exception:
+        return False
+
+
 def _send(to: str, text: str) -> None:
-    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+    if _send2_ready():
         send_whatsapp_message(to, text)
 
 
@@ -193,7 +205,7 @@ def start_complaint(wa_id: str) -> None:
     from database import set_user_state
     set_user_state(wa_id, COMPLAINT_AWAITING_TYPE, {})
     _send(wa_id, _WELCOME_MSG + _CANCEL_HINT)
-    if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+    if _send2_ready():
         send_whatsapp_interactive(wa_id, "Select complaint type:", _buttons())
 
 
@@ -236,7 +248,7 @@ def handle_complaint_state(wa_id: str, user_text: str) -> bool:
         ctype = _match_complaint_type(text)
         if not ctype:
             _send(wa_id, "I didn't catch that. Please select one of the options above (or type *cancel*):")
-            if config.SEND2_USERNAME and config.SEND2_PASSWORD:
+            if _send2_ready():
                 send_whatsapp_interactive(wa_id, "Select complaint type:", _buttons())
             return True
         context["complaint_type"] = ctype

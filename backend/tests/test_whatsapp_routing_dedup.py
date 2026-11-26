@@ -54,8 +54,7 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
             patch("backend.services.flow_runner.is_running", return_value=False),
             patch.object(webhook_router, "_is_doc_button_reply", return_value=False),
             patch("routing.database.touch_customer"),
-            patch.object(webhook_router.config, "SEND2_USERNAME", "test-user"),
-            patch.object(webhook_router.config, "SEND2_PASSWORD", "test-password"),
+            patch.object(webhook_router, "_send2_ready", return_value=True),
             patch.object(webhook_router, "send_whatsapp_typing"),
             patch.object(webhook_router, "send_whatsapp_message") as send,
             patch.object(
@@ -144,8 +143,7 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(webhook_router, "log_outgoing_message", new_callable=AsyncMock),
             patch.object(webhook_router, "save_chat"),
             patch.object(webhook_router, "log_webhook"),
-            patch.object(webhook_router.config, "SEND2_USERNAME", "test-user"),
-            patch.object(webhook_router.config, "SEND2_PASSWORD", "test-password"),
+            patch.object(webhook_router, "_send2_ready", return_value=True),
             patch.object(webhook_router, "send_whatsapp_message") as send,
             patch.object(webhook_router, "process_message", new_callable=AsyncMock) as pipeline,
         ):

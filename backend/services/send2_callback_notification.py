@@ -284,8 +284,17 @@ class Send2CallbackNotificationService:
     
     def is_configured(self) -> bool:
         """Check if Send2 Digital is properly configured."""
-        from routing.config import SEND2_USERNAME, SEND2_PASSWORD
-        return bool(SEND2_USERNAME and SEND2_PASSWORD) or bool(self.api_key and self.api_secret)
+        if self.api_key and self.api_secret:
+            return True
+        try:
+            try:
+                from services.credential_vault import resolve_send2_username_password
+            except ImportError:
+                from backend.services.credential_vault import resolve_send2_username_password
+            user, password = resolve_send2_username_password(None)
+            return bool(user and password)
+        except Exception:
+            return False
 
 
 # Singleton instance

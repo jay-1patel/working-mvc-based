@@ -32,12 +32,12 @@ def _int_env(name: str, default: int) -> int:
 
 # ── WhatsApp / send2.digital ──────────────────────────────────────────────
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
+# Legacy env pair — unused unless SEND2_VAULT_FALLBACK=true.
+# Prefer admins table (Base64 username + recoverable password) or vault.
 SEND2_USERNAME = os.getenv("SEND2_USERNAME")
 SEND2_PASSWORD = os.getenv("SEND2_PASSWORD")
 # Business numbers: tenants.waba_phone_id in DB only (no SEND2_NUMBER env).
-# Per-tenant Send2 credentials live in the encrypted vault. The global
-# SEND2_USERNAME / SEND2_PASSWORD pair is only used when this switch is on
-# AND the tenant has no vault record.
+# Credentials: vault → admins → env only when this switch is on.
 SEND2_VAULT_FALLBACK = (os.getenv("SEND2_VAULT_FALLBACK") or "").strip().lower() in {
     "1", "true", "yes", "on",
 }

@@ -56,11 +56,12 @@ All environment variables are loaded from `routing/.env`. The `backend/` and `kb
 
 Required env vars:
 ```
-SEND2_USERNAME=your_send2_username
-SEND2_PASSWORD=your_send2_password
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3:8b
 ```
+
+Send2 username/password are loaded from Mongo ``admins`` (Base64 username +
+recoverable password) or the encrypted credential vault — not from ``.env``.
 
 ## Directory Structure
 

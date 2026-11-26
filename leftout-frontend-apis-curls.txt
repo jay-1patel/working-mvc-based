@@ -1,0 +1,306 @@
+# Frontend APIs NOT listed in final.csv — curl only
+# Host: http://10.100.100.43:9000
+# Replace USER_ID / SESSION_ID / TENANT_ID / placeholders before use
+# Count: 107
+
+
+# ===== Dashboard =====
+# 12. POST /api/admin/dashboard/overview?days=7&limit=8
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/dashboard/overview?days=7&limit=8"
+
+# 13. GET /api/admin/errors?limit=100
+curl -s -X GET -H "user_id: USER_ID" -H "session_id: SESSION_ID" "http://10.100.100.43:9000/api/admin/errors?limit=100"
+
+# ===== Tenants =====
+# 14. POST /api/admin/tenants/list
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/list"
+
+# 15. POST /api/admin/tenants
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants"
+
+# 16. POST /api/admin/tenants/<TENANT_ID>/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/delete"
+
+# 17. POST /api/admin/tenants/<TENANT_ID>/detail
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/detail"
+
+# 18. POST /api/admin/tenants/<TENANT_ID>/phone-id
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/phone-id"
+
+# 19. POST /api/admin/tenants/<TENANT_ID>/intents/<INTENT>
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/intents/INTENT"
+
+# 20. POST /api/admin/tenants/<TENANT_ID>/versions
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/versions"
+
+# 21. POST /api/admin/tenants/<TENANT_ID>/versions/<VERSION>
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/versions/1"
+
+# 22. POST /api/admin/tenants/<TENANT_ID>/rollback
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/rollback"
+
+# 23. POST /api/admin/tenants/<TENANT_ID>/tokens/list
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/tokens/list"
+
+# 24. POST /api/admin/tenants/<TENANT_ID>/tokens
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/tokens"
+
+# 25. POST /api/admin/tenants/<TENANT_ID>/tokens/<TOKEN_ID>/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/tokens/1/delete"
+
+# 26. POST /api/admin/tenants/<TENANT_ID>/test-question
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/test-question"
+
+# 27. POST /api/admin/tenants/<TENANT_ID>/smoke
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/smoke"
+
+# 28. POST /api/admin/tenants/active-test-tenant/current
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/active-test-tenant/current"
+
+# 29. POST /api/admin/tenants/active-test-tenant
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/active-test-tenant"
+
+# 30. POST /api/admin/tenants/send2-credentials/status
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/send2-credentials/status"
+
+# 31. POST /api/admin/tenants/<TENANT_ID>/send2-credentials/resync
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/send2-credentials/resync"
+
+# ===== Approvals =====
+# 32. POST /api/tenant-change-requests/mine
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenant-change-requests/mine"
+
+# 33. POST /api/tenant-change-requests
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenant-change-requests"
+
+# 34. POST /api/admin/tenant-change-requests
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenant-change-requests"
+
+# 35. POST /api/admin/tenant-change-requests/<ID>/decision
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenant-change-requests/1/decision"
+
+# 36. POST /api/admin/tenant-change-requests/<ID>/events
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenant-change-requests/1/events"
+
+# ===== Audit =====
+# 37. POST /api/admin/audit-history
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/audit-history"
+
+# 38. POST /api/admin/audit-history/<EVENT_ID>
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/audit-history/1"
+
+# 39. POST /api/admin/audit-statistics
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/audit-statistics"
+
+# 40. POST /api/admin/audit-export
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/audit-export"
+
+# ===== Chats =====
+# 41. POST /api/admin/tenants/chat-history
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/chat-history"
+
+# 42. POST /api/admin/tenants/inbox/attach
+curl -s -X POST -H "user_id: USER_ID" -H "session_id: SESSION_ID" -F "file=@FILE_PATH" "http://10.100.100.43:9000/api/admin/tenants/inbox/attach"
+
+# 43. POST /api/admin/tenants/<TENANT_ID>/chat/attach
+curl -s -X POST -H "user_id: USER_ID" -H "session_id: SESSION_ID" -F "file=@FILE_PATH" "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/chat/attach"
+
+# 44. POST /api/admin/tenants/<TENANT_ID>/chat/users
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/chat/users"
+
+# 45. POST /api/admin/tenants/<TENANT_ID>/chat/send
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/chat/send"
+
+# 46. POST /api/admin/tenants/complaints
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/complaints"
+
+# 47. POST /api/admin/tenants/complaints/update
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/complaints/update"
+
+# 48. POST /api/admin/tenants/complaints/reply
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/complaints/reply"
+
+# 49. POST /api/admin/tenants/complaints/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/complaints/delete"
+
+# ===== Files =====
+# 50. POST /api/admin/tenants/files/bifurcate-existing
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/files/bifurcate-existing"
+
+# 51. POST /api/admin/tenants/<TENANT_ID>/files/auto-bifurcate
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/files/auto-bifurcate"
+
+# 52. POST /api/admin/tenants/<TENANT_ID>/files/image
+curl -s -X POST -H "user_id: USER_ID" -H "session_id: SESSION_ID" -F "file=@FILE_PATH" "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/files/image"
+
+# 53. POST /api/admin/tenants/knowledge-gaps
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps"
+
+# 54. POST /api/admin/tenants/knowledge-gaps/resolve
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps/resolve"
+
+# 55. POST /api/admin/tenants/knowledge-gaps/create-faq
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/knowledge-gaps/create-faq"
+
+# 56. POST /api/admin/upload/logo
+curl -s -X POST -H "user_id: USER_ID" -H "session_id: SESSION_ID" -F "file=@FILE_PATH" "http://10.100.100.43:9000/api/admin/upload/logo"
+
+# ===== Offerings =====
+# 57. POST /api/admin/tenants/<TENANT_ID>/offerings/list
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings/list"
+
+# 58. POST /api/admin/tenants/<TENANT_ID>/offerings
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings"
+
+# 59. POST /api/admin/tenants/<TENANT_ID>/offerings/<ID>/update
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings/1/update"
+
+# 60. POST /api/admin/tenants/<TENANT_ID>/offerings/<ID>/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/offerings/1/delete"
+
+# 61. POST /api/admin/tenants/<TENANT_ID>/record-schema
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/record-schema"
+
+# 62. POST /api/admin/tenants/<TENANT_ID>/record-schema/columns
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/record-schema/columns"
+
+# 63. POST /api/admin/tenants/<TENANT_ID>/record-schema/columns/<KEY>/update
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/record-schema/columns/KEY/update"
+
+# 64. POST /api/admin/tenants/<TENANT_ID>/record-schema/columns/<KEY>/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/record-schema/columns/KEY/delete"
+
+# 65. POST /api/admin/tenants/<TENANT_ID>/record-schema/reset
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/record-schema/reset"
+
+# ===== Operations =====
+# 66. GET /api/admin/customers
+curl -s -X GET -H "user_id: USER_ID" -H "session_id: SESSION_ID" "http://10.100.100.43:9000/api/admin/customers"
+
+# 67. GET /api/orders
+curl -s -X GET -H "user_id: USER_ID" -H "session_id: SESSION_ID" "http://10.100.100.43:9000/api/orders"
+
+# 68. POST /api/admin/tenants/<TENANT_ID>/orders
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/orders"
+
+# ===== Campaigns =====
+# 69. POST /api/admin/tenants/<TENANT_ID>/campaigns/list
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/list"
+
+# 70. POST /api/admin/tenants/<TENANT_ID>/campaigns
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns"
+
+# 71. POST /api/admin/tenants/<TENANT_ID>/campaigns/<ID>/update
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/1/update"
+
+# 72. POST /api/admin/tenants/<TENANT_ID>/campaigns/<ID>/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/1/delete"
+
+# 73. POST /api/admin/tenants/<TENANT_ID>/campaigns/<ID>/send
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/1/send"
+
+# 74. POST /api/admin/tenants/<TENANT_ID>/campaigns/<ID>/send-selection
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/1/send-selection"
+
+# 75. POST /api/admin/tenants/<TENANT_ID>/campaigns/<ID>/test-send
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/1/test-send"
+
+# 76. POST /api/admin/tenants/<TENANT_ID>/campaigns/recipients
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/recipients"
+
+# 77. POST /api/admin/tenants/<TENANT_ID>/campaigns/media
+curl -s -X POST -H "user_id: USER_ID" -H "session_id: SESSION_ID" -F "file=@FILE_PATH" "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/media"
+
+# 78. POST /api/admin/tenants/<TENANT_ID>/campaigns/templates/list
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/templates/list"
+
+# 79. POST /api/admin/tenants/<TENANT_ID>/campaigns/templates
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/templates"
+
+# 80. POST /api/admin/tenants/<TENANT_ID>/campaigns/templates/<ID>/update
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/templates/1/update"
+
+# 81. POST /api/admin/tenants/<TENANT_ID>/campaigns/templates/<ID>/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/templates/1/delete"
+
+# 82. POST /api/admin/tenants/<TENANT_ID>/campaigns/segments/list
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/segments/list"
+
+# 83. POST /api/admin/tenants/<TENANT_ID>/campaigns/segments
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/segments"
+
+# 84. POST /api/admin/tenants/<TENANT_ID>/campaigns/segments/<ID>/update
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/segments/1/update"
+
+# 85. POST /api/admin/tenants/<TENANT_ID>/campaigns/segments/<ID>/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/campaigns/segments/1/delete"
+
+# ===== Distributors =====
+# 86. POST /api/admin/tenants/<TENANT_ID>/distributors/list
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/distributors/list"
+
+# 87. POST /api/admin/tenants/<TENANT_ID>/distributors
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/distributors"
+
+# 88. POST /api/admin/tenants/<TENANT_ID>/distributors/<WA_ID>/update
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/distributors/919999999999/update"
+
+# 89. POST /api/admin/tenants/<TENANT_ID>/distributors/<WA_ID>/delete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/tenants/TENANT_ID/distributors/919999999999/delete"
+
+# ===== Callbacks =====
+# 90. POST /api/tenants/<TENANT_ID>/callbacks/list
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks/list"
+
+# 91. POST /api/tenants/<TENANT_ID>/callbacks
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks"
+
+# 92. POST /api/tenants/<TENANT_ID>/callbacks/<ID>/cancel
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks/1/cancel"
+
+# 93. POST /api/tenants/<TENANT_ID>/callbacks/<ID>/complete
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks/1/complete"
+
+# 94. POST /api/tenants/<TENANT_ID>/callbacks/<ID>/schedule
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/callbacks/1/schedule"
+
+# ===== Integrations =====
+# 95. POST /api/integration-requests/mine
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/integration-requests/mine"
+
+# 96. POST /api/integration-requests
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/integration-requests"
+
+# 97. POST /api/admin/integration-requests
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/integration-requests"
+
+# 98. POST /api/admin/integration-requests/<ID>/decision
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/integration-requests/1/decision"
+
+# 99. POST /api/admin/integration-requests/<ID>/events
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/admin/integration-requests/1/events"
+
+# 100. POST /api/tenants/<TENANT_ID>/integrations
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/integrations"
+
+# 101. POST /api/tenants/<TENANT_ID>/integrations/<PROVIDER>/config
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/integrations/PROVIDER/config"
+
+# 102. POST /api/tenants/<TENANT_ID>/integrations/<PROVIDER>/test
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/integrations/PROVIDER/test"
+
+# 103. POST /api/tenants/<TENANT_ID>/payments/create-session
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/payments/create-session"
+
+# 104. POST /api/tenants/<TENANT_ID>/shipping/book-shipment
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/shipping/book-shipment"
+
+# 105. POST /api/tenants/<TENANT_ID>/shipping/track/<AWB>
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/tenants/TENANT_ID/shipping/track/AWB"
+
+# ===== Simulator =====
+# 106. POST /api/test-simulator
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/test-simulator"
+
+# 107. POST /api/test-simulator/reset
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d '{"user_id":"USER_ID","session_id":"SESSION_ID"}' "http://10.100.100.43:9000/api/test-simulator/reset"

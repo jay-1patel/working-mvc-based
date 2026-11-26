@@ -165,7 +165,9 @@ app.add_middleware(
         "Accept-Language",
         "X-Requested-With",
         "username",
+        "user_id",
         "session_id",
+        "Authorization",
     ],
     allow_credentials=True,
 )

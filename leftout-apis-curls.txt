@@ -1,0 +1,22 @@
+# Left-out APIs — curl only
+# Host: http://10.100.100.43:9000
+# After login set: USER_ID=...  SESSION_ID=...  (use user_id + session_id, not username)
+
+# 1) Delete file (currently 403 for tenant admin)
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d "{\"filename\":\"probe.txt\",\"user_id\":\"USER_ID\",\"session_id\":\"SESSION_ID\"}" "http://10.100.100.43:9000/api/admin/tenants/files/delete"
+
+# 2) Upload file — Chats / inbox (JSON base64, NOT multipart)
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d "{\"filename\":\"probe.txt\",\"content\":\"aGVsbG8gcHJvYmUgZmlsZQ==\",\"module\":\"inbox\",\"user_id\":\"USER_ID\",\"session_id\":\"SESSION_ID\"}" "http://10.100.100.43:9000/api/admin/tenants/files/upload"
+
+# 3) Upload file — Website Crawler / faq module (JSON base64, NOT multipart)
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d "{\"filename\":\"probe.txt\",\"content\":\"aGVsbG8gcHJvYmUgZmlsZQ==\",\"module\":\"faq\",\"user_id\":\"USER_ID\",\"session_id\":\"SESSION_ID\"}" "http://10.100.100.43:9000/api/admin/tenants/files/upload"
+
+# 4) Load onboarding users (super_admin only)
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d "{\"user_id\":\"USER_ID\",\"session_id\":\"SESSION_ID\"}" "http://10.100.100.43:9000/api/auth/onboarding-users"
+
+# 5) Impersonate / login selected tenant (super_admin only)
+curl -s -X POST -H "Content-Type: application/json" -H "user_id: USER_ID" -H "session_id: SESSION_ID" -d "{\"user_id\":\"USER_ID\",\"session_id\":\"SESSION_ID\"}" "http://10.100.100.43:9000/api/auth/impersonate/TARGET_USERNAME"
+
+# 6) Read onboarding kit (use real vertical + docx|pdf)
+curl -s -X GET -H "user_id: USER_ID" -H "session_id: SESSION_ID" "http://10.100.100.43:9000/api/admin/onboarding-kits/automotive/docx"
+curl -s -X GET -H "user_id: USER_ID" -H "session_id: SESSION_ID" "http://10.100.100.43:9000/api/admin/onboarding-kits/real_estate/docx"

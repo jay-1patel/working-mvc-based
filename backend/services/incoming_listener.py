@@ -159,7 +159,7 @@ def _release_inbound(message_id: str) -> None:
         logger.warning(f"Could not release inbound id {message_id}: {e}")
 
 
-def _is_duplicate_content(wa_id: str, text: str) -> bool:
+def _is_duplicate_content(wa_id: str, text: str, business_number: str = "") -> bool:
     """Content fingerprint for the Meta webhook ↔ poller race only.
 
     Historical rows Send2 re-lists every poll are suppressed by message-id
@@ -172,7 +172,9 @@ def _is_duplicate_content(wa_id: str, text: str) -> bool:
         except ImportError:
             from backend.services.dedup import is_duplicate_content
         # Keep this short: only covers push-vs-poll dual delivery lag.
-        return is_duplicate_content(wa_id, text, window_seconds=30)
+        return is_duplicate_content(
+            wa_id, text, window_seconds=30, business_number=business_number,
+        )
     except Exception as e:
         logger.debug(f"content dedup unavailable: {e}")
         return False
@@ -517,10 +519,10 @@ async def _handle_polled_batch(messages: list) -> int:
             skipped_known += 1
             continue
 
-        if text and _is_duplicate_content(wa_id, text):
-            logger.debug(
-                "Skipping duplicate content from poller %s: %s",
-                wa_id, text[:40],
+        if text and _is_duplicate_content(wa_id, text, business_number=business_number):
+            logger.info(
+                "NO_REPLY | reason=duplicate_content | poller | customer=%s | received_on=%s | text=%r",
+                wa_id, business_number or "(none)", text[:40],
             )
             _record_processed(message_id, wa_id)
             skipped_known += 1

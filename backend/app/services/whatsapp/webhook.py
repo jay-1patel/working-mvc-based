@@ -331,6 +331,14 @@ async def _process_and_reply(
             logger.debug("WABA_PHONE_DB_LOOKUP_SKIP | tenant=%s", tenant_id, exc_info=True)
     set_request_waba_phone(from_phone)
     logger.info(
+        "BACKGROUND_REPLY_START | customer=%s | tenant=%s | received_on=%s | reply_from=%s | text=%r",
+        wa_id,
+        tenant_id,
+        waba_phone or "(none)",
+        from_phone or "(none)",
+        (user_text or "")[:80],
+    )
+    logger.info(
         "NUMBER_CHECK | msg_received_on=%s | reply_will_come_from=%s | customer=%s | tenant=%s | same=%s",
         waba_phone or "(none)",
         from_phone or "(none)",
@@ -1054,17 +1062,45 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     }), 200, f"Message from {sender_name}", wa_id=wa_id, message_id=msg_id)
 
     if _is_duplicate(msg_id, wa_id):
-        logger.info(f"Skipping duplicate message {msg_id}")
+        logger.info(
+            "NO_REPLY | reason=duplicate_message_id | msg_id=%s | customer=%s | "
+            "received_on=%s — reuse a NEW wamid.id for manual tests",
+            msg_id, wa_id, business_display or "(none)",
+        )
         return {"status": "ok", "type": "duplicate"}
 
-    # Same customer text arriving via Meta + send2 poller with different ids.
+    # Content fingerprint only matters when Meta webhook + send2 poller can both
+    # deliver the same "hi" with different ids. With poller off, message-id dedup
+    # is enough — otherwise retests of "Hi"/"menu" get silenced with no reply.
     try:
-        from backend.services.dedup import is_duplicate_content
-        if is_duplicate_content(wa_id, user_text):
-            logger.info(f"Skipping duplicate content from {wa_id}: {user_text[:40]!r}")
-            return {"status": "ok", "type": "duplicate_content"}
-    except Exception as exc:
-        logger.debug(f"content dedup unavailable: {exc}")
+        from services.incoming_listener import read_poller_enabled
+        _poller_for_dedup = read_poller_enabled()
+    except Exception:
+        try:
+            from backend.services.incoming_listener import read_poller_enabled
+            _poller_for_dedup = read_poller_enabled()
+        except Exception:
+            _poller_for_dedup = os.getenv("SEND2_POLLER_ENABLED", "1").strip().lower() not in (
+                "0", "false", "no", "off",
+            )
+    if _poller_for_dedup:
+        try:
+            from backend.services.dedup import is_duplicate_content
+            if is_duplicate_content(
+                wa_id, user_text, business_number=business_display or business_phone_id or "",
+            ):
+                logger.info(
+                    "NO_REPLY | reason=duplicate_content | customer=%s | received_on=%s | text=%r",
+                    wa_id, business_display or "(none)", (user_text or "")[:40],
+                )
+                return {"status": "ok", "type": "duplicate_content"}
+        except Exception as exc:
+            logger.debug(f"content dedup unavailable: {exc}")
+    else:
+        logger.info(
+            "CONTENT_DEDUP_SKIP | poller_off | customer=%s | received_on=%s | text=%r",
+            wa_id, business_display or "(none)", (user_text or "")[:40],
+        )
 
     # Resolve the owning tenant from the inbound WABA phone-id before the
     # background task, so chat history and state are stamped with it.

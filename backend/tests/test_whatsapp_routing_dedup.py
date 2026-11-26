@@ -236,8 +236,16 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
             database.init_db()
             dedup._l1_cache.clear()
             dedup._content_cache.clear()
-            self.assertFalse(dedup.is_duplicate_content("919512777899", "hi"))
-            self.assertTrue(dedup.is_duplicate_content("919512777899", "Hi"))
+            self.assertFalse(dedup.is_duplicate_content(
+                "919512777899", "hi", business_number="15558072955",
+            ))
+            self.assertTrue(dedup.is_duplicate_content(
+                "919512777899", "Hi", business_number="15558072955",
+            ))
+            # Same text on a different business line must still be answered.
+            self.assertFalse(dedup.is_duplicate_content(
+                "919512777899", "Hi", business_number="15559227148",
+            ))
             self.assertTrue(dedup.try_claim_message("wamid.poll-hi", "919512777899"))
             dedup._l1_cache.clear()
             self.assertFalse(dedup.try_claim_message("wamid.poll-hi", "919512777899"))

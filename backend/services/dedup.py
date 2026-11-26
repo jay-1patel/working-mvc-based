@@ -210,9 +210,16 @@ def release_inbound_claim(message_id: str) -> None:
         logger.error(f"release_inbound_claim failed for {message_id}: {e}")
 
 
-def _content_key(wa_id: str, text: str) -> str:
+def _content_key(wa_id: str, text: str, business_number: str = "") -> str:
+    """Fingerprint scoped to customer + text + business line.
+
+    Business number must be part of the key — the same "Hi" to 15558072955 and
+    15559227148 are different conversations and must not suppress each other.
+    """
+    import re
     norm = " ".join((text or "").strip().lower().split())
-    digest = hashlib.sha1(f"{wa_id}|{norm}".encode("utf-8")).hexdigest()[:24]
+    biz = re.sub(r"\D", "", str(business_number or ""))
+    digest = hashlib.sha1(f"{wa_id}|{biz}|{norm}".encode("utf-8")).hexdigest()[:24]
     return f"c:{digest}"
 
 
@@ -221,36 +228,57 @@ def _content_age_seconds(raw) -> float | None:
         return None
     try:
         if isinstance(raw, datetime):
-            stamped = raw.astimezone(timezone.utc).replace(tzinfo=None)
+            stamped = raw
+            if stamped.tzinfo is None:
+                stamped = stamped.replace(tzinfo=timezone.utc)
+            else:
+                stamped = stamped.astimezone(timezone.utc)
         else:
             text = str(raw)
             if "T" in text:
-                stamped = datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+                stamped = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                if stamped.tzinfo is None:
+                    stamped = stamped.replace(tzinfo=timezone.utc)
             else:
-                stamped = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
-        return (datetime.utcnow() - stamped).total_seconds()
+                stamped = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=timezone.utc
+                )
+        return (datetime.now(timezone.utc) - stamped).total_seconds()
     except Exception:
-        return 0
+        # Unparseable stamp → treat as expired so a stuck row cannot silence forever.
+        return None
 
 
-def is_duplicate_content(wa_id: str, text: str, window_seconds: int = _CONTENT_TTL) -> bool:
-    """True if the same wa_id + text was claimed within the short window.
+def is_duplicate_content(
+    wa_id: str,
+    text: str,
+    window_seconds: int = _CONTENT_TTL,
+    business_number: str = "",
+) -> bool:
+    """True if the same wa_id + business line + text was claimed within the window.
 
-    Catches Meta wamid vs send2 messageid mismatch (and multi-worker races) on
-    the same customer "hi". Uses a short-TTL durable row so a later legitimate
-    "hi" after the window still gets through.
+    Catches Meta wamid vs send2 messageid mismatch on the same customer "hi"
+    for the same business number. Does NOT block the same text on a different
+    WhatsApp business line, and does not refresh the TTL on every hit (that
+    previously locked retests like "Hi"/"menu" forever while you kept retrying).
     """
     if not wa_id or not (text or "").strip():
         return False
-    key = _content_key(wa_id, text)
+    key = _content_key(wa_id, text, business_number=business_number)
     now = time.time()
     ttl = max(5, int(window_seconds))
     expired = [k for k, exp in _content_cache.items() if exp < now]
     for k in expired:
         del _content_cache[k]
     if key in _content_cache:
-        _content_cache[key] = now + ttl
-        logger.debug("Dedup content hit: wa_id=%s text=%r", wa_id, text[:40])
+        # Do NOT extend TTL on hit — otherwise retries every few seconds never expire.
+        logger.info(
+            "DEDUP_CONTENT_HIT | wa_id=%s | business=%s | text=%r | remaining_s=%.1f",
+            wa_id,
+            business_number or "(none)",
+            (text or "")[:40],
+            max(0.0, _content_cache[key] - now),
+        )
         return True
 
     try:
@@ -261,7 +289,13 @@ def is_duplicate_content(wa_id: str, text: str, window_seconds: int = _CONTENT_T
                 age = _content_age_seconds(row.get("processed_at"))
                 if age is not None and age < ttl:
                     _content_cache[key] = now + (ttl - max(0, age))
-                    logger.debug("Dedup content L2 hit: wa_id=%s text=%r", wa_id, text[:40])
+                    logger.info(
+                        "DEDUP_CONTENT_L2_HIT | wa_id=%s | business=%s | text=%r | age_s=%.1f",
+                        wa_id,
+                        business_number or "(none)",
+                        (text or "")[:40],
+                        age,
+                    )
                     return True
                 dedup_repo.delete_one({"message_id": key})
             try:
@@ -285,8 +319,12 @@ def is_duplicate_content(wa_id: str, text: str, window_seconds: int = _CONTENT_T
                     age = _content_age_seconds(raw)
                     if age is not None and age < ttl:
                         _content_cache[key] = now + (ttl - max(0, age))
-                        logger.debug(
-                            "Dedup content L2 hit: wa_id=%s text=%r", wa_id, text[:40]
+                        logger.info(
+                            "DEDUP_CONTENT_L2_HIT | wa_id=%s | business=%s | text=%r | age_s=%.1f",
+                            wa_id,
+                            business_number or "(none)",
+                            (text or "")[:40],
+                            age,
                         )
                         return True
                     conn.execute("DELETE FROM webhook_dedup WHERE message_id = ?", (key,))

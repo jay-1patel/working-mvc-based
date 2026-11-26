@@ -1,10 +1,10 @@
 """Hierarchical WhatsApp menus for the spiritual tenant.
 
 Main: Kumbh Mela · Gangasagar Mela · Jagannath Rath Yatra
-Each event opens the same 7 platform components (event-specific answers):
+Events open platform components with event-specific answers. Rath Yatra omits
+Holy Bathing Info:
   AI Spiritual Guide · Religious Knowledge · Religious Calendar ·
-  Holy Bathing Information · Travel Assistance · Accommodation ·
-  Emergency Support
+  Travel Assistance · Accommodation · Emergency Support
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ EVENTS: dict[str, dict[str, Any]] = {
     },
 }
 
-# ── Sub-menu (platform components) — same 7 for every event ──────────────────
+# ── Sub-menu (platform components) ──────────────────────────────────────────
 
 EVENT_TOPICS: list[dict[str, Any]] = [
     {
@@ -305,6 +305,30 @@ def _clear_pending(wa_id: str, *, tenant_id: str | None) -> None:
     _set_pending(wa_id, {}, tenant_id=tenant_id)
 
 
+def _set_active_event(wa_id: str, event_slug: str, *, tenant_id: str | None) -> None:
+    """Remember the event whose title-only list replies should be resolved."""
+    try:
+        from database import update_user_context
+        update_user_context(wa_id, {"spiritual_active_event": event_slug}, tenant_id=tenant_id)
+    except Exception:
+        logger.debug("spiritual active event save skipped", exc_info=True)
+
+
+def _get_active_event(wa_id: str, *, tenant_id: str | None) -> str:
+    try:
+        from database import get_user_state
+        row = get_user_state(wa_id, tenant_id=tenant_id) or {}
+        import json
+        ctx = row.get("context") if isinstance(row, dict) else None
+        if isinstance(ctx, str):
+            ctx = json.loads(ctx or "{}")
+        slug = str((ctx or {}).get("spiritual_active_event") or "")
+        return slug if slug in _EVENT_BY_SLUG else ""
+    except Exception:
+        logger.debug("spiritual active event load skipped", exc_info=True)
+        return ""
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     from math import asin, cos, radians, sin, sqrt
 
@@ -546,8 +570,11 @@ async def _send_event_topics(
 ) -> bool:
     meta = EVENTS[category_id]
     slug = str(meta["slug"])
+    _set_active_event(wa_id, slug, tenant_id=tenant_id)
     rows = []
     for topic in EVENT_TOPICS:
+        if slug == "rath_yatra" and topic["key"] == "bathing":
+            continue
         rows.append({
             "id": f"st_{slug}_{topic['key']}",
             "title": str(topic["title"])[:24],
@@ -631,6 +658,19 @@ def _parse_event_topic(text: str) -> Optional[tuple[str, str]]:
             event_slug = rest[: -len(suffix)]
             if event_slug in _EVENT_BY_SLUG:
                 return event_slug, topic
+    return None
+
+
+def _parse_event_topic_title(text: str, event_slug: str) -> Optional[tuple[str, str]]:
+    """Resolve a list row's visible title when the provider omits its row ID."""
+    if event_slug not in _EVENT_BY_SLUG:
+        return None
+    title = _norm(text)
+    for topic in EVENT_TOPICS:
+        if event_slug == "rath_yatra" and topic["key"] == "bathing":
+            continue
+        if title == _norm(topic["title"]):
+            return event_slug, str(topic["key"])
     return None
 
 
@@ -733,8 +773,17 @@ async def handle_spiritual_menu_action(
         return {"handled": True, "action": "spiritual_event_topics", "category": event_id}
 
     parsed = _parse_event_topic(text)
+    if not parsed:
+        parsed = _parse_event_topic_title(
+            text, _get_active_event(wa_id, tenant_id=tenant_id),
+        )
     if parsed:
         event_slug, topic = parsed
+        # Ignore old/stale Rath Yatra bathing menu IDs as well as omitting the
+        # option from the current menu.
+        if event_slug == "rath_yatra" and topic == "bathing":
+            await _send_event_topics(wa_id, "menu_rath_yatra", tenant_id=tenant_id)
+            return {"handled": True, "action": "spiritual_event_topics", "category": "menu_rath_yatra"}
         if topic == "emergency":
             await _send_emergency_menu(wa_id, event_slug, tenant_id=tenant_id)
             return {"handled": True, "action": "spiritual_emergency_menu"}

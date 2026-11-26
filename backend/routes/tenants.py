@@ -14,6 +14,10 @@ versioned and rollbackable:
     GET  /api/admin/tenants/{tenant_id}/versions
     POST /api/admin/tenants/{tenant_id}/tokens      -> mint a tenant-scoped token
     POST /api/admin/tenants/resolved               -> what the bot actually reads
+    POST /api/admin/tenants/menu/list              -> WhatsApp menu options (session tenant)
+    POST /api/admin/tenants/menu/add               -> add menu option
+    POST /api/admin/tenants/menu/update            -> edit menu option
+    POST /api/admin/tenants/menu/delete            -> delete menu option
 
 ``/resolved`` is the smoke-test endpoint: it returns the merged, validated
 profile the bot will use right now, so the UI can diff it against the draft.
@@ -31,7 +35,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from database import get_db_context, record_admin_audit_event
 from db.core import use_mongodb
@@ -644,6 +648,342 @@ def resolved_profile(
             ],
             "flows": [f.model_dump() for f in profile.active_flows()],
         }
+    )
+
+
+# ── WhatsApp menu CRUD (session tenant; from upload/AI + manual edits) ─────
+
+_MENU_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+class MenuListRequest(BaseModel):
+    """Empty body — tenant comes from username + session_id."""
+    model_config = ConfigDict(extra="ignore")
+
+
+class MenuButtonWriteRequest(BaseModel):
+    """Add or update one WhatsApp menu option."""
+    model_config = ConfigDict(extra="ignore")
+    id: Optional[str] = None
+    title: str = ""
+    description: str = ""
+    section: str = "General"
+    icon: str = ""
+    sort_order: Optional[int] = None
+    enabled: bool = True
+    requires_feature: Optional[str] = None
+    out_of_hours_only: bool = False
+    flow: Optional[str] = None
+    intent: Optional[str] = None
+    # When true (default), save draft then publish / queue approval.
+    publish: bool = True
+
+
+class MenuButtonDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    publish: bool = True
+
+
+def _slug_menu_id(title: str, existing: set[str]) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", (title or "").strip().lower()).strip("_") or "menu_item"
+    if not base[0].isalpha():
+        base = f"menu_{base}"
+    candidate = base[:64]
+    n = 2
+    while candidate in existing:
+        suffix = f"_{n}"
+        candidate = f"{base[: 64 - len(suffix)]}{suffix}"
+        n += 1
+    return candidate
+
+
+def _menu_working_payload(tenant_id: str) -> dict:
+    """Pending draft menu if present, else live published menu."""
+    draft = tenancy_store.get_draft(tenant_id)
+    if draft:
+        try:
+            return tenancy_loader.validate_merged_profile(tenant_id, draft).to_payload()
+        except Exception:
+            # Broken draft — still expose its menu section for editing.
+            if isinstance(draft.get("menu"), dict):
+                return {"menu": draft.get("menu"), "vertical": draft.get("vertical")}
+    try:
+        return tenancy_loader.get_tenant_profile(tenant_id).to_payload()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No menu profile for tenant '{tenant_id}': {exc}",
+        ) from exc
+
+
+def _menu_shell(payload: dict) -> dict:
+    menu = payload.get("menu") if isinstance(payload, dict) else None
+    if not isinstance(menu, dict):
+        menu = {}
+    buttons = menu.get("buttons") if isinstance(menu.get("buttons"), list) else []
+    clean = [dict(b) for b in buttons if isinstance(b, dict) and not b.get("__remove__")]
+    clean.sort(key=lambda b: int(b.get("sort_order") or 0))
+    return {
+        "key": str(menu.get("key") or "kb_main"),
+        "header": str(menu.get("header") or ""),
+        "body": str(menu.get("body") or ""),
+        "footer": str(menu.get("footer") or ""),
+        "button_text": str(menu.get("button_text") or "Show Options"),
+        "buttons": clean,
+    }
+
+
+def _publish_menu_draft(
+    tenant_id: str,
+    request: Request,
+    principal: dict,
+    credentials: HTTPAuthorizationCredentials | None,
+) -> dict:
+    """Publish draft or queue for approval (same gate as profile publish)."""
+    draft = tenancy_store.get_draft(tenant_id)
+    if draft is None:
+        return {"status": "no_draft"}
+    if principal.get("role") != "super_admin":
+        from routes.tenant_approvals import queue_publish_for_approval
+
+        current_admin = get_current_admin(request, credentials)
+        result = queue_publish_for_approval(tenant_id, current_admin)
+        return {
+            "status": "pending_approval",
+            "request": result.get("request"),
+            "message": (
+                "Menu change sent for super admin approval — "
+                "goes live only once approved."
+            ),
+        }
+    try:
+        profile = tenancy_loader.validate_merged_profile(tenant_id, draft)
+    except tenancy_loader.ProfileValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Menu draft failed validation, nothing published: {exc}",
+        ) from exc
+    by = principal.get("username") or principal.get("label", "")
+    tenancy_loader.clamp_profile_features(draft, profile.vertical)
+    version = tenancy_store.publish_version(tenant_id, draft, published_by=by)
+    tenancy_cache.purge(tenant_id)
+    return {"status": "published", "version": version}
+
+
+def _save_menu_buttons(
+    *,
+    tenant_id: str,
+    request: Request,
+    principal: dict,
+    credentials: HTTPAuthorizationCredentials | None,
+    buttons: list[dict],
+    menu_meta: dict,
+    publish: bool,
+    action: str,
+) -> dict:
+    by = principal.get("username") or principal.get("label", "")
+    snapshot = {
+        "menu": {
+            "key": menu_meta.get("key") or "kb_main",
+            "header": menu_meta.get("header") or "",
+            "body": menu_meta.get("body") or "",
+            "footer": menu_meta.get("footer") or "",
+            "button_text": menu_meta.get("button_text") or "Show Options",
+            "buttons": buttons,
+        }
+    }
+    draft = tenancy_store.get_draft(tenant_id) or {}
+    merged = merge_drafts(draft, snapshot)
+    tenant_record = tenancy_store.get_tenant(tenant_id) or {}
+    tenancy_loader.clamp_profile_features(
+        merged, merged.get("vertical") or tenant_record.get("vertical") or "generic"
+    )
+    tenancy_store.save_draft(tenant_id, merged, updated_by=by)
+    record_admin_audit_event(
+        None,
+        action=action,
+        actor=principal,
+        resource_type="tenant_menu",
+        resource_id=tenant_id,
+        tenant_id=tenant_id,
+        details={"button_count": len([b for b in buttons if not b.get("__remove__")])},
+    )
+    publish_result = None
+    if publish:
+        publish_result = _publish_menu_draft(tenant_id, request, principal, credentials)
+    visible = [b for b in buttons if isinstance(b, dict) and not b.get("__remove__")]
+    shell = _menu_shell({"menu": {**snapshot["menu"], "buttons": visible}})
+    return {
+        "ok": True,
+        "tenant_id": tenant_id,
+        "menu": shell,
+        "count": len(shell["buttons"]),
+        "publish": publish_result,
+    }
+
+
+@router.post("/menu/list")
+def menu_list(
+    body: MenuListRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """List WhatsApp menu options for the session tenant (upload/AI + edits)."""
+    tenant_id = session_tenant_id(request=request)
+    authorize_tenant_access(request, tenant_id, credentials)
+    payload = _menu_working_payload(tenant_id)
+    shell = _menu_shell(payload)
+    live = None
+    try:
+        live = _menu_shell(tenancy_loader.get_tenant_profile(tenant_id).to_payload())
+    except Exception:
+        live = None
+    return {
+        "ok": True,
+        "tenant_id": tenant_id,
+        "has_draft": bool(tenancy_store.get_draft(tenant_id)),
+        "current_version": tenancy_store.current_version(tenant_id),
+        "menu": shell,
+        "count": len(shell["buttons"]),
+        "live_menu": live,
+    }
+
+
+@router.post("/menu/add")
+def menu_add(
+    body: MenuButtonWriteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Add a WhatsApp menu option for the session tenant."""
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    title = str(body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    shell = _menu_shell(_menu_working_payload(tenant_id))
+    existing_ids = {str(b.get("id") or "") for b in shell["buttons"]}
+    button_id = str(body.id or "").strip() or _slug_menu_id(title, existing_ids)
+    if not _MENU_ID_RE.match(button_id):
+        raise HTTPException(
+            status_code=422,
+            detail="id must be lowercase letters/digits/underscores, starting with a letter",
+        )
+    if button_id in existing_ids:
+        raise HTTPException(status_code=409, detail=f"Menu id '{button_id}' already exists")
+    sort_order = body.sort_order if body.sort_order is not None else len(shell["buttons"])
+    new_btn = {
+        "id": button_id,
+        "title": title[:24],
+        "description": str(body.description or "")[:72],
+        "section": str(body.section or "General").strip() or "General",
+        "icon": str(body.icon or ""),
+        "sort_order": int(sort_order),
+        "enabled": bool(body.enabled),
+        "requires_feature": body.requires_feature,
+        "out_of_hours_only": bool(body.out_of_hours_only),
+        "flow": body.flow,
+        "intent": body.intent,
+    }
+    buttons = list(shell["buttons"]) + [new_btn]
+    return _save_menu_buttons(
+        tenant_id=tenant_id,
+        request=request,
+        principal=principal,
+        credentials=credentials,
+        buttons=buttons,
+        menu_meta=shell,
+        publish=bool(body.publish),
+        action="tenant_menu_add",
+    )
+
+
+@router.post("/menu/update")
+def menu_update(
+    body: MenuButtonWriteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Edit an existing WhatsApp menu option by id."""
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    button_id = str(body.id or "").strip()
+    if not button_id:
+        raise HTTPException(status_code=400, detail="id is required")
+    shell = _menu_shell(_menu_working_payload(tenant_id))
+    found = False
+    buttons: list[dict] = []
+    for btn in shell["buttons"]:
+        if str(btn.get("id") or "") != button_id:
+            buttons.append(btn)
+            continue
+        found = True
+        title = str(body.title or btn.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="title is required")
+        updated = {
+            **btn,
+            "title": title[:24],
+            "description": str(
+                body.description if body.description is not None else btn.get("description") or ""
+            )[:72],
+            "section": str(body.section or btn.get("section") or "General").strip() or "General",
+            "icon": str(body.icon if body.icon is not None else btn.get("icon") or ""),
+            "enabled": bool(body.enabled),
+            "requires_feature": (
+                body.requires_feature
+                if body.requires_feature is not None
+                else btn.get("requires_feature")
+            ),
+            "out_of_hours_only": bool(body.out_of_hours_only),
+            "flow": body.flow if body.flow is not None else btn.get("flow"),
+            "intent": body.intent if body.intent is not None else btn.get("intent"),
+        }
+        if body.sort_order is not None:
+            updated["sort_order"] = int(body.sort_order)
+        buttons.append(updated)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Menu id '{button_id}' not found")
+    return _save_menu_buttons(
+        tenant_id=tenant_id,
+        request=request,
+        principal=principal,
+        credentials=credentials,
+        buttons=buttons,
+        menu_meta=shell,
+        publish=bool(body.publish),
+        action="tenant_menu_update",
+    )
+
+
+@router.post("/menu/delete")
+def menu_delete(
+    body: MenuButtonDeleteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Delete a WhatsApp menu option (tombstone so defaults do not return)."""
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    button_id = str(body.id or "").strip()
+    if not button_id:
+        raise HTTPException(status_code=400, detail="id is required")
+    shell = _menu_shell(_menu_working_payload(tenant_id))
+    if not any(str(b.get("id") or "") == button_id for b in shell["buttons"]):
+        raise HTTPException(status_code=404, detail=f"Menu id '{button_id}' not found")
+    kept = [b for b in shell["buttons"] if str(b.get("id") or "") != button_id]
+    # Tombstone so layered defaults cannot resurrect the row.
+    buttons = kept + [{"id": button_id, "__remove__": True}]
+    return _save_menu_buttons(
+        tenant_id=tenant_id,
+        request=request,
+        principal=principal,
+        credentials=credentials,
+        buttons=buttons,
+        menu_meta=shell,
+        publish=bool(body.publish),
+        action="tenant_menu_delete",
     )
 
 

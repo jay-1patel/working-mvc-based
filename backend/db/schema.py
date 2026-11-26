@@ -26,6 +26,13 @@ def init_db():
     logger.info(
         "MongoDB schema indexes ready | collections=%s", len(REGISTRY["tables"])
     )
+    try:
+        from .privileges import ensure_menu_privilege_catalog
+
+        ensure_menu_privilege_catalog()
+        logger.info("Seeded menu_privilege catalog (superadmin skips grant checks)")
+    except Exception:
+        logger.debug("menu privilege seed skipped", exc_info=True)
 
 
 def _default_tenant_id() -> str:

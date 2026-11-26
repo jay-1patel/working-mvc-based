@@ -427,6 +427,12 @@ export interface AdminIdentity {
   role: 'super_admin' | 'admin' | 'sub_admin' | string
   email: string | null
   permissions: Record<string, boolean>
+  /**
+   * Menu access grants from the privilege table. Missing / all-false means
+   * a first-time user with no sidebar menus until a superadmin assigns some.
+   * Superadmin always receives every key as true from the API.
+   */
+  menu_privileges?: Record<string, boolean>
   tenant_id?: string | null
   onboarding_approved?: boolean
   /** True for the dedicated customer_care operator (login-as). */

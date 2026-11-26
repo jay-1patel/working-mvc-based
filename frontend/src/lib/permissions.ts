@@ -263,10 +263,10 @@ export function contentWritePerms(vertical?: string | null): {
 }
 
 /**
- * First-login lock: a company admin with no tenant_id must finish the
- * setup wizard (WhatsApp → company/vertical → profile) before the console
- * opens. Credentials come from Send2; the admin creates their own tenant
- * on first login. Super admins and sub admins are never gated.
+ * First-login lock: a company admin must finish Set up chatbot before the
+ * console opens. Signup already assigns tenant_id; the server sets
+ * onboarding_approved after profile v1 is published. Super admins and
+ * sub admins are never gated.
  */
 export function isOnboardingLocked(
   identity: { role?: string | null; tenant_id?: string | null; onboarding_approved?: boolean } | null,
@@ -275,6 +275,9 @@ export function isOnboardingLocked(
   // customer_care support sessions must not be trapped in Register.
   if (opts?.impersonating) return false
   if (!identity || identity.role !== 'admin') return false
+  if (typeof identity.onboarding_approved === 'boolean') {
+    return !identity.onboarding_approved
+  }
   return !String(identity.tenant_id || '').trim()
 }
 

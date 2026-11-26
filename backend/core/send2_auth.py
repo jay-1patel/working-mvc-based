@@ -71,10 +71,12 @@ def decode_stored_username(username: str | None) -> str:
 
 
 def admin_username_candidates(username: str) -> list[str]:
-    """DB lookup keys for ``admins.username`` (Base64 only).
+    """DB lookup keys for ``admins.username``.
 
-    Plain login input is encoded once; encoded login input is rejected by
-    ``normalize_login_username``.
+    Prefer plain storage (signup); also try legacy Send2 Base64 rows.
+    Encoded login input is rejected by ``normalize_login_username``.
     """
     plain = normalize_login_username(username)
-    return [encode_send2_username(plain)]
+    encoded = encode_send2_username(plain)
+    # Plain first so new signup rows match; encoded keeps older admins working.
+    return [plain, encoded]

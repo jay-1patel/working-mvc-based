@@ -1,10 +1,11 @@
 /**
  * Single fetch wrapper for the whole app.
  *
- * Login uses ``username`` + ``session_id`` only.
- * After login, every API call passes the live admin session as:
- *   - headers ``user_id`` + ``session_id`` (admins.id, e.g. 3047)
+ * Authentication is ``username`` + ``session_id`` only:
+ *   - headers ``username`` + ``session_id``
  *   - the same fields on JSON / multipart bodies
+ *
+ * ``user_id`` may be cached for display; it is never sent for auth.
  *
  * Every non-2xx response is normalised into an `ApiError` carrying the
  * server's `detail`, so screens can surface backend validation text.
@@ -107,7 +108,7 @@ export function getUserId(): string | null {
   }
 }
 
-/** Display / audit name only — not used for API auth after login. */
+/** Plain login username used for API auth with session_id. */
 export function getUsername(): string | null {
   try {
     return localStorage.getItem(USERNAME_KEY)
@@ -125,8 +126,8 @@ export function getSessionId(): string | null {
 }
 
 /**
- * Persist session credentials. Prefer numeric ``userId`` (admins.id).
- * ``username`` is optional display cache only.
+ * Persist session credentials. Auth uses plain ``username`` + ``sessionId``.
+ * ``userId`` is stored for display / dropdowns only.
  */
 export function setCredentials(
   userId: string | number,
@@ -135,13 +136,14 @@ export function setCredentials(
 ) {
   const id = String(userId).trim()
   const session = sessionId.trim()
-  const token = btoa(`${id}:${session}`)
+  const plain = username != null ? String(username).trim() : ''
+  const token = btoa(`${plain || id}:${session}`)
   try {
     localStorage.setItem(TOKEN_KEY, token)
     localStorage.setItem(USER_ID_KEY, id)
     localStorage.setItem(SESSION_KEY, session)
-    if (username != null && String(username).trim()) {
-      localStorage.setItem(USERNAME_KEY, String(username).trim())
+    if (plain) {
+      localStorage.setItem(USERNAME_KEY, plain)
     }
   } catch {
     /* private mode — the session simply does not persist */
@@ -180,26 +182,27 @@ export function setToken(token: string | null) {
   }
 }
 
-/** Auth headers — user_id + session_id (no Authorization). */
+/** Auth headers — username + session_id (no Authorization). */
 export function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {}
-  const userId = getUserId()
+  const username = getUsername()
   const sessionId = getSessionId()
-  if (userId) headers.user_id = userId
+  if (username) headers.username = username
   if (sessionId) headers.session_id = sessionId
   return headers
 }
 
-/** Attach user_id + session_id on every JSON body (does not overwrite payload username). */
+/** Attach username + session_id on every JSON body (does not overwrite payload keys). */
 function withSessionBody(body: unknown): unknown {
-  const userId = getUserId()
+  const username = getUsername()
   const sessionId = getSessionId()
-  if ((!userId && !sessionId) || body === undefined || body === null) return body
+  if ((!username && !sessionId) || body === undefined || body === null) return body
   if (typeof body === 'object' && !Array.isArray(body)) {
+    const payload = body as Record<string, unknown>
     return {
-      ...(body as Record<string, unknown>),
-      ...(userId ? { user_id: userId } : {}),
-      ...(sessionId ? { session_id: sessionId } : {}),
+      ...payload,
+      ...(username && payload.username == null ? { username } : {}),
+      ...(sessionId && payload.session_id == null ? { session_id: sessionId } : {}),
     }
   }
   return body
@@ -329,9 +332,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 export async function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
   const startedAt = timerNow()
   const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders() }
-  const userId = getUserId()
+  const username = getUsername()
   const sessionId = getSessionId()
-  if (userId && !form.has('user_id')) form.append('user_id', userId)
+  if (username && !form.has('username')) form.append('username', username)
   if (sessionId && !form.has('session_id')) form.append('session_id', sessionId)
 
   let res: Response

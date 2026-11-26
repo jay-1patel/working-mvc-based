@@ -3,6 +3,7 @@ import { api, getActiveTenantId, setActiveTenantId } from './api'
 import { useAuth } from './auth'
 import type {
   LayerDetail,
+  MenuSpec,
   ProfileSnapshot,
   ResolvedProfile,
   SmokeReport,
@@ -73,6 +74,65 @@ export const tenantsApi = {
 
   resolved: (id: string, signal?: AbortSignal) =>
     isMockMode() ? Promise.resolve(mockProfile) : api.post<ResolvedProfile>('/api/admin/tenants/resolved', {}, { signal }),
+
+  /** WhatsApp menu CRUD — tenant from session (username + session_id). */
+  menuList: (signal?: AbortSignal) =>
+    api.post<{
+      ok: boolean
+      tenant_id: string
+      has_draft: boolean
+      current_version: number
+      count: number
+      menu: MenuSpec
+      live_menu?: MenuSpec | null
+    }>('/api/admin/tenants/menu/list', {}, { signal }),
+
+  menuAdd: (body: {
+    id?: string
+    title: string
+    description?: string
+    section?: string
+    enabled?: boolean
+    flow?: string | null
+    intent?: string | null
+    sort_order?: number
+    publish?: boolean
+  }) =>
+    api.post<{
+      ok: boolean
+      tenant_id: string
+      count: number
+      menu: MenuSpec
+      publish?: { status: string; version?: number; message?: string }
+    }>('/api/admin/tenants/menu/add', body),
+
+  menuUpdate: (body: {
+    id: string
+    title?: string
+    description?: string
+    section?: string
+    enabled?: boolean
+    flow?: string | null
+    intent?: string | null
+    sort_order?: number
+    publish?: boolean
+  }) =>
+    api.post<{
+      ok: boolean
+      tenant_id: string
+      count: number
+      menu: MenuSpec
+      publish?: { status: string; version?: number; message?: string }
+    }>('/api/admin/tenants/menu/update', body),
+
+  menuDelete: (body: { id: string; publish?: boolean }) =>
+    api.post<{
+      ok: boolean
+      tenant_id: string
+      count: number
+      menu: MenuSpec
+      publish?: { status: string; version?: number; message?: string }
+    }>('/api/admin/tenants/menu/delete', body),
 
   saveDraft: (id: string, snapshot: ProfileSnapshot) =>
     api.post<{ ok: boolean; validation: string[] }>(

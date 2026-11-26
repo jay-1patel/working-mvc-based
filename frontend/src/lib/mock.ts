@@ -35,6 +35,15 @@ export const mockIdentity: AdminIdentity = {
     upload_kb: true,
     view_files: true,
   },
+  menu_privileges: {
+    graphic: true,
+    chats: true,
+    profile: true,
+    customer: true,
+    website_crawler: true,
+    setup_chatbot: true,
+    menu: true,
+  },
 }
 
 export const mockTenant: Tenant = {

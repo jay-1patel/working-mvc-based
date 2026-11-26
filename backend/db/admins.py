@@ -33,10 +33,21 @@ def count_admins() -> int:
 
 def create_admin(username: str, password_hash: str = "", salt: str = "", role: str = "sub_admin",
                  permissions: dict = None, recovery_key: str = None, tenant_id: str = None,
-                 session_id: str = None, email: str = None, krt_unique_id: str = None) -> int:
+                 session_id: str = None, email: str = None, krt_unique_id: str = None,
+                 admin_id: int = None) -> int:
+    """Create an admin. When ``admin_id`` is set, use that as ``admins.id`` (Send2 register)."""
+    explicit_id = None
+    if admin_id is not None:
+        try:
+            explicit_id = int(admin_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("admin_id must be an integer") from exc
+        if explicit_id <= 0:
+            raise ValueError("admin_id must be a positive integer")
+
     if use_mongodb():
-        from .mongo import Repository
-        row = Repository("admins").insert({
+        from .mongo import Repository, get_database
+        payload = {
             "username": username,
             "password_hash": password_hash,
             "salt": salt,
@@ -47,9 +58,32 @@ def create_admin(username: str, password_hash: str = "", salt: str = "", role: s
             "session_id": session_id,
             "email": email,
             "krt_unique_id": krt_unique_id,
-        })
-        return int(row["id"])
+        }
+        if explicit_id is not None:
+            payload["id"] = explicit_id
+        row = Repository("admins").insert(payload)
+        new_id = int(row["id"])
+        # Keep auto-id counter ahead of any explicit id so later inserts do not collide.
+        if explicit_id is not None:
+            db = get_database()
+            current = db["_counters"].find_one({"_id": "admins"}) or {}
+            seq = int(current.get("seq") or 0)
+            if new_id > seq:
+                db["_counters"].update_one(
+                    {"_id": "admins"},
+                    {"$set": {"seq": new_id}},
+                    upsert=True,
+                )
+        return new_id
     with get_db_context() as conn:
+        if explicit_id is not None:
+            cur = conn.execute(
+                """INSERT INTO admins (id, username, password_hash, salt, role, permissions, recovery_key, tenant_id, session_id, email)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (explicit_id, username, password_hash, salt, role,
+                 json.dumps(permissions or {}), recovery_key, tenant_id, session_id, email),
+            )
+            return explicit_id
         cur = conn.execute(
             """INSERT INTO admins (username, password_hash, salt, role, permissions, recovery_key, tenant_id, session_id, email)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -96,7 +130,17 @@ def update_admin(username: str, **kwargs) -> bool:
     """Update an admin row. Prefer ``admin_id=`` when the caller has it — username
     encoding mismatches otherwise look like a successful write that never landed.
     """
-    allowed = {"password_hash", "salt", "role", "permissions", "recovery_key", "session_id", "krt_unique_id"}
+    allowed = {
+        "password_hash",
+        "salt",
+        "role",
+        "permissions",
+        "recovery_key",
+        "session_id",
+        "krt_unique_id",
+        "username",
+        "tenant_id",
+    }
     admin_id = kwargs.pop("admin_id", None)
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:

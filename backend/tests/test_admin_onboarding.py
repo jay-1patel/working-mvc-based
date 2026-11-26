@@ -141,7 +141,7 @@ class AdminOnboardingTests(unittest.TestCase):
         payload = res.json()
         return _headers(payload["user_id"] or payload["id"], payload["session_id"])
 
-    # ── lock rule: no tenant_id → first-login incomplete ───────────────
+    # ── lock rule: tenant_id without published profile → incomplete ────
 
     def test_unscoped_admin_is_locked_until_first_login(self):
         headers = self._create_admin("fresh-admin", tenant_id=None)
@@ -151,7 +151,44 @@ class AdminOnboardingTests(unittest.TestCase):
         self.assertIsNone(me.json().get("tenant_id"))
         self.assertFalse(me.json()["onboarding_approved"])
 
-    def test_scoped_admin_is_unlocked(self):
+    def test_signup_tenant_without_published_profile_is_locked(self):
+        """Signup assigns tenant_id; Set up chatbot still required until v1."""
+        headers = self._create_admin("shell-admin", tenant_id="leeway")
+        me = self.client.get("/api/auth/me", headers=headers)
+        self.assertEqual(me.status_code, 200, me.text)
+        self.assertEqual(me.json().get("tenant_id"), "leeway")
+        # leeway has no published profile in this test → still locked
+        self.assertFalse(me.json()["onboarding_approved"])
+
+    def test_scoped_admin_is_unlocked_after_publish(self):
+        tenancy_store.save_draft(
+            "leeway",
+            {
+                "vertical": "it_software",
+                "display_name": "Leeway",
+                "brand": {
+                    "name": "Leeway",
+                    "bot_name": "Asha",
+                    "support_email": "support@leeway.test",
+                    "support_phone": "+919876543210",
+                },
+            },
+            updated_by="root",
+        )
+        tenancy_store.publish_version(
+            "leeway",
+            {
+                "vertical": "it_software",
+                "display_name": "Leeway",
+                "brand": {
+                    "name": "Leeway",
+                    "bot_name": "Asha",
+                    "support_email": "support@leeway.test",
+                    "support_phone": "+919876543210",
+                },
+            },
+            published_by="root",
+        )
         me = self.client.get("/api/auth/me", headers=self.leeway_admin)
         self.assertEqual(me.status_code, 200, me.text)
         self.assertEqual(me.json()["role"], "admin")

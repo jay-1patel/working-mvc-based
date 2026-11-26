@@ -2,6 +2,8 @@ import { api } from './api'
 import type { AdminIdentity } from './types'
 
 export interface AdminRecord {
+  id?: number | null
+  user_id?: number | null
   username: string
   email: string | null
   role: 'super_admin' | 'admin' | 'sub_admin'
@@ -18,6 +20,14 @@ export interface OnboardingUser {
   tenant_id: string | null
   created_at: string | null
   onboarding_approved: boolean
+}
+
+export interface OnboardingTenant {
+  id: string
+  slug: string
+  display_name: string
+  vertical: string
+  waba_phone_id?: string | null
 }
 
 export interface ImpersonateResult {
@@ -56,9 +66,19 @@ export const adminsApi = {
       .post<{ users: OnboardingUser[]; count: number }>('/api/auth/onboarding-users', {}, { signal })
       .then((r) => r.users),
 
+  /** Signup-assigned tenant for Set up chatbot (company admin only). */
+  onboardingTenants: (signal?: AbortSignal) =>
+    api
+      .post<{ tenants: OnboardingTenant[]; count: number }>(
+        '/api/auth/onboarding-tenants',
+        {},
+        { signal },
+      )
+      .then((r) => r.tenants),
+
   impersonate: (username: string) =>
     // Path param — not body `username` — so the target name is not confused
-    // with session auth (auth now uses user_id + session_id on the body).
+    // with session auth (username + session_id headers).
     api.post<ImpersonateResult>(
       `/api/auth/impersonate/${encodeURIComponent(username)}`,
       {},
@@ -104,16 +124,15 @@ export const adminsApi = {
 
   me: () => api.post<AdminIdentity>('/api/auth/me', {}),
 
-  /** First-login setup: create tenant, bind WhatsApp, publish v1, scope self. */
+  /** Set up chatbot: configure signup tenant (WhatsApp + brand + optional kit).
+   * tenant_id comes from the session admin — do not send it in the body. */
   firstLoginComplete: (body: {
-    tenant_id: string
-    slug?: string
-    vertical: string
-    display_name?: string
-    website?: string
     waba_phone_id?: string
     mobile_number?: string
     snapshot: Record<string, unknown>
+    files?: Array<{ filename: string; content: string }>
+    lane?: 'kit' | 'any'
+    upload_draft?: Record<string, unknown>
   }) =>
     api.post<{
       ok: boolean
@@ -122,5 +141,6 @@ export const adminsApi = {
       vertical: string
       username: string
       onboarding_approved: boolean
+      upload?: { status: string; summary?: unknown; detail?: string }
     }>('/api/auth/first-login/complete', body),
 }

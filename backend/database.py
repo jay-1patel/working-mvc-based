@@ -63,6 +63,16 @@ try:  # backend/ on sys.path (the normal import mode)
     from db.admins import (  # noqa: F401
         _chat_message_to_dict, _parse_admin_file_row, clear_admin_otp, count_admins, count_admins_by_role, count_tenant_admins, create_admin, delete_admin, delete_admin_chat_message, delete_admin_file, delete_chat_message, get_admin_by_id, get_admin_by_username, get_admin_chat_history, get_admin_chat_message_tenant, get_admin_chat_preview, get_admin_file, get_admin_otp, get_admin_record, get_all_admins_except, get_chat_history, get_chat_last_message, list_admin_files, list_admin_records, list_admins, mark_chat_message_deleted, save_admin_chat_message, save_admin_file, save_chat_message, set_admin_otp, soft_delete_message_for_everyone, soft_delete_message_for_user, update_admin, update_admin_email, update_admin_file_status, update_admin_record,
     )
+    from db.privileges import (  # noqa: F401
+        MENU_PRIVILEGE_KEYS, MENU_PRIVILEGE_META, all_menu_ids, all_menu_privileges,
+        clear_user_menu_privileges, delete_privilege, effective_menu_privileges,
+        ensure_customer_care_privileges, ensure_menu_privilege_catalog,
+        get_privilege_by_admin_id, get_privilege_by_username, is_superadmin_identity,
+        list_all_grants, list_menu_privileges, list_privileges, list_user_grants,
+        menu_ids_for_user, menu_ids_to_privileges, menu_privilege_catalog,
+        normalize_menu_ids, normalize_menu_privileges, set_user_menu_privileges,
+        upsert_privilege,
+    )
     from db.gaps import (  # noqa: F401
         add_faq_from_gap, get_knowledge_gaps_summary, list_unanswered_queries, record_unanswered_query, resolve_unanswered_query,
     )
@@ -143,6 +153,16 @@ except ImportError:  # imported as part of the `backend` package
     )
     from backend.db.admins import (  # noqa: F401
         _chat_message_to_dict, _parse_admin_file_row, clear_admin_otp, count_admins, count_admins_by_role, count_tenant_admins, create_admin, delete_admin, delete_admin_chat_message, delete_admin_file, delete_chat_message, get_admin_by_id, get_admin_by_username, get_admin_chat_history, get_admin_chat_message_tenant, get_admin_chat_preview, get_admin_file, get_admin_otp, get_admin_record, get_all_admins_except, get_chat_history, get_chat_last_message, list_admin_files, list_admin_records, list_admins, mark_chat_message_deleted, save_admin_chat_message, save_admin_file, save_chat_message, set_admin_otp, soft_delete_message_for_everyone, soft_delete_message_for_user, update_admin, update_admin_email, update_admin_file_status, update_admin_record,
+    )
+    from backend.db.privileges import (  # noqa: F401
+        MENU_PRIVILEGE_KEYS, MENU_PRIVILEGE_META, all_menu_ids, all_menu_privileges,
+        clear_user_menu_privileges, delete_privilege, effective_menu_privileges,
+        ensure_customer_care_privileges, ensure_menu_privilege_catalog,
+        get_privilege_by_admin_id, get_privilege_by_username, is_superadmin_identity,
+        list_all_grants, list_menu_privileges, list_privileges, list_user_grants,
+        menu_ids_for_user, menu_ids_to_privileges, menu_privilege_catalog,
+        normalize_menu_ids, normalize_menu_privileges, set_user_menu_privileges,
+        upsert_privilege,
     )
     from backend.db.gaps import (  # noqa: F401
         add_faq_from_gap, get_knowledge_gaps_summary, list_unanswered_queries, record_unanswered_query, resolve_unanswered_query,

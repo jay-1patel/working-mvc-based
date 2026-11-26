@@ -44,6 +44,9 @@ SEND2_VAULT_FALLBACK = (os.getenv("SEND2_VAULT_FALLBACK") or "").strip().lower()
 SEND2_CREDENTIALS_API_URL = os.getenv("SEND2_CREDENTIALS_API_URL")
 SEND2_CREDENTIALS_API_KEY = os.getenv("SEND2_CREDENTIALS_API_KEY")
 SEND2_CREDENTIALS_API_SECRET = os.getenv("SEND2_CREDENTIALS_API_SECRET")
+# Used by POST /api/auth/signup to validate username/id/password at Send2.
+SEND2_LOGIN_API_URL = os.getenv("SEND2_LOGIN_API_URL")
+SEND2_LOGIN_API_TIMEOUT = os.getenv("SEND2_LOGIN_API_TIMEOUT", "30")
 SEND2_SESSION_MSG_URL = os.getenv("SEND2_SESSION_MSG_URL")
 # Inbound-logging endpoint (AI_chatbot_API_incomingentry): records an incoming
 # message on send2's side. Used by integrations/company_api.py — NOT for sends.

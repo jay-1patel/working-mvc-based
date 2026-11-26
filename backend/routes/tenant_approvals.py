@@ -118,14 +118,14 @@ def _enrich_with_tenant(rows) -> list:
     return out
 
 
-_AUTH_BODY_KEYS = frozenset({"username", "user_id", "session_id"})
+_AUTH_BODY_KEYS = frozenset({"username", "session_id"})
 
 
 async def _parse_body(request: Request, model):
     """Validate JSON after dropping panel auth fields the frontend always sends.
 
     ``frontend/src/lib/api.ts`` (and support Login reviewer calls) attach
-    ``user_id`` / ``username`` + ``session_id`` to every JSON body. Models use
+    ``username`` + ``session_id`` to every JSON body. Models use
     ``extra="forbid"``, so those auth-only keys must be stripped before
     Pydantic runs or every submit returns HTTP 422.
     """

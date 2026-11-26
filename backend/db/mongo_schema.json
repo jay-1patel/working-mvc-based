@@ -729,6 +729,225 @@
         }
       ]
     },
+    "menu_privilege": {
+      "columns": [
+        {
+          "name": "id",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "menu_name",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "permission",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "created_datetime",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        },
+        {
+          "name": "flag",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": 1
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "keys": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "mongo_primary_key",
+            "unique": true,
+            "partialFilterExpression": {
+              "id": {
+                "$type": "number"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "permission",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ux_menu_privilege_permission",
+            "unique": true,
+            "partialFilterExpression": {
+              "permission": {
+                "$type": "string"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "flag",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ix_menu_privilege_flag",
+            "partialFilterExpression": {
+              "flag": {
+                "$type": "number"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "menu_set_privilege": {
+      "columns": [
+        {
+          "name": "id",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "user_id",
+          "kind": "scalar",
+          "integer": true,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "privileges_id",
+          "kind": "scalar",
+          "integer": true,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "privileges_name",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "createdOn",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        },
+        {
+          "name": "updatedOn",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        },
+        {
+          "name": "flag",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": 1
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "keys": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "mongo_primary_key",
+            "unique": true,
+            "partialFilterExpression": {
+              "id": {
+                "$type": "string"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "user_id",
+              1
+            ],
+            [
+              "privileges_id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ux_menu_set_privilege_user_priv",
+            "unique": true,
+            "partialFilterExpression": {
+              "user_id": {
+                "$type": "number"
+              },
+              "privileges_id": {
+                "$type": "number"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "user_id",
+              1
+            ],
+            [
+              "flag",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ix_menu_set_privilege_user_flag",
+            "partialFilterExpression": {
+              "user_id": {
+                "$type": "number"
+              }
+            }
+          }
+        }
+      ]
+    },
     "agent_availability": {
       "columns": [
         {
@@ -6373,6 +6592,111 @@
             "unique": true,
             "partialFilterExpression": {
               "message_id": {
+                "$type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "privilege": {
+      "columns": [
+        {
+          "name": "id",
+          "kind": "scalar",
+          "integer": true,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "username",
+          "kind": "scalar",
+          "integer": false,
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "tenant_id",
+          "kind": "scalar",
+          "integer": false,
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "privileges",
+          "kind": "json",
+          "integer": false,
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "name": "created_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        },
+        {
+          "name": "updated_at",
+          "kind": "datetime",
+          "integer": false,
+          "required": false,
+          "default": {
+            "factory": "utcnow"
+          }
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "keys": [
+            [
+              "id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "mongo_primary_key",
+            "unique": true,
+            "partialFilterExpression": {
+              "id": {
+                "$type": "number"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "username",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ux_privilege_username",
+            "unique": true,
+            "partialFilterExpression": {
+              "username": {
+                "$type": "string"
+              }
+            }
+          }
+        },
+        {
+          "keys": [
+            [
+              "tenant_id",
+              1
+            ]
+          ],
+          "options": {
+            "name": "ix_privilege_tenant_id",
+            "partialFilterExpression": {
+              "tenant_id": {
                 "$type": "string"
               }
             }

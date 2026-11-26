@@ -12,6 +12,7 @@ import {
   PlusCircle,
   ScrollText,
   Send,
+  KeyRound,
   ShieldCheck,
   UserRound,
   Users,
@@ -22,6 +23,7 @@ import { isCustomerCareIdentity } from '@/lib/admins'
 import { useTenantProfile, useTenants } from '@/lib/tenants'
 import { useOfferingsCount } from '@/lib/offerings'
 import { buildTenantNav, NAV_GROUP_ORDER, type NavItem } from '@/lib/navigation'
+import { emptyMenuPrivileges } from '@/lib/menu-privileges'
 import { conversationsApi } from '@/lib/conversations'
 import { navigate, type RouteMatch } from '@/lib/router'
 import { isOnboardingLocked, TENANT_PERMISSION, usePermissions } from '@/lib/permissions'
@@ -96,6 +98,11 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
   const brandTagline = profile?.brand?.tagline?.trim() || (active ? getVertical(active.vertical).short : '')
   // Super admin / support Login use the same tenant sidebar as a company admin.
   // Platform-only Manage links (People / Activity / Errors) are appended below.
+  const bypassMenuPrivileges = Boolean(impersonating || isSuperAdmin)
+  // Tenant users fail closed: missing grants ⇒ no privileged menus.
+  const menuPrivileges = bypassMenuPrivileges
+    ? null
+    : (identity?.menu_privileges ?? emptyMenuPrivileges())
   const nav = locked
     ? []
     : buildTenantNav({
@@ -103,6 +110,8 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
         features,
         can,
         isSuperAdmin: false,
+        menuPrivileges,
+        bypassMenuPrivileges,
       })
   const showTenantManageTools =
     !locked && (impersonating || (isSuperAdmin && Boolean(route.tenantId)))
@@ -411,6 +420,7 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               </p>
               {globalItem('dashboard', 'Dashboard', LayoutGrid, '/dashboard', 'dashboard')}
               {globalItem('businesses', 'Businesses', Building2, '/tenants', '__tenants__')}
+              {globalItem('privileges', 'Privileges', KeyRound, '/privileges', 'privileges')}
               {globalItem('tenant-requests', 'Business requests', ClipboardCheck, '/tenant-requests', 'tenant-requests')}
               {globalItem('api-requests', 'API requests', ShieldCheck, '/api-requests', 'api-requests')}
               {globalItem('audit-history', 'Activity log', ScrollText, '/audit-history', 'audit-history')}
@@ -418,13 +428,14 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
             </div>
           )}
 
-          {/* customer_care home: the only page until they Login into a tenant. */}
+          {/* customer_care home: Onboarded users + Privileges until they Login into a tenant. */}
           {!locked && showOnboardingUsers && (
             <div className="space-y-0.5 border-t border-line pt-3">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Onboarding
               </p>
               {globalItem('onboarding-users', 'Onboarded users', Users, '/onboarding-users', 'onboarding-users')}
+              {globalItem('privileges', 'Privileges', KeyRound, '/privileges', 'privileges')}
             </div>
           )}
 
@@ -433,6 +444,9 @@ export function AppShell({ route, children }: { route: RouteMatch; children: Rea
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-txfaint">
                 Manage
               </p>
+              {isSuperAdmin && !impersonating
+                ? globalItem('privileges', 'Privileges', KeyRound, '/privileges', 'privileges')
+                : null}
               {globalItem('team', 'People / privileges', Users, '/team', 'team')}
               {globalItem(
                 'tenant-requests',

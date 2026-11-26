@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from core.send2_auth import (
     admin_username_candidates,
     decode_stored_username,
@@ -408,7 +408,7 @@ def _public_username(username: str | None) -> str:
     """Return the plain username for API display (Team list, audit, identity).
 
     DB rows store the Send2 Base64 form; responses always use the decoded plain
-    name. Session auth uses ``user_id`` + ``session_id`` only — not username.
+    name. Session auth uses ``username`` + ``session_id`` only.
     """
     return decode_stored_username(username)
 
@@ -460,37 +460,28 @@ def _principal_from_row(
     return result
 
 
-def _admin_from_user_id(user_id: str | int, session_id: str, request: Request | None = None) -> dict:
-    """Authenticate with admins.id + live session_id (preferred panel auth)."""
-    try:
-        admin_id = int(str(user_id).strip())
-    except (TypeError, ValueError):
+def _admin_from_username(username: str, session_id: str, request: Request | None = None) -> dict:
+    """Authenticate with plain username + live session_id (only panel auth)."""
+    supplied_username = str(username or "").strip()
+    supplied_session = str(session_id or "").strip()
+    row = _resolve_admin_row(supplied_username) if supplied_username else None
+    stored = str((row or {}).get("session_id") or "")
+    if not row or not stored or not supplied_session or not hmac.compare_digest(stored, supplied_session):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Basic"},
         )
-    row = get_admin_by_id(admin_id)
-    stored = str(row["session_id"] or "") if row else ""
-    supplied = str(session_id or "")
-    if not row or not stored or not hmac.compare_digest(stored, supplied):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return _principal_from_row(row, request=request)
+    return _principal_from_row(row, request=request, username_fallback=supplied_username)
 
 
 def authenticate_basic_header(request: Request) -> dict:
-    """Authenticate with user_id + session_id only (no Authorization required).
+    """Authenticate with username + session_id only (no Authorization required).
 
-    Accepted sources:
-      1. Headers ``user_id`` + ``session_id``
-      2. JSON/form body fields ``user_id`` + ``session_id`` (set by middleware)
+    Accepted sources (headers or JSON/form body via middleware):
+      ``username`` + ``session_id``
 
-    ``user_id`` is the numeric ``admins.id`` (e.g. ``3047``). Username is not
-    accepted for session auth.
+    ``username`` is the plain login name (e.g. ``customer_care``).
     """
     cached = getattr(request.state, "current_admin", None)
     if cached:
@@ -500,16 +491,16 @@ def authenticate_basic_header(request: Request) -> dict:
         str(request.headers.get("session_id") or "").strip()
         or str(getattr(request.state, "auth_session_id", "") or "").strip()
     )
-    user_id = (
-        str(request.headers.get("user_id") or "").strip()
-        or str(getattr(request.state, "auth_user_id", "") or "").strip()
+    username = (
+        str(request.headers.get("username") or "").strip()
+        or str(getattr(request.state, "auth_username", "") or "").strip()
     )
-    if user_id and session_id:
-        return _admin_from_user_id(user_id, session_id, request)
+    if username and session_id:
+        return _admin_from_username(username, session_id, request)
 
     raise HTTPException(
         status_code=401,
-        detail="Not authenticated — send user_id and session_id (header or JSON body)",
+        detail="Not authenticated — send username and session_id (header or JSON body)",
     )
 
 
@@ -534,10 +525,10 @@ def scoped_tenant_id(admin: dict) -> str | None:
 
 
 def session_tenant_id(admin: dict | None = None, request: Request | None = None) -> str:
-    """Tenant bound to the authenticated user_id/session_id — never from the body.
+    """Tenant bound to the authenticated username/session_id — never from the body.
 
     Flat panel APIs resolve the working tenant only from the admin row matched
-    by user_id + session_id. Callers must not send tenant_id in the JSON body.
+    by username + session_id. Callers must not send tenant_id in the JSON body.
     """
     if admin is None:
         if request is None:
@@ -548,7 +539,7 @@ def session_tenant_id(admin: dict | None = None, request: Request | None = None)
     if not tid:
         raise HTTPException(
             status_code=403,
-            detail="No tenant assigned to this session — use a user_id/session_id bound to a tenant",
+            detail="No tenant assigned to this session — use a username/session_id bound to a tenant",
         )
     if request is not None:
         request.state.error_tenant_id = tid
@@ -564,8 +555,8 @@ def get_current_admin(
         return cached
     if not credentials:
         return authenticate_basic_header(request)
-    # Basic token must be user_id:session_id.
-    return _admin_from_user_id(credentials.username, credentials.password, request)
+    # Basic token must be username:session_id.
+    return _admin_from_username(credentials.username, credentials.password, request)
 
 
 def require_super_admin(current_admin: dict = Depends(get_current_admin)) -> dict:
@@ -660,18 +651,18 @@ def require_tenant_access():
             raise HTTPException(status_code=400, detail="tenant_id is required")
 
         raw = _raw_bearer(request, credentials)
-        # user_id + session_id may arrive as headers or JSON body (middleware).
+        # username + session_id may arrive as headers or JSON body (middleware).
         if not raw and not credentials and not getattr(request.state, "current_admin", None):
             header_session = str(request.headers.get("session_id") or "").strip()
-            header_user_id = str(request.headers.get("user_id") or "").strip()
-            if header_user_id and header_session:
-                request.state.current_admin = _admin_from_user_id(
-                    header_user_id, header_session, request
+            header_username = str(request.headers.get("username") or "").strip()
+            if header_username and header_session:
+                request.state.current_admin = _admin_from_username(
+                    header_username, header_session, request
                 )
             else:
                 raise HTTPException(
                     status_code=401,
-                    detail="Not authenticated — send user_id and session_id (header or JSON body)",
+                    detail="Not authenticated — send username and session_id (header or JSON body)",
                 )
 
         principal = get_tenant_principal(request, credentials) if raw else None
@@ -765,10 +756,22 @@ def authorize_tenant_access(
 # ---------- request schemas ----------
 
 class LoginRequest(BaseModel):
-    # Login only: plain username + live session_id.
-    # After login, every other API uses user_id + session_id.
+    # Plain username + live session_id (same credentials as every other API).
     username: str
     session_id: str
+
+
+class SignupRequest(BaseModel):
+    """Store Send2 panel credentials into ``admins`` (signup).
+
+    ``id`` is the chatbot ``admins.id`` primary key (e.g. 3042), not krt_unique_id.
+    ``tenant_id`` optional — omit to auto-create; pass an existing id to link
+    another admin to the same tenant.
+    """
+    username: str
+    id: str
+    password: str
+    tenant_id: Optional[str] = None
 
 
 class CreateAdminRequest(BaseModel):
@@ -787,16 +790,33 @@ class UpdateAdminRequest(BaseModel):
     tenant_id: Optional[str] = None
 
 
+class FirstLoginUploadFile(BaseModel):
+    """One predefined kit / brochure file (base64 content)."""
+    model_config = ConfigDict(extra="ignore")
+    filename: str
+    content: str  # base64
+
+
 class FirstLoginCompleteRequest(BaseModel):
-    """Self-serve first login: create tenant, bind WhatsApp, publish profile, scope admin."""
-    tenant_id: str
-    slug: str = ""
-    vertical: str = "generic"
-    display_name: str = ""
-    website: str = ""
+    """Set up chatbot: configure the tenant already assigned at signup.
+
+    ``tenant_id`` is taken from the authenticated admin (username + session_id),
+    not from the body.
+
+    Body fields (auth via headers):
+      - waba_phone_id / mobile_number — WhatsApp phone
+      - snapshot — company/brand fields (display_name, vertical, brand, …)
+      - files — optional upload [{filename, content}] (base64); staged + published
+      - lane — ``kit`` (default) or ``any``
+      - upload_draft — optional already-staged bifurcation draft to publish
+    """
+    model_config = ConfigDict(extra="ignore")
     waba_phone_id: str = ""
     mobile_number: str = ""
     snapshot: Optional[dict] = None
+    files: Optional[list[FirstLoginUploadFile]] = None
+    lane: str = "kit"
+    upload_draft: Optional[dict] = None
 
 
 # ---------- routes ----------
@@ -818,14 +838,70 @@ def auth_status_post():
     return _auth_status_payload()
 
 
+@router.post("/signup")
+@limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
+async def signup(request: Request, body: SignupRequest):
+    """Signup: accept username + id + password and upsert ``admins``.
+
+    ``id`` is stored as ``admins.id`` (chatbot admin PK, e.g. 3042).
+    Optional ``tenant_id`` links this admin to an existing tenant; omit it to
+    auto-create a new short tenant_id. Public (for Send2Digital). Password is
+    hashed + vault-encrypted; plain password is never returned.
+    """
+    try:
+        from services.send2_admin_register import (
+            Send2RegisterError,
+            register_send2_admin,
+        )
+    except ImportError:
+        from backend.services.send2_admin_register import (
+            Send2RegisterError,
+            register_send2_admin,
+        )
+
+    try:
+        result = register_send2_admin(
+            username=body.username,
+            customer_id=body.id,
+            password=body.password,
+            tenant_id=body.tenant_id,
+        )
+    except Send2RegisterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("SIGNUP_FAILED")
+        raise HTTPException(status_code=502, detail="Signup failed") from exc
+
+    audit_kwargs = dict(
+        action="admin_signup",
+        actor={"username": result.get("username"), "role": result.get("role")},
+        resource_type="admin",
+        resource_id=result.get("user_id"),
+        target_username=result.get("username"),
+        tenant_id=result.get("tenant_id"),
+        details={
+            "action": result.get("action"),
+            "admins_id": result.get("id"),
+            "tenant_id": result.get("tenant_id"),
+            "send2_validated": result.get("send2_validated"),
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+    return result
+
+
 @router.post("/login")
 # SECURITY FIX: Rate limiting - 5 requests per minute for login attempts
 @limiter.limit("5/minute") if RATE_LIMIT_ENABLED else lambda f: f
 async def admin_login(request: Request, body: LoginRequest):
-    """Authenticate with username + live session_id (login only).
+    """Authenticate with username + live session_id.
 
-    Response includes numeric ``user_id`` so the client can use
-    ``user_id`` + ``session_id`` for every subsequent API call.
+    Response includes numeric ``user_id`` for display; subsequent API calls
+    continue to use ``username`` + ``session_id``.
     """
     supplied_username = str(body.username or "").strip()
     supplied_session = str(body.session_id or "").strip()
@@ -1074,6 +1150,8 @@ def _list_admins_payload(current_admin: dict) -> dict:
     result = []
     for a in records:
         result.append({
+            "id": a.get("id"),
+            "user_id": a.get("id"),
             "username": _public_username(a.get("username")),
             "email": a.get("email"),
             "role": a["role"],
@@ -1312,25 +1390,46 @@ def regenerate_admin_session(username: str, current_admin: dict = Depends(get_cu
 def _onboarding_approved(admin: dict) -> bool:
     """Whether this company admin has cleared first-time onboarding.
 
-    Only the company ``admin`` role is gated. Cleared once the admin has a
-    ``tenant_id`` (first-login wizard finished). Super admins and sub admins
+    Only the company ``admin`` role is gated. Signup already assigns a
+    ``tenant_id``; setup is cleared only after Set up chatbot publishes a
+    profile (tenant current_version >= 1). Super admins and sub admins
     are never gated.
     """
     if admin.get("role") != "admin":
         return True
-    return bool(str(admin.get("tenant_id") or "").strip())
+    tid = str(admin.get("tenant_id") or "").strip()
+    if not tid:
+        return False
+    from shared.tenancy import store as tenancy_store
+
+    return int(tenancy_store.current_version(tid) or 0) >= 1
 
 
 def _admin_me_payload(current_admin: dict) -> dict:
     """Return the currently authenticated admin."""
+    from db.privileges import all_menu_privileges, effective_menu_privileges, is_superadmin_identity
+
+    username = _public_username(current_admin.get("username"))
+    role = current_admin.get("role")
+    admin_id = current_admin.get("id")
+    # Superadmin: full menus by role — never read menu_set_privilege.
+    if is_superadmin_identity(username=username, role=role, admin_id=admin_id):
+        menu_privileges = all_menu_privileges(True)
+    else:
+        menu_privileges = effective_menu_privileges(
+            username=username,
+            role=role,
+            admin_id=admin_id,
+        )
     return {
         "id": current_admin.get("id"),
-        "username": _public_username(current_admin.get("username")),
+        "username": username,
         "role": current_admin["role"],
         "permissions": current_admin["permissions"],
         "tenant_id": current_admin.get("tenant_id"),
         "onboarding_approved": _onboarding_approved(current_admin),
         "is_customer_care": _is_customer_care(current_admin),
+        "menu_privileges": menu_privileges,
     }
 
 
@@ -1346,25 +1445,65 @@ def admin_me_post(current_admin: dict = Depends(get_current_admin)):
     return _admin_me_payload(current_admin)
 
 
+def _assigned_admin_tenant_ids() -> set[str]:
+    """Tenant ids that already have at least one admin/sub_admin bound."""
+    assigned: set[str] = set()
+    for row in list_admin_records():
+        role = str(row.get("role") or "").strip()
+        if role not in ("admin", "sub_admin"):
+            continue
+        tid = str(row.get("tenant_id") or "").strip()
+        if tid:
+            assigned.add(tid)
+    return assigned
+
+
+@router.post("/onboarding-tenants")
+def list_onboarding_tenants(current_admin: dict = Depends(get_current_admin)):
+    """Return the signup-assigned tenant for Set up chatbot (read-only).
+
+    Auth: username + session_id headers. Company admin only. Tenant id was
+    created at signup; the wizard configures that same tenant.
+    """
+    if current_admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only a company admin can list onboarding tenants")
+
+    from shared.tenancy import store as tenancy_store
+
+    tid = str(current_admin.get("tenant_id") or "").strip()
+    if not tid:
+        raise HTTPException(
+            status_code=400,
+            detail="No tenant assigned — signup must create tenant_id first",
+        )
+    if int(tenancy_store.current_version(tid) or 0) >= 1:
+        raise HTTPException(status_code=409, detail="Setup already completed")
+
+    row = tenancy_store.get_tenant(tid) or {}
+    tenants = [{
+        "id": tid,
+        "slug": row.get("slug") or tid,
+        "display_name": row.get("display_name") or row.get("company_name") or tid,
+        "vertical": row.get("vertical") or "generic",
+        "waba_phone_id": row.get("waba_phone_id"),
+    }]
+    return {"tenants": tenants, "count": 1}
+
+
 @router.post("/first-login/complete")
 def first_login_complete(
     body: FirstLoginCompleteRequest,
     current_admin: dict = Depends(get_current_admin),
 ):
-    """Admin first-login setup: create tenant, bind WhatsApp, publish v1, scope self.
+    """Set up chatbot: WhatsApp + company/brand on the tenant created at signup.
 
-    Send2-provisioned admins have no tenant_id until this succeeds. Super admins
-    do not create tenants for this path.
+    Signup already stores username/id/password and a unique ``tenant_id``.
+    This endpoint configures that same tenant and publishes profile v1.
     """
     if current_admin.get("role") != "admin":
         raise HTTPException(
             status_code=403,
             detail="Only a company admin can complete first-login setup",
-        )
-    if str(current_admin.get("tenant_id") or "").strip():
-        raise HTTPException(
-            status_code=409,
-            detail="Setup already completed — this admin already has a tenant",
         )
 
     from shared.tenancy import cache as tenancy_cache
@@ -1373,41 +1512,51 @@ def first_login_complete(
     from shared.tenancy import store as tenancy_store
     from shared.tenancy.schemas import require_known_vertical
 
-    tid = str(body.tenant_id or "").strip()
+    tid = str(current_admin.get("tenant_id") or "").strip()
     if not tid:
-        raise HTTPException(status_code=400, detail="tenant_id is required")
-    slug = (body.slug or tid).strip() or tid
-    display_name = (body.display_name or "").strip()
-    website = (body.website or "").strip()
-    snapshot = dict(body.snapshot or {})
+        raise HTTPException(
+            status_code=400,
+            detail="No tenant assigned — signup must create tenant_id before Set up chatbot",
+        )
+    if int(tenancy_store.current_version(tid) or 0) >= 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Setup already completed — chatbot profile is already published",
+        )
 
+    existing = tenancy_store.get_tenant(tid)
+    if not existing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tenant '{tid}' not found — signup tenant is missing from the registry",
+        )
+
+    snapshot = dict(body.snapshot or {})
+    display_name = str(
+        snapshot.get("display_name")
+        or (snapshot.get("brand") or {}).get("name")
+        or existing.get("display_name")
+        or existing.get("company_name")
+        or tid
+    ).strip()
     try:
-        vertical = require_known_vertical(body.vertical or snapshot.get("vertical") or "generic")
+        vertical = require_known_vertical(
+            snapshot.get("vertical") or existing.get("vertical") or "generic"
+        )
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}") from exc
     snapshot["vertical"] = vertical
-    if display_name and not snapshot.get("display_name"):
-        snapshot["display_name"] = display_name
+    snapshot["display_name"] = display_name
 
-    conflict = tenancy_store.find_registry_conflict(tid, slug)
-    if conflict:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"tenant '{tid}' already exists "
-                f"(conflicts with '{conflict.get('id')}' / slug '{conflict.get('slug')}')"
-            ),
-        )
-    if display_name:
-        name_clash = tenancy_store.find_tenant_by_display_name(display_name, exclude_tenant_id=tid)
-        if name_clash:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"A tenant named '{display_name}' already exists "
-                    f"(id '{name_clash.get('id')}'). Pick a different company name."
-                ),
-            )
+    # Merge brand defaults onto existing draft if present.
+    brand_in = snapshot.get("brand") if isinstance(snapshot.get("brand"), dict) else {}
+    snapshot["brand"] = {
+        "name": str(brand_in.get("name") or display_name).strip() or display_name,
+        "bot_name": str(brand_in.get("bot_name") or "").strip(),
+        "tagline": str(brand_in.get("tagline") or "").strip(),
+        "support_email": str(brand_in.get("support_email") or "").strip(),
+        "support_phone": str(brand_in.get("support_phone") or "").strip(),
+    }
 
     waba_raw = str(body.waba_phone_id or "").strip()
     mobile_raw = str(body.mobile_number or "").strip()
@@ -1424,12 +1573,10 @@ def first_login_complete(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     elif waba_raw:
-        # Prefer the WhatsApp number as the business mobile when it looks like one.
         try:
             mobile_number = tenancy_store.normalize_mobile_number(waba_raw)
         except ValueError:
-            brand = snapshot.get("brand") if isinstance(snapshot.get("brand"), dict) else {}
-            support_phone = str((brand or {}).get("support_phone") or "").strip()
+            support_phone = str(snapshot["brand"].get("support_phone") or "").strip()
             if support_phone:
                 try:
                     mobile_number = tenancy_store.normalize_mobile_number(support_phone)
@@ -1458,35 +1605,22 @@ def first_login_complete(
                 detail=f"phone id already bound to tenant '{phone_clash}'",
             )
 
-    try:
-        tenancy_loader.build_profile(tid, db_layer={}, file_layer={}, include_db=False)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid vertical: {exc}") from exc
-
     by = _public_username(current_admin.get("username"))
-    # Session principal uses the plain name; admins.username is Send2 Base64.
     try:
         db_username = encode_send2_username(by)
     except ValueError:
         db_username = str(current_admin.get("username") or by)
 
+    # Update phone on the existing tenant row (no new tenant create).
     tenancy_store.ensure_tenant(
         tid,
-        slug=slug,
+        slug=str(existing.get("slug") or tid),
         vertical=vertical,
-        waba_phone_id=waba_phone_id,
+        waba_phone_id=waba_phone_id or str(existing.get("waba_phone_id") or ""),
         mobile_number=mobile_number,
         display_name=display_name,
-        status="active",
+        status=str(existing.get("status") or "active"),
     )
-    # Domain backfill (best-effort; same as create_tenant).
-    try:
-        from routes.tenants import _backfill_domain
-
-        _backfill_domain(None, tid, website)
-    except Exception:
-        pass
-
     if waba_phone_id:
         if not tenancy_store.set_waba_phone_id(tid, waba_phone_id):
             raise HTTPException(
@@ -1516,13 +1650,69 @@ def first_login_complete(
 
     if not update_admin_record(db_username, tenant_id=tid):
         update_admin_record(by, tenant_id=tid)
-    # Confirm scope landed (mongo update can report success with zero matches).
     scoped = get_admin_by_username(db_username) or get_admin_by_username(by)
     if not scoped or str(scoped.get("tenant_id") or "").strip() != tid:
         raise HTTPException(
             status_code=500,
-            detail="Tenant was created but the admin could not be scoped to it",
+            detail="Tenant was updated but the admin could not be scoped to it",
         )
+
+    upload_summary = None
+    upload_error = None
+    files_in = [f for f in (body.files or []) if f and str(f.filename or "").strip() and str(f.content or "").strip()]
+    draft_in = body.upload_draft if isinstance(body.upload_draft, dict) else None
+    if files_in or draft_in:
+        try:
+            try:
+                from services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
+            except ImportError:
+                from backend.services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
+            from pathlib import Path
+
+            actor = {
+                "username": by,
+                "role": "admin",
+                "tenant_id": tid,
+            }
+            bifurcator = AutoBifurcator(tenant_id=tid, actor=actor)
+            lane = str(body.lane or "kit").strip().lower() or "kit"
+            if lane not in ("kit", "any"):
+                lane = "kit"
+
+            if files_in:
+                files_payload = [
+                    {"filename": str(f.filename).strip(), "content": str(f.content).strip()}
+                    for f in files_in
+                ]
+                staged = bifurcator.stage_files(files_payload, lane=lane)
+            else:
+                staged = dict(draft_in or {})
+
+            staged["tenant_id"] = tid
+            staged["lane"] = staged.get("lane") or lane
+            if isinstance(staged.get("business_hours"), dict):
+                staged["business_hours"] = _sanitize_business_hours(staged["business_hours"])
+
+            source_files = staged.get("source_files")
+            source_file = None
+            if isinstance(source_files, list) and source_files:
+                source_file = Path(str(source_files[0])).name.strip() or None
+
+            upload_summary = bifurcator.apply_bifurcation(
+                bifurcation=staged,
+                raw_files=[],
+                auto_publish=True,
+                careful_brand_merge=False,
+                source_file=source_file,
+            )
+            if isinstance(upload_summary, dict):
+                upload_summary["tenant_id"] = tid
+        except Exception as exc:
+            logger.exception(
+                "FIRST_LOGIN_UPLOAD_FAILED | admin=%s | tenant=%s",
+                by, tid,
+            )
+            upload_error = str(exc)
 
     audit_kwargs = dict(
         action="admin_first_login_complete",
@@ -1534,7 +1724,9 @@ def first_login_complete(
             "vertical": vertical,
             "version": version,
             "display_name": display_name,
-            "website": website,
+            "mode": "configure_signup_tenant",
+            "upload": bool(upload_summary),
+            "upload_error": upload_error,
         },
     )
     if use_mongodb():
@@ -1544,10 +1736,10 @@ def first_login_complete(
             record_admin_audit_event(conn, **audit_kwargs)
 
     logger.info(
-        "FIRST_LOGIN_COMPLETE | admin=%s | tenant=%s | vertical=%s | version=%s",
-        by, tid, vertical, version,
+        "FIRST_LOGIN_COMPLETE | admin=%s | tenant=%s | vertical=%s | version=%s | mode=configure_signup_tenant | upload=%s",
+        by, tid, vertical, version, bool(upload_summary),
     )
-    return {
+    result = {
         "ok": True,
         "tenant_id": tid,
         "version": version,
@@ -1556,6 +1748,11 @@ def first_login_complete(
         "onboarding_approved": True,
         "tenant": tenancy_store.get_tenant(tid),
     }
+    if upload_summary is not None:
+        result["upload"] = {"status": "published", "summary": upload_summary}
+    if upload_error:
+        result["upload"] = {"status": "failed", "detail": upload_error}
+    return result
 
 
 @router.post("/onboarding-users")
@@ -1718,6 +1915,265 @@ def impersonate_tenant(
             detail="No admin or sub-admin account is assigned to this tenant",
         )
     return _impersonate_target(current_admin, target, via="tenant")
+
+
+# ── menu_privilege + menu_set_privilege ───────────────────────────────────────
+# Auth (headers only): username + session_id
+#   POST /api/auth/menu-privileges/users  → dropdown (id + username)
+#   POST /api/auth/menu-privileges/get    → body: id
+#   POST /api/auth/menu-privileges/save   → body: id + privileges
+# Superadmin only. Superadmin itself is never grant-edited (full access by role).
+
+class MenuPrivilegeGetRequest(BaseModel):
+    """Selected dropdown user — get active/inactive menus. Body needs ``id`` only."""
+    model_config = ConfigDict(extra="ignore")
+    id: Optional[int | str] = None
+    user_id: Optional[int | str] = None  # alias of id
+
+
+class MenuPrivilegeSaveRequest(BaseModel):
+    """Selected dropdown user + active/inactive map to save.
+
+    Body: ``id`` + one of:
+      - ``select_all`` true/false (Select All / Clear All button)
+      - ``privileges`` map
+      - ``menu_ids`` / ``privileges_ids``
+    """
+    model_config = ConfigDict(extra="ignore")
+    id: Optional[int | str] = None
+    user_id: Optional[int | str] = None  # alias of id
+    menu_ids: Optional[list[str]] = None
+    privileges_ids: Optional[list[int]] = None
+    # { "graphic": true, "chats": false, ... } — true = active
+    privileges: Optional[dict] = None
+    # Frontend "Select all" / "Clear all" — when set, overrides privileges/menu_ids.
+    select_all: Optional[bool] = None
+
+
+def _menu_privilege_catalog() -> list[dict]:
+    from db.privileges import ensure_menu_privilege_catalog, menu_privilege_catalog
+
+    ensure_menu_privilege_catalog()
+    return menu_privilege_catalog()
+
+
+def _resolve_target_admin(*, user_id=None) -> dict:
+    """Resolve selected dropdown admin by numeric id."""
+    if user_id is None or str(user_id).strip() == "":
+        raise HTTPException(status_code=400, detail="id is required")
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="id must be an integer")
+    target = get_admin_by_id(uid)
+    if not target:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    return target
+
+
+def _resolve_assign_menu_ids(body: MenuPrivilegeSaveRequest) -> list[str]:
+    """Active menu keys from save body.
+
+    Priority: ``select_all`` → ``privileges`` map → ``menu_ids`` → ``privileges_ids``.
+    """
+    from db.privileges import all_menu_ids, get_menu_privilege_by_id, normalize_menu_ids
+
+    if body.select_all is not None:
+        return all_menu_ids() if bool(body.select_all) else []
+    if body.privileges is not None:
+        return normalize_menu_ids(body.privileges)
+    if body.menu_ids is not None:
+        return normalize_menu_ids(body.menu_ids)
+    if body.privileges_ids:
+        names = []
+        for pid in body.privileges_ids:
+            row = get_menu_privilege_by_id(pid)
+            if row and row.get("permission"):
+                names.append(str(row["permission"]))
+        return normalize_menu_ids(names)
+    return []
+
+
+def _items_with_active(active_keys: list[str] | set[str], *, all_active: bool = False) -> list[dict]:
+    """Catalog rows with active true/false for checkbox UI."""
+    enabled = set(active_keys) if not all_active else None
+    items = []
+    for row in _menu_privilege_catalog():
+        key = str(row.get("key") or row.get("permission") or "")
+        items.append({
+            "id": row.get("id"),
+            "key": key,
+            "menu_name": row.get("menu_name") or key,
+            "permission": row.get("permission") or key,
+            "label": row.get("label") or key,
+            "description": row.get("description") or "",
+            "active": True if all_active else (key in (enabled or ())),
+        })
+    return items
+
+
+def _menu_privileges_users() -> dict:
+    """Dropdown: admin + sub_admin with id and username."""
+    records = list_admin_records()
+    users = []
+    for a in records:
+        role = str(a.get("role") or "").strip()
+        if role not in ("admin", "sub_admin"):
+            continue
+        try:
+            uid = int(a.get("id"))
+        except (TypeError, ValueError):
+            continue
+        users.append({
+            "id": uid,
+            "user_id": uid,
+            "username": _public_username(a.get("username")),
+            "role": role,
+            "tenant_id": a.get("tenant_id"),
+            "email": a.get("email"),
+        })
+    users.sort(key=lambda u: (str(u.get("username") or "").lower(), u.get("id") or 0))
+    return {
+        "ok": True,
+        "users": users,
+        "count": len(users),
+    }
+
+
+def _menu_privileges_get(body: MenuPrivilegeGetRequest) -> dict:
+    """After dropdown select: show that user's menus as active/inactive."""
+    from db.privileges import (
+        all_menu_ids,
+        is_superadmin_identity,
+        menu_ids_for_user,
+        menu_ids_to_privileges,
+    )
+
+    target_id = body.id if body.id is not None else body.user_id
+    target = _resolve_target_admin(user_id=target_id)
+    plain = _public_username(target.get("username"))
+    role = target.get("role")
+    admin_id = target.get("id")
+
+    if is_superadmin_identity(username=plain, role=role, admin_id=admin_id):
+        items = _items_with_active([], all_active=True)
+        return {
+            "ok": True,
+            "id": admin_id,
+            "user_id": admin_id,
+            "username": plain,
+            "role": role,
+            "skip_grant_check": True,
+            "editable": False,
+            "items": items,
+            "menu_ids": all_menu_ids(),
+            "privileges": {i["key"]: True for i in items},
+        }
+
+    try:
+        uid = int(admin_id)
+        stored_ids = menu_ids_for_user(uid)
+    except (TypeError, ValueError):
+        stored_ids = []
+    items = _items_with_active(stored_ids, all_active=False)
+    privileges = menu_ids_to_privileges(stored_ids)
+    return {
+        "ok": True,
+        "id": admin_id,
+        "user_id": admin_id,
+        "username": plain,
+        "role": role,
+        "skip_grant_check": False,
+        "editable": True,
+        "items": items,
+        "menu_ids": stored_ids,
+        "privileges": privileges,
+    }
+
+
+def _menu_privileges_save(body: MenuPrivilegeSaveRequest, current_admin: dict) -> dict:
+    """Save active/inactive menus for selected admin."""
+    from db.privileges import (
+        is_superadmin_identity,
+        menu_ids_to_privileges,
+        normalize_menu_ids,
+        set_user_menu_privileges,
+    )
+
+    target_id = body.id if body.id is not None else body.user_id
+    target = _resolve_target_admin(user_id=target_id)
+    plain = _public_username(target.get("username"))
+    try:
+        admin_id = int(target.get("id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Admin has no numeric id")
+
+    if is_superadmin_identity(username=plain, role=target.get("role"), admin_id=admin_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Superadmin always has all menus — cannot save privileges for this account",
+        )
+    if str(target.get("role") or "").strip() not in ("admin", "sub_admin"):
+        raise HTTPException(
+            status_code=400,
+            detail="Menu privileges can only be saved for admin or sub_admin accounts",
+        )
+
+    menu_ids = _resolve_assign_menu_ids(body)
+    grants = set_user_menu_privileges(admin_id, menu_ids)
+    resolved = normalize_menu_ids([g.get("privileges_name") for g in grants])
+    items = _items_with_active(resolved, all_active=False)
+    audit_kwargs = dict(
+        action="save_menu_privileges",
+        actor=current_admin,
+        outcome="success",
+        resource_type="menu_set_privilege",
+        resource_id=str(admin_id),
+        target_username=plain,
+        tenant_id=None,
+        details={"user_id": admin_id, "menu_ids": resolved},
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+    return {
+        "ok": True,
+        "id": admin_id,
+        "user_id": admin_id,
+        "username": plain,
+        "menu_ids": resolved,
+        "privileges": menu_ids_to_privileges(resolved),
+        "items": items,
+        "grants": grants,
+    }
+
+
+@router.post("/menu-privileges/users")
+def menu_privileges_users_api(
+    current_admin: dict = Depends(require_super_admin),
+):
+    """Dropdown of admin/sub_admin users (id + username). Auth via headers only."""
+    return _menu_privileges_users()
+
+
+@router.post("/menu-privileges/get")
+def menu_privileges_get_api(
+    body: MenuPrivilegeGetRequest,
+    current_admin: dict = Depends(require_super_admin),
+):
+    """Selected user's menus with active true/false. Body: ``id`` only."""
+    return _menu_privileges_get(body)
+
+
+@router.post("/menu-privileges/save")
+def menu_privileges_save_api(
+    body: MenuPrivilegeSaveRequest,
+    current_admin: dict = Depends(require_super_admin),
+):
+    """Save active/inactive for selected user. Body: ``id`` + privileges."""
+    return _menu_privileges_save(body, current_admin)
 
 
 # ── Unified Privileges API (POST /api/auth/privileges) ────────────────────────
@@ -1910,7 +2366,7 @@ def _build_page_privileges(role: str, permissions: dict, features: dict) -> dict
 
 
 class PrivilegesAuthRequest(BaseModel):
-    user_id: Optional[int | str] = None
+    username: Optional[str] = None
     session_id: Optional[str] = None
 
 
@@ -1926,53 +2382,62 @@ async def admin_privileges(
     Supports super_admin, admin, and sub_admin roles. Respects super admin's
     tenant view-only restrictions.
 
-    Accepts user_id and session_id from either request headers or JSON body.
+    Auth: username + session_id only (headers or JSON body).
     """
     current_admin = getattr(request.state, "current_admin", None)
     if not current_admin:
-        user_id = str(request.headers.get("user_id") or "").strip()
+        username = str(request.headers.get("username") or "").strip()
         session_id = str(request.headers.get("session_id") or "").strip()
 
         if body is not None:
-            if not user_id and body.user_id is not None:
-                user_id = str(body.user_id).strip()
+            if not username and body.username:
+                username = str(body.username).strip()
             if not session_id and body.session_id:
                 session_id = str(body.session_id).strip()
 
-        if not user_id:
-            user_id = str(getattr(request.state, "auth_user_id", "") or "").strip()
+        if not username:
+            username = str(getattr(request.state, "auth_username", "") or "").strip()
         if not session_id:
             session_id = str(getattr(request.state, "auth_session_id", "") or "").strip()
 
-        if not (user_id and session_id):
+        if not (username and session_id):
             try:
                 raw_bytes = await request.body()
                 if raw_bytes:
                     payload = json.loads(raw_bytes)
                     if isinstance(payload, dict):
-                        user_id = user_id or str(payload.get("user_id") or "").strip()
+                        username = username or str(payload.get("username") or "").strip()
                         session_id = session_id or str(payload.get("session_id") or "").strip()
             except Exception:
                 pass
 
-        if not (user_id and session_id):
+        if not (username and session_id):
             raise HTTPException(
                 status_code=401,
-                detail="Not authenticated — send user_id and session_id (header or JSON body)",
+                detail="Not authenticated — send username and session_id (header or JSON body)",
             )
-
-        current_admin = _admin_from_user_id(user_id, session_id, request)
+        current_admin = _admin_from_username(username, session_id, request)
 
     role = current_admin.get("role", "")
     tenant_id = current_admin.get("tenant_id")
     is_super = role == "super_admin"
     permissions = current_admin.get("permissions") or {}
+    username = _public_username(current_admin.get("username"))
 
     features = _fetch_tenant_features(tenant_id)
     pages = _build_page_privileges(role, permissions, features)
 
+    from db.privileges import effective_menu_privileges, menu_privilege_catalog
+
+    menu_privileges = effective_menu_privileges(
+        username=username,
+        tenant_id=tenant_id,
+        role=role,
+        admin_id=current_admin.get("id"),
+    )
+
     return {
-        "username": _public_username(current_admin.get("username")),
+        "username": username,
         "role": role,
         "tenant_id": tenant_id,
         "is_tenant_view_only": is_super,
@@ -1980,4 +2445,6 @@ async def admin_privileges(
         "features": features,
         "pages": pages,
         "permissions": permissions,
+        "menu_privileges": menu_privileges,
+        "menu_privilege_catalog": menu_privilege_catalog(),
     }

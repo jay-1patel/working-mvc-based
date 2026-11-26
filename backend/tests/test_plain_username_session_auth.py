@@ -1,4 +1,4 @@
-"""Session auth is user_id + session_id; usernames stay for display / admin CRUD."""
+"""Session auth is username + session_id only."""
 
 import unittest
 from unittest.mock import patch
@@ -7,8 +7,8 @@ from core.send2_auth import encode_send2_username
 from routes import auth as auth_routes
 
 
-class UserIdSessionAuthTests(unittest.TestCase):
-    def test_admin_from_user_id_accepts_matching_session(self):
+class UsernameSessionAuthTests(unittest.TestCase):
+    def test_admin_from_username_accepts_matching_session(self):
         plain = "test_support_"
         encoded = encode_send2_username(plain)
         session_id = "live-session-abc"
@@ -16,44 +16,77 @@ class UserIdSessionAuthTests(unittest.TestCase):
 
         with patch.object(
             auth_routes,
-            "get_admin_by_id",
-            return_value={
+            "get_admin_by_username",
+            side_effect=lambda u: {
                 "id": user_id,
                 "username": encoded,
                 "session_id": session_id,
                 "role": "admin",
                 "permissions": {},
                 "tenant_id": "c",
-            },
+            }
+            if u == encoded
+            else None,
         ):
-            admin = auth_routes._admin_from_user_id(user_id, session_id)
+            admin = auth_routes._admin_from_username(plain, session_id)
 
         self.assertEqual(admin["username"], plain)
         self.assertEqual(admin["id"], user_id)
         self.assertEqual(admin["tenant_id"], "c")
         self.assertEqual(admin["role"], "admin")
 
-    def test_admin_from_user_id_rejects_wrong_session(self):
+    def test_admin_from_username_rejects_wrong_session(self):
+        plain = "campaign"
+        encoded = encode_send2_username(plain)
         with patch.object(
             auth_routes,
-            "get_admin_by_id",
-            return_value={
+            "get_admin_by_username",
+            side_effect=lambda u: {
                 "id": 1,
-                "username": encode_send2_username("campaign"),
+                "username": encoded,
                 "session_id": "sess-1",
                 "role": "sub_admin",
                 "permissions": {},
                 "tenant_id": "acme",
-            },
+            }
+            if u == encoded
+            else None,
         ):
             with self.assertRaises(auth_routes.HTTPException) as ctx:
-                auth_routes._admin_from_user_id(1, "wrong")
+                auth_routes._admin_from_username(plain, "wrong")
         self.assertEqual(ctx.exception.status_code, 401)
 
-    def test_authenticate_basic_header_rejects_username_only(self):
+    def test_authenticate_basic_header_accepts_username_session(self):
+        plain = "test_support_"
+        encoded = encode_send2_username(plain)
+        session_id = "live-session"
+
         class _Req:
             state = type("S", (), {})()
-            headers = {"username": "test_support_", "session_id": "live-session"}
+            headers = {"username": plain, "session_id": session_id}
+
+        with patch.object(
+            auth_routes,
+            "get_admin_by_username",
+            side_effect=lambda u: {
+                "id": 3047,
+                "username": encoded,
+                "session_id": session_id,
+                "role": "admin",
+                "permissions": {},
+                "tenant_id": "c",
+            }
+            if u == encoded
+            else None,
+        ):
+            admin = auth_routes.authenticate_basic_header(_Req())
+        self.assertEqual(admin["username"], plain)
+        self.assertEqual(admin["id"], 3047)
+
+    def test_authenticate_basic_header_rejects_user_id_only(self):
+        class _Req:
+            state = type("S", (), {})()
+            headers = {"user_id": "3047", "session_id": "live-session"}
 
         with self.assertRaises(auth_routes.HTTPException) as ctx:
             auth_routes.authenticate_basic_header(_Req())

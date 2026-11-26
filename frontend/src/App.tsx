@@ -41,7 +41,9 @@ import { TestAndSmoke } from '@/components/tenants/test-and-smoke'
 import { WhatsAppTester } from '@/components/tester/whatsapp-tester'
 import { TeamScreen } from '@/components/team/team-screen'
 import { OnboardingUsersPanel } from '@/components/team/onboarding-users'
+import { PrivilegesPanel } from '@/components/team/privileges-panel'
 import { isCustomerCareIdentity } from '@/lib/admins'
+import { canAccessNavView, NAV_ID_TO_MENU_PRIVILEGE } from '@/lib/menu-privileges'
 import { RegisterWizard } from '@/components/onboarding/register-wizard'
 import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
@@ -55,12 +57,13 @@ function Router() {
   const { identity } = useAuth()
   const locked = isOnboardingLocked(identity, { impersonating })
 
-  // customer_care: home is Onboarded users only. Full superadmin tools unlock
-  // only after Login into a tenant (support session).
+  // customer_care: home is Onboarded users + Privileges. Full superadmin
+  // tools unlock only after Login into a tenant (support session).
   if (
     isCustomerCareIdentity(identity) &&
     !impersonating &&
-    route.view !== 'onboarding-users'
+    route.view !== 'onboarding-users' &&
+    route.view !== 'privileges'
   ) {
     return (
       <AppShell route={{ ...route, tenantId: null, view: 'onboarding-users' }}>
@@ -147,6 +150,18 @@ function Router() {
     )
   }
 
+  if (route.view === 'privileges') {
+    // Hard-coded superadmin-only — never grantable via the privilege table.
+    if (!isSuperAdmin || impersonating) {
+      return <NotPermitted what="manage menu privileges" permission="super admin" />
+    }
+    return (
+      <AppShell route={route}>
+        <PrivilegesPanel />
+      </AppShell>
+    )
+  }
+
   if (route.view === 'api-requests') {
     if (!isSuperAdmin) return <NotPermitted what="review API access requests" permission="super admin" />
     return (
@@ -214,6 +229,26 @@ function Router() {
     return (
       <AppShell route={route}>
         <NotPermitted what="open this screen" permission="super admin" />
+      </AppShell>
+    )
+  }
+
+  // Menu privilege gate (deep links): first-time users with no grants cannot
+  // open tagged screens until a superadmin assigns them on Privileges.
+  if (
+    route.tenantId &&
+    NAV_ID_TO_MENU_PRIVILEGE[route.view] &&
+    !canAccessNavView(route.view, identity?.menu_privileges, {
+      role: identity?.role,
+      impersonating,
+    })
+  ) {
+    return (
+      <AppShell route={route}>
+        <NotPermitted
+          what="open this menu page"
+          permission={`menu privilege (${NAV_ID_TO_MENU_PRIVILEGE[route.view]})`}
+        />
       </AppShell>
     )
   }

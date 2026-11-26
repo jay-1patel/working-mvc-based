@@ -67,6 +67,11 @@ export interface NavChild {
   permissions?: string[]
   /** Visible when the tenant has this feature on. Undefined is ungated. */
   feature?: FeatureFlag
+  /**
+   * Menu privilege key from the privilege table. When set, the item is
+   * hidden until a superadmin grants that key (superadmin / support bypass).
+   */
+  menuPrivilege?: string
 }
 
 export interface NavItem {
@@ -83,6 +88,11 @@ export interface NavItem {
   permissions?: string[]
   /** Visible when the tenant has this feature on. Undefined is ungated. */
   feature?: FeatureFlag
+  /**
+   * Menu privilege key from the privilege table. When set, the item is
+   * hidden until a superadmin grants that key (superadmin / support bypass).
+   */
+  menuPrivilege?: string
   /** True when the sidebar should show the tenant's record count. */
   showsCount?: boolean
   /** Nested items rendered as a sidebar dropdown under this parent. */
@@ -161,6 +171,14 @@ export function buildTenantNav(opts: {
    * that do not pass a role).
    */
   isSuperAdmin?: boolean
+  /**
+   * Menu privilege grants. When provided (and not bypassed), items tagged
+   * with `menuPrivilege` stay hidden until that key is true. Superadmin /
+   * support Login pass `bypassMenuPrivileges: true`.
+   */
+  menuPrivileges?: Record<string, boolean> | null
+  /** When true, skip menu-privilege gating (superadmin / support). */
+  bypassMenuPrivileges?: boolean
 }): NavItem[] {
   const content = getVertical(opts.vertical).content
   const features = opts.features ?? null
@@ -170,9 +188,17 @@ export function buildTenantNav(opts: {
 
   const uploadPermissions = ['upload_faq', 'upload_kb', 'view_files', 'catalogue_new_arrival']
   const hideSuperAdminOnly = opts.isSuperAdmin === false
+  const bypassMenu = Boolean(opts.bypassMenuPrivileges)
+  const menuPrivileges = opts.menuPrivileges ?? null
 
   const items: NavItem[] = [
-    { id: 'overview', label: 'Dashboard', icon: LayoutGrid, group: 'Dashboard' },
+    {
+      id: 'overview',
+      label: 'Dashboard',
+      icon: LayoutGrid,
+      group: 'Dashboard',
+      menuPrivilege: 'graphic',
+    },
 
     // Talk to customers
     {
@@ -181,6 +207,7 @@ export function buildTenantNav(opts: {
       icon: Inbox,
       group: 'Talk to customers',
       permissions: ['view_inbox'],
+      menuPrivilege: 'chats',
     },
     {
       id: 'profile',
@@ -188,6 +215,7 @@ export function buildTenantNav(opts: {
       icon: ScrollText,
       group: 'Talk to customers',
       permissions: ['manage_operations'],
+      menuPrivilege: 'profile',
     },
     {
       id: 'chat-history',
@@ -223,9 +251,27 @@ export function buildTenantNav(opts: {
       group: 'Your business data',
       permissions: ['manage_operations'],
       children: [
-        { id: 'menu', label: 'WhatsApp menu', icon: ListTree, permissions: ['manage_operations'] },
-        { id: 'profile-menu', label: 'Profile menu', icon: Clock, permissions: ['manage_operations'] },
-        { id: 'settings', label: 'Settings', icon: Settings, permissions: ['manage_operations'] },
+        {
+          id: 'menu',
+          label: 'WhatsApp menu',
+          icon: ListTree,
+          permissions: ['manage_operations'],
+          menuPrivilege: 'menu',
+        },
+        {
+          id: 'profile-menu',
+          label: 'Profile menu',
+          icon: Clock,
+          permissions: ['manage_operations'],
+          menuPrivilege: 'setup_chatbot',
+        },
+        {
+          id: 'settings',
+          label: 'Settings',
+          icon: Settings,
+          permissions: ['manage_operations'],
+          menuPrivilege: 'setup_chatbot',
+        },
       ],
     },
     {
@@ -236,8 +282,16 @@ export function buildTenantNav(opts: {
       icon: Globe,
       group: 'Your business data',
       permissions: uploadPermissions,
+      menuPrivilege: 'website_crawler',
     },
-    { id: 'customers', label: 'Customers', icon: Users, group: 'Your business data', permissions: ['view_customers'] },
+    {
+      id: 'customers',
+      label: 'Customers',
+      icon: Users,
+      group: 'Your business data',
+      permissions: ['view_customers'],
+      menuPrivilege: 'customer',
+    },
     {
       id: 'records',
       label: `${content.label} & prices`,
@@ -294,7 +348,9 @@ export function buildTenantNav(opts: {
       if (!item.children?.length) return item
       return {
         ...item,
-        children: item.children.filter((child) => isVisible(child, opts.can, features)),
+        children: item.children.filter((child) =>
+          isVisible(child, opts.can, features, menuPrivileges, bypassMenu),
+        ),
       }
     })
     .filter((item) => {
@@ -305,19 +361,28 @@ export function buildTenantNav(opts: {
       ) {
         return false
       }
-      if (item.children) return item.children.length > 0 && isVisible(item, opts.can, features)
-      return isVisible(item, opts.can, features)
+      if (item.children) {
+        return item.children.length > 0 && isVisible(item, opts.can, features, menuPrivileges, bypassMenu)
+      }
+      return isVisible(item, opts.can, features, menuPrivileges, bypassMenu)
     })
 }
 
-/** Whether one item passes its permission and feature gates. */
+/** Whether one item passes its permission, feature, and menu-privilege gates. */
 export function isVisible(
-  item: Pick<NavItem, 'permissions' | 'feature'>,
+  item: Pick<NavItem, 'permissions' | 'feature' | 'menuPrivilege'>,
   can: (permission: string) => boolean,
   features: Features | null,
+  menuPrivileges: Record<string, boolean> | null = null,
+  bypassMenuPrivileges = false,
 ): boolean {
   if (item.permissions && !item.permissions.some((p) => can(p))) return false
   if (item.feature && (!features || features[item.feature] !== true)) return false
+  // Fail closed only when a privileges map was provided (null/omit = ungated,
+  // used by knownViews / unit tests that do not load grants).
+  if (!bypassMenuPrivileges && item.menuPrivilege && menuPrivileges) {
+    if (!menuPrivileges[item.menuPrivilege]) return false
+  }
   return true
 }
 

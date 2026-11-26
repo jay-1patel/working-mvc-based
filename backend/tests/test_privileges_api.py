@@ -9,6 +9,15 @@ from core.send2_auth import encode_send2_username
 from routes import auth as auth_routes
 
 
+def _patch_admin_row(row):
+    encoded = row["username"]
+    return patch.object(
+        auth_routes,
+        "get_admin_by_username",
+        side_effect=lambda u: row if u == encoded else None,
+    )
+
+
 class PrivilegesApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -22,7 +31,7 @@ class PrivilegesApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 405)
 
     def test_privileges_unauthenticated(self):
-        """Request without user_id & session_id headers must return 401."""
+        """Request without username & session_id must return 401."""
         resp = self.client.post("/api/auth/privileges")
         self.assertEqual(resp.status_code, 401)
 
@@ -42,10 +51,10 @@ class PrivilegesApiTests(unittest.TestCase):
             "tenant_id": None,
         }
 
-        with patch.object(auth_routes, "get_admin_by_id", return_value=row):
+        with _patch_admin_row(row):
             resp = self.client.post(
                 "/api/auth/privileges",
-                headers={"user_id": str(user_id), "session_id": session_id},
+                headers={"username": plain, "session_id": session_id},
             )
 
         self.assertEqual(resp.status_code, 200)
@@ -116,7 +125,7 @@ class PrivilegesApiTests(unittest.TestCase):
             "tenant_id": "c",
         }
 
-        with patch.object(auth_routes, "get_admin_by_id", return_value=row), \
+        with _patch_admin_row(row), \
              patch.object(
                  auth_routes,
                  "_fetch_tenant_features",
@@ -124,7 +133,7 @@ class PrivilegesApiTests(unittest.TestCase):
              ):
             resp = self.client.post(
                 "/api/auth/privileges",
-                headers={"user_id": str(user_id), "session_id": session_id},
+                headers={"username": plain, "session_id": session_id},
             )
 
         self.assertEqual(resp.status_code, 200)
@@ -142,7 +151,7 @@ class PrivilegesApiTests(unittest.TestCase):
         self.assertTrue(pages["menu"]["can_write"])
 
     def test_privileges_body_auth(self):
-        """Authenticate when user_id + session_id are provided only in JSON body."""
+        """Authenticate when username + session_id are provided only in JSON body."""
         plain = "body_admin"
         encoded = encode_send2_username(plain)
         session_id = "body-sess"
@@ -155,17 +164,17 @@ class PrivilegesApiTests(unittest.TestCase):
             "permissions": {k: True for k in auth_routes.ALL_PERMISSIONS},
             "tenant_id": "c",
         }
-        with patch.object(auth_routes, "get_admin_by_id", return_value=row), \
+        with _patch_admin_row(row), \
              patch.object(auth_routes, "_fetch_tenant_features", return_value={}):
             resp = self.client.post(
                 "/api/auth/privileges",
-                json={"user_id": user_id, "session_id": session_id},
+                json={"username": plain, "session_id": session_id},
             )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["username"], plain)
 
     def test_privileges_header_and_body_auth(self):
-        """Authenticate when user_id + session_id are in both headers and body."""
+        """Authenticate when username + session_id are in both headers and body."""
         plain = "both_admin"
         encoded = encode_send2_username(plain)
         session_id = "both-sess"
@@ -178,12 +187,12 @@ class PrivilegesApiTests(unittest.TestCase):
             "permissions": {k: True for k in auth_routes.ALL_PERMISSIONS},
             "tenant_id": "c",
         }
-        with patch.object(auth_routes, "get_admin_by_id", return_value=row), \
+        with _patch_admin_row(row), \
              patch.object(auth_routes, "_fetch_tenant_features", return_value={}):
             resp = self.client.post(
                 "/api/auth/privileges",
-                headers={"user_id": str(user_id), "session_id": session_id},
-                json={"user_id": user_id, "session_id": session_id},
+                headers={"username": plain, "session_id": session_id},
+                json={"username": plain, "session_id": session_id},
             )
         self.assertEqual(resp.status_code, 200)
 
@@ -200,11 +209,11 @@ class PrivilegesApiTests(unittest.TestCase):
             "permissions": {k: True for k in auth_routes.ALL_PERMISSIONS},
             "tenant_id": "c",
         }
-        with patch.object(auth_routes, "get_admin_by_id", return_value=row), \
+        with _patch_admin_row(row), \
              patch.object(auth_routes, "_fetch_tenant_features", return_value={}):
             resp = self.client.post(
                 "/api/auth/privileges",
-                content=json.dumps({"user_id": user_id, "session_id": session_id}),
+                content=json.dumps({"username": plain, "session_id": session_id}),
             )
         self.assertEqual(resp.status_code, 200)
 
@@ -220,11 +229,19 @@ class PrivilegesApiTests(unittest.TestCase):
             "permissions": {},
             "tenant_id": "c",
         }
-        with patch.object(auth_routes, "get_admin_by_id", return_value=row):
+        with _patch_admin_row(row):
             resp = self.client.post(
                 "/api/auth/privileges",
-                json={"user_id": user_id, "session_id": "wrong-session"},
+                json={"username": plain, "session_id": "wrong-session"},
             )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_privileges_rejects_user_id_auth(self):
+        """user_id + session_id alone must not authenticate."""
+        resp = self.client.post(
+            "/api/auth/privileges",
+            headers={"user_id": "9007", "session_id": "any-session"},
+        )
         self.assertEqual(resp.status_code, 401)
 
 

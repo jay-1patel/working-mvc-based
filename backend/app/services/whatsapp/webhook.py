@@ -656,30 +656,6 @@ async def _process_and_reply(
         except Exception as e:
             logger.error(f"Spiritual menu browsing failed for {user_text!r}: {e}")
 
-        # ── GENERIC DB-BACKED HIERARCHICAL MENUS ────────────────────────
-        # Tenant-defined menus stored in the profile (draft/published). Handles
-        # tm_* row ids so it never collides with legacy menu_* rows.
-        try:
-            from backend.services import tenant_menu_flow
-            tenant_menu_trigger = pressed_id or user_text
-            tenant_menu_result = await tenant_menu_flow.handle_tenant_menu_action(
-                wa_id, tenant_menu_trigger, tenant_id=tenant_id,
-            )
-            if tenant_menu_result and tenant_menu_result.get("handled"):
-                action = tenant_menu_result.get("action")
-                save_chat(wa_id, sender_name, user_text, f"[tenant_menu] {action}", "tenant_menu")
-                logger.info(
-                    "TENANT_MENU | %s | action=%s | trigger=%r",
-                    wa_id, action, (tenant_menu_trigger or "")[:80],
-                )
-                response_time_ms = int((time.time() - start_time) * 1000)
-                log_webhook("outgoing", "/webhook/tenant-menu", json.dumps({
-                    "to": wa_id, "action": action
-                }), 200, f"Tenant menu {action}", response_time_ms=response_time_ms, wa_id=wa_id, tenant_id=tenant_id, message_id=msg_id)
-                return
-        except Exception as e:
-            logger.error(f"Tenant menu browsing failed for {user_text!r}: {e}")
-
         # ── TOUR PACKAGE BROWSING ───────────────────────────────────────
         # The package catalogue is an interactive list menu, not a text
         # answer: a tapped row shows the package card and a booking button.

@@ -648,12 +648,6 @@ class MenuButton(_Base):
     flow: Optional[str] = None
     # Optional intent to route to when tapped.
     intent: Optional[str] = None
-    # ── Hierarchical / AI-draft fields (backward-compatible defaults) ─────
-    parent_id: Optional[str] = None
-    action_type: str = "knowledge"
-    action_ref: Optional[str] = None
-    answer: Optional[str] = None
-    source_refs: List[str] = Field(default_factory=list)
 
 
 def _menu_button_title_key(title: str) -> str:

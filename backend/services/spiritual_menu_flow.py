@@ -682,7 +682,7 @@ async def handle_spiritual_menu_action(
         answer = await _topic_answer_from_knowledge(
             event_slug, topic, tenant_id=tenant_id,
         )
-        await _sender().send_text_message(wa_id, answer)
+        await _sender().send_text_message(wa_id, answer, tenant_id=tenant_id)
         await _sender().send_button_message(
             wa_id,
             "Choose what you'd like to do next:",

@@ -68,7 +68,9 @@ def _live_sender(kind: str, tenant_id: str = None):
     try:
         if kind == "text":
             from kb.services.whatsapp import send_whatsapp_message
-            return lambda wa_id, text: send_whatsapp_message(wa_id, text, "text")
+            return lambda wa_id, text: send_whatsapp_message(
+                wa_id, text, "text", tenant_id=tenant_id,
+            )
         if kind == "image":
             from kb.services.whatsapp import send_whatsapp_message, resolve_public_media_url
             def _img(wa_id, media_url, caption=""):
@@ -79,17 +81,28 @@ def _live_sender(kind: str, tenant_id: str = None):
                         url = resolved
                 except Exception as e:
                     logger.warning(f"image url resolve failed: {e}")
-                return send_whatsapp_message(wa_id, url, "image")
+                return send_whatsapp_message(wa_id, url, "image", tenant_id=tenant_id)
             return _img
         if kind == "document":
             from kb.services.whatsapp import send_document
-            return lambda wa_id, doc_url, filename=None: send_document(wa_id, doc_url, filename)
+            return lambda wa_id, doc_url, filename=None: send_document(
+                wa_id, doc_url, filename, tenant_id=tenant_id,
+            )
         if kind == "buttons":
             from routing.whatsapp import send_whatsapp_list_menu, normalize_reply_buttons
             def _btns(wa_id, body, buttons, header_media=None):
                 # When using Send2, quick-reply buttons return Message: null on click in incoming-report.
                 # Sending options via list menu guarantees Send2 captures and returns the option title.
                 api_buttons = normalize_reply_buttons(buttons)
+                try:
+                    from services.credential_vault import resolve_send2_username_password
+                    resolve_send2_username_password(tenant_id)
+                except Exception as exc:
+                    logger.error(
+                        "SEND2_CREDENTIALS_UNAVAILABLE | tenant=%s | to=%s | error=%s",
+                        tenant_id or "(unresolved)", wa_id, type(exc).__name__,
+                    )
+                    return False
                 rows = []
                 for b in api_buttons:
                     r = b.get("reply", {})
@@ -118,6 +131,7 @@ def _live_sender(kind: str, tenant_id: str = None):
                 return send_interactive_buttons(
                     to=wa_id, body_text=body, buttons=buttons,
                     header_media=header_media, footer_text=None,
+                    tenant_id=tenant_id,
                 )
             return _btns
         if kind == "list":
@@ -148,10 +162,12 @@ def _live_sender(kind: str, tenant_id: str = None):
     return None
 
 
-async def send_text_message(wa_id: str, text: str) -> bool:
+async def send_text_message(
+    wa_id: str, text: str, tenant_id: str | None = None,
+) -> bool:
     """Send (or capture) a plain text message."""
     logger.info(f"SEND_TEXT | to={wa_id} | chars={len(text or '')}")
-    sender = _live_sender("text")
+    sender = _live_sender("text", tenant_id)
     if sender is None:
         _record({"type": "text", "text": text or "", "sent_live": False})
         return True  # capture-only fallback (e.g. simulator)
@@ -165,11 +181,13 @@ async def send_text_message(wa_id: str, text: str) -> bool:
         return False
 
 
-async def send_image_message(wa_id: str, media_url: str, caption: str = "") -> bool:
+async def send_image_message(
+    wa_id: str, media_url: str, caption: str = "", tenant_id: str | None = None,
+) -> bool:
     """Send (or capture) an image message with an optional caption."""
     _record({"type": "image", "media_url": media_url or "", "caption": caption or ""})
     logger.info(f"SEND_IMAGE | to={wa_id} | url_len={len(media_url or '')} | caption_len={len(caption or '')}")
-    sender = _live_sender("image")
+    sender = _live_sender("image", tenant_id)
     if sender is None:
         return True
     try:
@@ -179,11 +197,13 @@ async def send_image_message(wa_id: str, media_url: str, caption: str = "") -> b
         return False
 
 
-async def send_document_message(wa_id: str, doc_url: str, filename: str = None) -> bool:
+async def send_document_message(
+    wa_id: str, doc_url: str, filename: str = None, tenant_id: str | None = None,
+) -> bool:
     """Send (or capture) a document (e.g. PDF) message."""
     _record({"type": "document", "media_url": doc_url or "", "filename": filename or ""})
     logger.info(f"SEND_DOCUMENT | to={wa_id} | url_len={len(doc_url or '')} | name={filename}")
-    sender = _live_sender("document")
+    sender = _live_sender("document", tenant_id)
     if sender is None:
         return True
     try:

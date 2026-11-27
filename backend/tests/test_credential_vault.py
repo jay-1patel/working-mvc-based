@@ -199,10 +199,30 @@ class CredentialVaultStoreTests(unittest.TestCase):
             },
             clear=False,
         ):
-            with self.assertLogs("credential_vault", level="WARNING") as cm:
-                u2, p2 = vault.resolve_send2_username_password("tenant-missing")
-            self.assertEqual((u2, p2), ("env-user", "env-pass"))
-            self.assertTrue(any("SEND2_VAULT_FALLBACK_USED" in line for line in cm.output))
+            # A tenant-scoped lookup must not borrow global .env credentials.
+            with self.assertRaises(vault.CredentialVaultError):
+                vault.resolve_send2_username_password("tenant-missing")
+
+    def test_tenant_lookup_never_borrows_shared_admin_credentials(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SEND2_VAULT_FALLBACK": "true",
+                    "SEND2_USERNAME": "shared-user",
+                    "SEND2_PASSWORD": "shared-pass",
+                },
+                clear=False,
+            ),
+            patch(
+                "services.send2_accounts.credentials_from_admins",
+                side_effect=lambda tenant_id=None: None,
+            ) as from_admins,
+        ):
+            with self.assertRaises(vault.CredentialVaultError):
+                vault.resolve_send2_username_password("tenant-missing")
+
+        from_admins.assert_called_once_with("tenant-missing")
 
     def test_decrypt_failure_blocks_resolve(self):
         vault.store_send2_credentials("tenant-a", "krt-1", "u", "p", {})

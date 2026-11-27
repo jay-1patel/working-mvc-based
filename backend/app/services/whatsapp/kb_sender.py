@@ -64,13 +64,39 @@ SESSION_MSG_URL = SEND2_SESSION_SEND_URL
 # BASE REQUEST HELPERS
 # ============================================
 
-def _send2_login(tenant_id: str = None) -> tuple:
-    """Resolve Send2 username/password from the vault (optional env fallback)."""
+def _tenant_for_send(tenant_id: str | None = None, wa_id: str | None = None) -> str | None:
+    """Resolve the tenant for an outbound request without using global creds."""
+    tid = str(tenant_id or "").strip()
+    if tid:
+        return tid
+    try:
+        from routing.database import get_request_tenant
+        tid = str(get_request_tenant() or "").strip()
+        if tid:
+            return tid
+    except Exception:
+        logger.debug("SEND2_REQUEST_TENANT_LOOKUP_SKIPPED", exc_info=True)
+    if wa_id:
+        try:
+            from shared.tenancy.resolver import resolve_tenant_for_user
+            tid = str(resolve_tenant_for_user(str(wa_id)) or "").strip()
+            if tid:
+                return tid
+        except Exception:
+            logger.debug("SEND2_RECIPIENT_TENANT_LOOKUP_SKIPPED", exc_info=True)
+    return None
+
+
+def _send2_login(tenant_id: str = None, *, wa_id: str = None) -> tuple:
+    """Resolve this recipient's tenant credentials from the DB/vault."""
     try:
         from services.credential_vault import resolve_send2_username_password
     except ImportError:
         from backend.services.credential_vault import resolve_send2_username_password
-    return resolve_send2_username_password(tenant_id)
+    resolved_tenant = _tenant_for_send(tenant_id, wa_id)
+    if not resolved_tenant:
+        raise RuntimeError("Cannot resolve tenant for Send2 credentials")
+    return resolve_send2_username_password(resolved_tenant)
 
 
 def _stamp_from_number(payload: dict, tenant_id: str = None) -> dict:
@@ -142,16 +168,18 @@ def _stamp_from_number(payload: dict, tenant_id: str = None) -> dict:
     return payload
 
 
-def _cred_user_pass(tenant_id: str = None) -> dict:
-    username, password = _send2_login(tenant_id)
+def _cred_user_pass(tenant_id: str = None, *, wa_id: str = None) -> dict:
+    tenant_id = _tenant_for_send(tenant_id, wa_id)
+    username, password = _send2_login(tenant_id, wa_id=wa_id)
     return _stamp_from_number(
         {"user_name": username, "password": password},
         tenant_id,
     )
 
 
-def _cred_username_pass(tenant_id: str = None) -> dict:
-    username, password = _send2_login(tenant_id)
+def _cred_username_pass(tenant_id: str = None, *, wa_id: str = None) -> dict:
+    tenant_id = _tenant_for_send(tenant_id, wa_id)
+    username, password = _send2_login(tenant_id, wa_id=wa_id)
     return _stamp_from_number(
         {"username": username, "password": password},
         tenant_id,
@@ -159,7 +187,9 @@ def _cred_username_pass(tenant_id: str = None) -> dict:
 
 def _inject_credentials(payload: dict, tenant_id: str = None) -> dict:
     """Inject send2.digital credentials into payload (vault → optional fallback)."""
-    username, password = _send2_login(tenant_id)
+    recipient = payload.get("contact_no") or payload.get("number") or payload.get("to")
+    tenant_id = _tenant_for_send(tenant_id, recipient)
+    username, password = _send2_login(tenant_id, wa_id=recipient)
     payload["username"] = username
     payload["password"] = password
     return _stamp_from_number(payload, tenant_id)
@@ -327,7 +357,7 @@ def _chunk_text(text: str, limit: int = 4000) -> list:
     return chunks
 
 
-async def send_text_message(contact_no: str, text: str) -> bool:
+async def send_text_message(contact_no: str, text: str, tenant_id: str = None) -> bool:
     """
     Send text message using NEW API.
 
@@ -345,6 +375,7 @@ async def send_text_message(contact_no: str, text: str) -> bool:
         logger.warning("Empty text message, skipping send")
         return False
 
+    tenant_id = _tenant_for_send(tenant_id, contact_no)
     # Normalize formatting + append the tenant's signature
     text = format_for_whatsapp(text, contact_no)
     chunks = _chunk_text(text, limit=4000)
@@ -354,7 +385,7 @@ async def send_text_message(contact_no: str, text: str) -> bool:
     all_ok = True
     for chunk in chunks:
         payload = {
-            **_cred_user_pass(),
+            **_cred_user_pass(tenant_id, wa_id=contact_no),
             "contact_no": contact_no,
             "message_type": "text",
             "message": chunk
@@ -414,20 +445,31 @@ def _brochure_pdf_allowed(contact_no: str) -> bool:
     return True
 
 
-async def _send_document_media(contact_no: str, media_url: str, caption: str = None) -> bool:
+async def _send_document_media(
+    contact_no: str, media_url: str, caption: str = None, tenant_id: str = None,
+) -> bool:
     """Send a document (PDF) directly via WhatsApp API."""
     try:
         from routing.whatsapp import send_whatsapp_message, _resolve_media_url
         resolved = resolve_public_media_url(media_url) or _resolve_media_url(media_url)
         import asyncio
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: send_whatsapp_message(contact_no, resolved, msg_type="document"))
+        tenant_id = _tenant_for_send(tenant_id, contact_no)
+        return await loop.run_in_executor(
+            None,
+            lambda: send_whatsapp_message(
+                contact_no, resolved, msg_type="document", tenant_id=tenant_id,
+            ),
+        )
     except Exception as e:
         logger.error(f"_send_document_media failed: {e}")
         return False
 
 
-async def send_media_message(contact_no: str, media_type: str, media_url: str, caption: str = None) -> bool:
+async def send_media_message(
+    contact_no: str, media_type: str, media_url: str, caption: str = None,
+    tenant_id: str = None,
+) -> bool:
     """
     Send media message (image/video/document) using NEW API.
 
@@ -446,12 +488,14 @@ async def send_media_message(contact_no: str, media_type: str, media_url: str, c
     if media_type not in ("image", "video", "document"):
         raise ValueError(f"Invalid media_type: {media_type}. Must be 'image', 'video', or 'document'")
 
+    tenant_id = _tenant_for_send(tenant_id, contact_no)
+
     if media_type == "document" and not _brochure_pdf_allowed(contact_no):
         logger.info(f"MEDIA_SEND_DISABLED | to={contact_no} | type=document | brochure_pdf off | url={str(media_url)[:120]}")
         return False
 
     if media_type == "document":
-        return await _send_document_media(contact_no, media_url, caption=caption)
+        return await _send_document_media(contact_no, media_url, caption=caption, tenant_id=tenant_id)
 
     try:
         from routing.whatsapp import send_whatsapp_message as routing_send, _resolve_media_url
@@ -459,11 +503,11 @@ async def send_media_message(contact_no: str, media_type: str, media_url: str, c
         import asyncio
         loop = asyncio.get_event_loop()
         ok = await loop.run_in_executor(
-            None, lambda: routing_send(contact_no, resolved, msg_type=media_type)
+            None, lambda: routing_send(contact_no, resolved, msg_type=media_type, tenant_id=tenant_id)
         )
         if ok and caption:
             await loop.run_in_executor(
-                None, lambda: routing_send(contact_no, caption, msg_type="text")
+                None, lambda: routing_send(contact_no, caption, msg_type="text", tenant_id=tenant_id)
             )
         return bool(ok)
     except Exception as e:
@@ -477,7 +521,8 @@ async def send_button_message(
     body_text: str,
     buttons: List[dict],
     header_media: dict = None,
-    footer_text: str = None
+    footer_text: str = None,
+    tenant_id: str = None,
 ) -> bool:
     """
     Send interactive button message using NEW API.
@@ -506,9 +551,10 @@ async def send_button_message(
         ]
         success = await send_button_message("919876543210", "Choose an option:", buttons)
     """
+    tenant_id = _tenant_for_send(tenant_id, contact_no)
     if not buttons or len(buttons) == 0:
         logger.warning("No buttons provided, falling back to text message")
-        return await send_text_message(contact_no, body_text)
+        return await send_text_message(contact_no, body_text, tenant_id=tenant_id)
 
     if len(buttons) > 3:
         logger.warning(f"Too many buttons ({len(buttons)}), limiting to 3")
@@ -518,7 +564,7 @@ async def send_button_message(
     body_text = format_for_whatsapp(body_text, contact_no)
     if body_text and len(body_text) > 950:
         logger.info(f"INTERACTIVE_SPLIT | to={contact_no} | chars={len(body_text)} | sending full text first")
-        await send_text_message(contact_no, body_text)
+        await send_text_message(contact_no, body_text, tenant_id=tenant_id)
         body_text = "Please select an option below:"
 
     # Primary path: session-msg-send Cloud interactive API — ONE call carrying
@@ -553,7 +599,7 @@ async def send_button_message(
                 interactive_body["header"] = {"type": header_type, header_type: {"link": media_obj["link"]}}
 
     cloud_payload = {
-        **_cred_user_pass(),
+        **_cred_user_pass(tenant_id, wa_id=contact_no),
         "contact_no": contact_no,
         "message_type": "interactive",
         "interactive": interactive_body,
@@ -591,7 +637,7 @@ async def send_button_message(
 
     # Fallback: Quick Button endpoint (text header only, no media).
     payload = {
-        **_cred_username_pass(),
+        **_cred_username_pass(tenant_id, wa_id=contact_no),
         "number": contact_no,
         "headertype": "text",
         "headertext": " ",
@@ -635,7 +681,8 @@ async def send_list_menu(
     body_text: str,
     button_text: str,
     sections: List[dict],
-    footer_text: str = None
+    footer_text: str = None,
+    tenant_id: str = None,
 ) -> bool:
     """
     Send list menu message using OLD API (>3 options support).
@@ -666,6 +713,7 @@ async def send_list_menu(
         }]
         success = await send_list_menu("919876543210", "Our Products", "Browse below:", "View", sections)
     """
+    tenant_id = _tenant_for_send(tenant_id, contact_no)
     if not sections or len(sections) == 0:
         logger.warning("No sections provided, cannot send list menu")
         return False
@@ -674,7 +722,7 @@ async def send_list_menu(
     body_text = format_for_whatsapp(body_text, contact_no)
     if body_text and len(body_text) > 950:
         logger.info(f"LIST_MENU_SPLIT | to={contact_no} | chars={len(body_text)} | sending full text first")
-        await send_text_message(contact_no, body_text)
+        await send_text_message(contact_no, body_text, tenant_id=tenant_id)
         body_text = "Please select an option below:"
 
     # FIX: Transform sections structure to match OFFICIAL send2.digital API format
@@ -698,7 +746,7 @@ async def send_list_menu(
 
     # FIX: Build payload with CORRECT send2.digital field names from official documentation
     payload = {
-        **_cred_username_pass(),  # API expects 'username' not 'user_name'
+        **_cred_username_pass(tenant_id, wa_id=contact_no),  # API expects 'username' not 'user_name'
         "number": contact_no,
         "headertext": header_text or " ",  # ✅ non-empty required by send2
         "bodytext": body_text or " ",      # ✅ non-empty required by send2
@@ -746,7 +794,8 @@ async def send_quick_button_message(
     header_text: str,
     body_text: str,
     footer_text: str,
-    buttons: List[dict]
+    buttons: List[dict],
+    tenant_id: str = None,
 ) -> bool:
     """
     Send interactive button message using OFFICIAL send2.digital Quick Button API.
@@ -773,6 +822,7 @@ async def send_quick_button_message(
         ]
         success = await send_quick_button_message("919876543210", "Header", "Body text", "Footer", buttons)
     """
+    tenant_id = _tenant_for_send(tenant_id, number)
     if not buttons or len(buttons) == 0:
         logger.warning("No buttons provided, cannot send quick button message")
         return False
@@ -783,14 +833,14 @@ async def send_quick_button_message(
 
     if body_text and len(body_text) > 950:
         logger.info(f"QUICK_BUTTON_SPLIT | to={number} | chars={len(body_text)} | sending full text first")
-        await send_text_message(number, body_text)
+        await send_text_message(number, body_text, tenant_id=tenant_id)
         body_text = "Please select an option below:"
 
     # Build payload with OFFICIAL send2.digital field names.
     # NOTE: headertext and footertext must be NON-EMPTY strings, otherwise
     # send2.digital rejects the whole request with {"error":"INVALID PARAMETER"}.
     payload = {
-        **_cred_username_pass(),
+        **_cred_username_pass(tenant_id, wa_id=number),
         "number": number,
         "headertype": "text",
         "headertext": header_text or " ",
@@ -1062,8 +1112,9 @@ def _upload_image_file(file_path: str) -> Optional[str]:
 # These functions maintain backward compatibility with existing code
 # They map old function names to the new API functions
 
-def send_whatsapp_message(to, text, message_type="text"):
+def send_whatsapp_message(to, text, message_type="text", tenant_id=None):
     """Legacy wrapper - maps to routing.whatsapp (text + media)."""
+    tenant_id = _tenant_for_send(tenant_id, to)
     mt = (message_type or "text").lower().strip()
     if mt != "text":
         try:
@@ -1074,7 +1125,7 @@ def send_whatsapp_message(to, text, message_type="text"):
                 if resolved:
                     url = resolved
             logger.info(f"OUTGOING (LEGACY MEDIA) | to={to} | type={mt} | url={str(url)[:120]}")
-            return routing_send(to, url, msg_type=mt)
+            return routing_send(to, url, msg_type=mt, tenant_id=tenant_id)
         except Exception as e:
             logger.error(f"legacy media send failed: {e}")
             return False
@@ -1086,7 +1137,7 @@ def send_whatsapp_message(to, text, message_type="text"):
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            return loop.run_until_complete(send_text_message(to, text))
+            return loop.run_until_complete(send_text_message(to, text, tenant_id=tenant_id))
         finally:
             loop.close()
 
@@ -1103,7 +1154,7 @@ def send_whatsapp_message(to, text, message_type="text"):
         # Fall back to sync implementation
         text = format_for_whatsapp(text, to)
         payload = {
-            **_cred_user_pass(),
+            **_cred_user_pass(tenant_id, wa_id=to),
             "contact_no": to,
             "message_type": "text",
             "message": text,
@@ -1176,13 +1227,17 @@ def send_audio(to: str, audio_url: str) -> bool:
         return False
 
 
-def send_document(to: str, doc_url: str, filename: str = None) -> bool:
+def send_document(
+    to: str, doc_url: str, filename: str = None, tenant_id: str = None,
+) -> bool:
     """Send document (PDF) directly via WhatsApp API."""
     try:
         from routing.whatsapp import send_whatsapp_message, _resolve_media_url
         resolved = resolve_public_media_url(doc_url) or _resolve_media_url(doc_url)
         logger.info(f"SEND_DOCUMENT | to={to} | filename={filename} | url={resolved}")
-        return send_whatsapp_message(to, resolved, msg_type="document")
+        return send_whatsapp_message(
+            to, resolved, msg_type="document", tenant_id=tenant_id,
+        )
     except Exception as e:
         logger.error(f"send_document failed: {e}")
         return False
@@ -1201,12 +1256,14 @@ def send_interactive_buttons(
     header_text: Optional[str] = None,
     footer_text: Optional[str] = None,
     header_media: Optional[Dict] = None,
+    tenant_id: str = None,
 ) -> bool:
     """Legacy wrapper - maps to NEW API send_button_message."""
     import asyncio
 
     # Convert old button format to new format if needed
     normalized_buttons = []
+    tenant_id = _tenant_for_send(tenant_id, to)
     for btn in buttons[:3]:  # Max 3 buttons
         if isinstance(btn, dict):
             if btn.get("type") == "reply" and "reply" in btn:
@@ -1225,10 +1282,16 @@ def send_interactive_buttons(
             is_running = False
 
         if is_running:
-            asyncio.create_task(send_button_message(to, body_text, normalized_buttons, header_media, footer_text))
+            asyncio.create_task(send_button_message(
+                to, body_text, normalized_buttons, header_media, footer_text,
+                tenant_id=tenant_id,
+            ))
             return True
         else:
-            return loop.run_until_complete(send_button_message(to, body_text, normalized_buttons, header_media, footer_text))
+            return loop.run_until_complete(send_button_message(
+                to, body_text, normalized_buttons, header_media, footer_text,
+                tenant_id=tenant_id,
+            ))
     except:
         # Fallback to numbered text
         logger.warning(f"BUTTON_MESSAGE_FALLBACK | to={to} | using text format")
@@ -1237,7 +1300,7 @@ def send_interactive_buttons(
             reply = btn.get("reply") or {}
             rows.append({"id": reply.get("id", ""), "title": reply.get("title", "")})
         sections = [{"title": header_text or "Options", "rows": rows}]
-        return _send_list_as_text_fallback(to, body_text, sections, footer_text=footer_text or "Reply with a number", store_options=True)
+        return _send_list_as_text_fallback(to, body_text, sections, footer_text=footer_text or "Reply with a number", store_options=True, tenant_id=tenant_id)
 
 
 def send_interactive_list(
@@ -1247,9 +1310,11 @@ def send_interactive_list(
     sections: List[Dict],
     header_text: Optional[str] = None,
     footer_text: Optional[str] = None,
+    tenant_id: str = None,
 ) -> bool:
     """Legacy wrapper - maps to OLD API send_list_menu."""
     import asyncio
+    tenant_id = _tenant_for_send(tenant_id, to)
 
     try:
         loop = asyncio.get_event_loop()
@@ -1260,14 +1325,20 @@ def send_interactive_list(
             is_running = False
 
         if is_running:
-            asyncio.create_task(send_list_menu(to, header_text or "", body_text, button_text, sections, footer_text))
+            asyncio.create_task(send_list_menu(
+                to, header_text or "", body_text, button_text, sections, footer_text,
+                tenant_id=tenant_id,
+            ))
             return True
         else:
-            return loop.run_until_complete(send_list_menu(to, header_text or "", body_text, button_text, sections, footer_text))
+            return loop.run_until_complete(send_list_menu(
+                to, header_text or "", body_text, button_text, sections, footer_text,
+                tenant_id=tenant_id,
+            ))
     except:
         # Fallback to text format
         logger.warning(f"LIST_MENU_FALLBACK | to={to} | using text format")
-        return _send_list_as_text_fallback(to, body_text, sections or [], footer_text=footer_text, store_options=True)
+        return _send_list_as_text_fallback(to, body_text, sections or [], footer_text=footer_text, store_options=True, tenant_id=tenant_id)
 
 
 def _send_list_as_text_fallback(
@@ -1276,6 +1347,7 @@ def _send_list_as_text_fallback(
     sections: List[Dict],
     footer_text: Optional[str] = None,
     store_options: bool = True,
+    tenant_id: str = None,
 ) -> bool:
     """Numbered text menu + store option map so user can reply 1, 2, 3..."""
     text = (body_text or "").rstrip() + "\n\n"
@@ -1312,7 +1384,7 @@ def _send_list_as_text_fallback(
         except Exception as e:
             logger.warning(f"Failed to store pending menu options for {to}: {e}")
 
-    return send_whatsapp_message(to, text)
+    return send_whatsapp_message(to, text, tenant_id=tenant_id)
 
 
 # ============================================
@@ -1400,10 +1472,11 @@ def send_with_main_menu_fallback(
     return send_whatsapp_message(to, (text or "").rstrip() + footer)
 
 
-def send_main_menu(to: str) -> bool:
+def send_main_menu(to: str, tenant_id: str = None) -> bool:
     """Send main menu as numbered text (send2 has no interactive lists)."""
     from kb.services.menu_router import build_main_menu_list, set_state, UserState
 
+    tenant_id = _tenant_for_send(tenant_id, to)
     menu_config = build_main_menu_list(to)
     set_state(to, UserState.MAIN_MENU)
 
@@ -1414,6 +1487,7 @@ def send_main_menu(to: str) -> bool:
         sections=menu_config.get("sections", []),
         header_text=menu_config.get("header", BUSINESS_NAME),
         footer_text=menu_config.get("footer", "Type menu anytime to return here"),
+        tenant_id=tenant_id,
     )
 
 
@@ -1983,7 +2057,7 @@ def send_new_arrivals_pdf(to: str) -> bool:
 
 def mark_as_read(to: str, message_id: str) -> bool:
     payload = {
-        **_cred_username_pass(),
+        **_cred_username_pass(wa_id=to),
         "number": to,
         "message_type": "read",
         "message_id": message_id,
@@ -2000,7 +2074,7 @@ def mark_as_read(to: str, message_id: str) -> bool:
 
 def send_typing_indicator(to: str) -> bool:
     payload = {
-        **_cred_username_pass(),
+        **_cred_username_pass(wa_id=to),
         "number": to,
         "message_type": "typing",
     }
@@ -2070,6 +2144,7 @@ def send_whatsapp_flow(
     body_text: str = "",
     footer_text: str = "",
     button_text: str = "Open",
+    tenant_id: str = None,
 ) -> bool:
     interactive = {
         "type": "flow",
@@ -2092,7 +2167,7 @@ def send_whatsapp_flow(
         interactive["footer"] = {"text": footer_text}
 
     payload = {
-        **_cred_username_pass(),
+        **_cred_username_pass(tenant_id, wa_id=to),
         "number": to,
         "message_type": "interactive",
         "message": interactive,

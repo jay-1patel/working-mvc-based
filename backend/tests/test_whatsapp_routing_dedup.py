@@ -155,7 +155,9 @@ class WhatsAppRoutingDedupTests(unittest.IsolatedAsyncioTestCase):
         answer.assert_called_once_with(
             "919512777899", "menu_careers", "leeway-softech"
         )
-        send.assert_called_once_with("919512777899", expected)
+        send.assert_called_once_with(
+            "919512777899", expected, tenant_id="leeway-softech",
+        )
         pipeline.assert_not_awaited()
 
     async def test_webhook_claims_repeated_meta_message_only_once(self):

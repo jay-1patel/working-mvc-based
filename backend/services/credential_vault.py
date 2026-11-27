@@ -210,10 +210,10 @@ def vault_fallback_enabled() -> bool:
 def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]:
     """Credentials for one Send2 API call.
 
-    Order:
+    Tenant credentials are resolved in order:
       1. encrypted vault for the tenant
-      2. ``admins`` row for the tenant (Send2 Base64 username + recoverable password)
-      3. any recoverable admin / optional env fallback (``SEND2_VAULT_FALLBACK``)
+      2. recoverable ``admins`` row(s) for the tenant
+      3. recoverable shared CPaaS admin or optional env fallback, only when no tenant is resolved
 
     Failed decryption stops the call — never sends garbage to Send2.
     """
@@ -246,14 +246,14 @@ def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]
             pair = credentials_from_admins(tid)
             if pair:
                 return pair
-        # Any recoverable admin (not env) — env fallback is logged below.
-        pair = credentials_from_admins(None)
-        if pair:
-            return pair
+        if not tid:
+            pair = credentials_from_admins(None)
+            if pair:
+                return pair
     except Exception:
         logger.debug("SEND2_ADMINS_CREDS_SKIPPED | tenant=%s", tid, exc_info=True)
 
-    if vault_fallback_enabled():
+    if not tid and vault_fallback_enabled():
         # Read env at call time so tests / runtime toggles take effect.
         user = (os.getenv("SEND2_USERNAME") or "").strip()
         password = (os.getenv("SEND2_PASSWORD") or "").strip()
@@ -265,6 +265,6 @@ def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]
             return user, password
 
     raise CredentialVaultError(
-        "Send2 username/password not found in vault or admins table "
-        "(store recoverable password on the tenant admin; do not rely on .env)"
+        f"Send2 username/password not found for tenant {tid or '(unresolved)'} "
+        "in vault or admins table (store recoverable password on the tenant admin)"
     )

@@ -116,7 +116,7 @@ def _handle_campaign_opt_out(user_text: str, wa_id: str, sender_name: str, tenan
         return False
 
     save_chat(wa_id, sender_name, user_text, reply, "campaign_opt_out")
-    send_whatsapp_message(wa_id, reply)
+    send_whatsapp_message(wa_id, reply, tenant_id=tenant_id)
     logger.info(f"CAMPAIGN_CONSENT | {event} | tenant={tid} | wa_id={wa_id}")
     return True
 
@@ -243,7 +243,10 @@ def _handover_blocked(wa_id: str):
         return None
 
 
-async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, start_time: float) -> bool:
+async def _handle_registry_button(
+    wa_id: str, sender_name: str, action: dict, start_time: float,
+    tenant_id: str | None = None,
+) -> bool:
     """Execute a registry button action directly. Returns True if handled."""
     kind = action.get("kind")
     payload = action.get("payload", "")
@@ -252,33 +255,33 @@ async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, st
         blocked = _handover_blocked(wa_id)
         if blocked:
             save_chat(wa_id, sender_name, action["title"], blocked["message"], "refusal")
-            if _send2_ready():
-                send_whatsapp_message(wa_id, blocked["message"])
+            if _send2_ready(tenant_id):
+                send_whatsapp_message(wa_id, blocked["message"], tenant_id=tenant_id)
             logger.info(f"HANDOVER_BLOCKED | {wa_id} | human_handover off for tenant")
             return True
         _set_human_handover(wa_id, enabled=True)
         save_chat(wa_id, sender_name, action["title"], HANDOVER_CONFIRMATION, "human_handover")
-        if _send2_ready():
-            send_whatsapp_message(wa_id, HANDOVER_CONFIRMATION)
+        if _send2_ready(tenant_id):
+            send_whatsapp_message(wa_id, HANDOVER_CONFIRMATION, tenant_id=tenant_id)
         logger.info(f"HANDOVER_TRIGGERED | {wa_id} | via button {action['id']}")
         return True
 
     if kind == "document":
         # Document delivery is disabled — answer via the FAQ pipeline as text.
         query = payload or action.get("title") or ""
-        response = await process_message(query, wa_id)
+        response = await process_message(query, wa_id, tenant_id=tenant_id)
         response_text = response.get("answer", "") or (
             "Please ask your question and I'll answer it right here. 🙏"
         )
         save_chat(wa_id, sender_name, action["title"], response_text, "faq")
-        if _send2_ready():
-            send_whatsapp_message(wa_id, response_text)
+        if _send2_ready(tenant_id):
+            send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
         logger.info(f"BUTTON_DOC_DISABLED_AS_TEXT | {wa_id} | action={action['id']}")
         return True
 
     if kind == "question" and payload:
         # Re-run the pipeline with the action's payload as the query.
-        response = await process_message(payload, wa_id)
+        response = await process_message(payload, wa_id, tenant_id=tenant_id)
         response_text = response.get("answer", "")
         media_url = response.get("media_url")
         media_type = response.get("media_type")
@@ -287,10 +290,12 @@ async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, st
             media_url = None
             media_type = None
         save_chat(wa_id, sender_name, action["title"], response_text, response.get("query_type", "faq"))
-        if _send2_ready():
+        if _send2_ready(tenant_id):
             interactive = response.get("interactive")
             if interactive and interactive.get("type") == "button" and interactive.get("buttons"):
-                sent = send_whatsapp_interactive(wa_id, response_text, interactive["buttons"])
+                sent = send_whatsapp_interactive(
+                    wa_id, response_text, interactive["buttons"], tenant_id=tenant_id,
+                )
                 if sent and media_url and any(
                     b.get("reply", {}).get("id") == DOCUMENT_BUTTON_ID for b in interactive["buttons"]
                 ):
@@ -298,14 +303,14 @@ async def _handle_registry_button(wa_id: str, sender_name: str, action: dict, st
                         "url": media_url, "type": media_type or "document", "created_at": time.time(),
                     }
                 if not sent:
-                    send_whatsapp_message(wa_id, response_text)
+                    send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
             else:
                 if media_url and media_type and config.SEND_MEDIA:
                     media_url = _resolve_public(media_url)
-                    if not send_whatsapp_message(wa_id, media_url, _normalize_msg_type(media_type)):
-                        send_whatsapp_message(wa_id, response_text)
+                    if not send_whatsapp_message(wa_id, media_url, _normalize_msg_type(media_type), tenant_id=tenant_id):
+                        send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
                 else:
-                    send_whatsapp_message(wa_id, response_text)
+                    send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
             await log_outgoing_message(wa_id, response_text, "text")
         logger.info(f"BUTTON_QUESTION | {wa_id} | action={action['id']} | payload={payload[:60]}")
         return True
@@ -377,7 +382,7 @@ async def _process_and_reply(
     # D7: exactly ONE incoming-entry log per inbound message, here at the
     # top. receive_webhook's dedupe checks run before dispatch, so every
     # call into _process_and_reply is a genuine, non-duplicate message.
-    await log_incoming_message(wa_id, user_text, msg_type)
+    await log_incoming_message(wa_id, user_text, msg_type, tenant_id=tenant_id)
     try:
         from backend.services import state_manager as sm
         sm.set_tenant(wa_id, tenant_id)
@@ -482,8 +487,8 @@ async def _process_and_reply(
                 # User wants to resume bot mode (even if an agent has not connected yet)
                 _set_human_handover(wa_id, enabled=False)
                 save_chat(wa_id, sender_name, user_text, HANDOVER_BOT_RESUME, "human_handover")
-                if _send2_ready():
-                    send_whatsapp_message(wa_id, HANDOVER_BOT_RESUME)
+                if _send2_ready(tenant_id):
+                    send_whatsapp_message(wa_id, HANDOVER_BOT_RESUME, tenant_id=tenant_id)
                 logger.info(f"HANDOVER_RESUMED | {wa_id} | user requested bot resume")
                 # Continue with bot processing below
             else:
@@ -499,14 +504,14 @@ async def _process_and_reply(
                 # The tenant switched human handover off: refuse politely and
                 # let the bot keep the conversation.
                 save_chat(wa_id, sender_name, user_text, blocked["message"], "refusal")
-                if _send2_ready():
-                    send_whatsapp_message(wa_id, blocked["message"])
+                if _send2_ready(tenant_id):
+                    send_whatsapp_message(wa_id, blocked["message"], tenant_id=tenant_id)
                 logger.info(f"HANDOVER_BLOCKED | {wa_id} | human_handover off for tenant")
                 return
             _set_human_handover(wa_id, enabled=True)
             save_chat(wa_id, sender_name, user_text, HANDOVER_CONFIRMATION, "human_handover")
-            if _send2_ready():
-                send_whatsapp_message(wa_id, HANDOVER_CONFIRMATION)
+            if _send2_ready(tenant_id):
+                send_whatsapp_message(wa_id, HANDOVER_CONFIRMATION, tenant_id=tenant_id)
             logger.info(f"HANDOVER_TRIGGERED | {wa_id} | user requested human agent")
             return
 
@@ -520,8 +525,8 @@ async def _process_and_reply(
                 outcome = flow_runner.handle_reply(wa_id, user_text, tenant_id=tenant_id)
                 if outcome and outcome.get("handled"):
                     for msg in outcome.get("messages", []):
-                        if _send2_ready():
-                            send_whatsapp_message(wa_id, flow_runner.message_to_text(msg))
+                        if _send2_ready(tenant_id):
+                            send_whatsapp_message(wa_id, flow_runner.message_to_text(msg), tenant_id=tenant_id)
                     reply_text = flow_runner.messages_text(outcome.get("messages", []))
                     save_chat(wa_id, sender_name, user_text, reply_text, "flow")
                     await log_outgoing_message(wa_id, reply_text, "text")
@@ -540,8 +545,8 @@ async def _process_and_reply(
                     else:
                         transition_msg = "Got it! Let me answer that for you... 🙏"
                         save_chat(wa_id, sender_name, user_text, transition_msg, "flow_break")
-                        if _send2_ready():
-                            send_whatsapp_message(wa_id, transition_msg)
+                        if _send2_ready(tenant_id):
+                            send_whatsapp_message(wa_id, transition_msg, tenant_id=tenant_id)
                         logger.info(
                             f"FLOW_BREAK | {wa_id} | flow={outcome.get('flow')} "
                             f"exited on user query/topic-switch: {user_text[:50]}"
@@ -558,8 +563,8 @@ async def _process_and_reply(
                 "I no longer share documents in this chat, but I'd be happy to "
                 "answer your question right here. Go ahead and ask! 🙏"
             )
-            if _send2_ready():
-                send_whatsapp_message(wa_id, note)
+            if _send2_ready(tenant_id):
+                send_whatsapp_message(wa_id, note, tenant_id=tenant_id)
                 await log_outgoing_message(wa_id, note, "text")
             save_chat(wa_id, sender_name, user_text, note, "faq")
             send_status = "document_delivery_disabled"
@@ -582,15 +587,15 @@ async def _process_and_reply(
                 )
                 if exists and not available:
                     note = "That menu option is no longer available. Please choose another option or ask our team for help."
-                    if _send2_ready():
-                        send_whatsapp_message(wa_id, note)
+                    if _send2_ready(tenant_id):
+                        send_whatsapp_message(wa_id, note, tenant_id=tenant_id)
                     save_chat(wa_id, sender_name, user_text, note, "menu_unavailable")
                     await log_outgoing_message(wa_id, note, "text")
                     return
                 if not exists and pressed_id.startswith("menu_") and not pressed_id.startswith(("menu_faq", "menu_human", "menu_view_cart", "menu_new_arrivals")):
                     note = "That menu option is no longer available. Please type your question or ask our team for help."
-                    if _send2_ready():
-                        send_whatsapp_message(wa_id, note)
+                    if _send2_ready(tenant_id):
+                        send_whatsapp_message(wa_id, note, tenant_id=tenant_id)
                     save_chat(wa_id, sender_name, user_text, note, "menu_unavailable")
                     await log_outgoing_message(wa_id, note, "text")
                     return
@@ -611,8 +616,8 @@ async def _process_and_reply(
                     )
                     if outcome.get("handled") and outcome.get("messages"):
                         for msg in outcome["messages"]:
-                            if _send2_ready():
-                                send_whatsapp_message(wa_id, flow_runner.message_to_text(msg))
+                            if _send2_ready(tenant_id):
+                                send_whatsapp_message(wa_id, flow_runner.message_to_text(msg), tenant_id=tenant_id)
                         reply_text = flow_runner.messages_text(outcome["messages"])
                         save_chat(wa_id, sender_name, user_text, reply_text, "flow")
                         await log_outgoing_message(wa_id, reply_text, "text")
@@ -694,8 +699,8 @@ async def _process_and_reply(
                         user_query=user_text,
                         tenant_id=tenant_id,
                     )
-                    if _send2_ready():
-                        send_whatsapp_message(wa_id, panel_answer)
+                    if _send2_ready(tenant_id):
+                        send_whatsapp_message(wa_id, panel_answer, tenant_id=tenant_id)
                     save_chat(wa_id, sender_name, user_text, panel_answer, "intent")
                     await log_outgoing_message(wa_id, panel_answer, "text")
                     logger.info(f"PANEL_REPLY | {wa_id} | button={pressed_id}")
@@ -714,7 +719,9 @@ async def _process_and_reply(
         button_id, button_title = _extract_button_press(message)
         if button_id and button_id in BUTTON_REGISTRY:
             action = get_action(button_id)
-            if action and await _handle_registry_button(wa_id, sender_name, action, start_time):
+            if action and await _handle_registry_button(
+                wa_id, sender_name, action, start_time, tenant_id=tenant_id,
+            ):
                 response_time_ms = int((time.time() - start_time) * 1000)
                 log_webhook("outgoing", "/webhook/button", json.dumps({
                     "to": wa_id, "button_id": button_id
@@ -741,8 +748,8 @@ async def _process_and_reply(
                 )
                 if outcome.get("handled") and outcome.get("messages"):
                     for msg in outcome["messages"]:
-                        if _send2_ready():
-                            send_whatsapp_message(wa_id, flow_runner.message_to_text(msg))
+                        if _send2_ready(tenant_id):
+                            send_whatsapp_message(wa_id, flow_runner.message_to_text(msg), tenant_id=tenant_id)
                     reply_text = flow_runner.messages_text(outcome["messages"])
                     save_chat(wa_id, sender_name, user_text, reply_text, "flow")
                     await log_outgoing_message(wa_id, reply_text, "text")
@@ -787,7 +794,7 @@ async def _process_and_reply(
         if whatsapp_sent:
             send_status = "sent_by_kb_bot"
             logger.info(f"KB bot already sent interactive reply to {wa_id}")
-        elif _send2_ready():
+        elif _send2_ready(tenant_id):
             is_direct = is_direct_media_query(user_text)
 
             if is_direct and config.SEND_MEDIA:
@@ -798,15 +805,15 @@ async def _process_and_reply(
                     resolved = _resolve_public(media_url) or _resolve_media_url(media_url)
                     media_type_n = _normalize_msg_type(media_type)
                     if response_text:
-                        send_whatsapp_message(wa_id, response_text)
-                    media_sent = send_whatsapp_message(wa_id, resolved, media_type_n)
+                        send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
+                    media_sent = send_whatsapp_message(wa_id, resolved, media_type_n, tenant_id=tenant_id)
                     send_status = "sent_catalog_media" if media_sent else "failed_catalog_media"
                     logger.info(f"CATALOG_MEDIA_SENT | {wa_id} | ok={media_sent} | type={media_type_n}")
                 elif interactive and interactive.get("type") == "list" and interactive.get("sections"):
                     menu_body = interactive.get("body", "")
                     if not menu_body:
                         if response_text:
-                            send_whatsapp_message(wa_id, response_text)
+                            send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
                         menu_body = "Please select an option below:"
                     list_header = interactive.get("header") or ""
                     if not str(list_header).strip():
@@ -833,37 +840,41 @@ async def _process_and_reply(
                             interactive.get("footer"),
                         )
                         if fallback:
-                            send_whatsapp_message(wa_id, fallback)
+                            send_whatsapp_message(wa_id, fallback, tenant_id=tenant_id)
                             send_status = "sent_list_text_fallback"
                 else:
                     summary = build_catalog_text_fallback(user_text)
                     if summary:
-                        sent = send_whatsapp_interactive(wa_id, summary["text"], summary["buttons"])
+                        sent = send_whatsapp_interactive(
+                            wa_id, summary["text"], summary["buttons"], tenant_id=tenant_id,
+                        )
                         send_status = "sent_catalog_summary" if sent else "sent_catalog_summary_failed"
                         logger.info(f"CATALOG_SUMMARY_SENT | {wa_id}")
                         if not sent and summary.get("text"):
-                            send_whatsapp_message(wa_id, summary["text"])
+                            send_whatsapp_message(wa_id, summary["text"], tenant_id=tenant_id)
                             send_status = "sent_catalog_summary_text"
                     elif response_text:
-                        send_whatsapp_message(wa_id, response_text)
+                        send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
                         send_status = "sent"
             elif interactive and interactive.get("type") == "button" and interactive.get("buttons"):
                 buttons = interactive["buttons"]
-                sent = send_whatsapp_interactive(wa_id, response_text, buttons)
+                sent = send_whatsapp_interactive(
+                    wa_id, response_text, buttons, tenant_id=tenant_id,
+                )
                 send_status = "sent_interactive" if sent else "failed_interactive"
                 logger.info(f"Interactive button reply {'sent' if sent else 'failed'} to {wa_id}")
                 if not sent:
                     if media_url and media_type:
                         media_url = _resolve_media_url(media_url)
                         media_type = _normalize_msg_type(media_type)
-                        media_sent = send_whatsapp_message(wa_id, media_url, media_type)
+                        media_sent = send_whatsapp_message(wa_id, media_url, media_type, tenant_id=tenant_id)
                         if media_sent:
                             send_status = "sent_media_fallback"
                         else:
-                            send_whatsapp_message(wa_id, response_text)
+                            send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
                             send_status = "sent_text_fallback"
                     else:
-                        send_whatsapp_message(wa_id, response_text)
+                        send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
                         send_status = "sent_text_fallback"
                     logger.info(f"Fallback after interactive fail: {send_status} to {wa_id}")
             elif interactive and interactive.get("type") == "list" and interactive.get("sections"):
@@ -895,18 +906,18 @@ async def _process_and_reply(
                         interactive.get("footer"),
                     )
                     if fallback:
-                        send_whatsapp_message(wa_id, fallback)
+                        send_whatsapp_message(wa_id, fallback, tenant_id=tenant_id)
                         send_status = "sent_list_text_fallback"
                         logger.info(f"Fallback after list fail: numbered text to {wa_id}")
             elif media_url and media_type:
                 # Deliver attached FAQ/KB media when present (backend PUBLIC_BASE_URL).
                 media_url = _resolve_public(media_url) or _resolve_media_url(media_url)
                 media_type = _normalize_msg_type(media_type)
-                send_whatsapp_message(wa_id, response_text)
-                media_sent = send_whatsapp_message(wa_id, media_url, media_type)
+                send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
+                media_sent = send_whatsapp_message(wa_id, media_url, media_type, tenant_id=tenant_id)
                 send_status = "sent_media" if media_sent else "failed_media"
             else:
-                send_whatsapp_message(wa_id, response_text)
+                send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
                 send_status = "sent"
         else:
             logger.info("SEND2 credentials not set - reply skipped (check .env)")

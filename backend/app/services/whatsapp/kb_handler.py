@@ -601,6 +601,11 @@ async def handle_kb_query(
     """
     if tenant_id:
         try:
+            from routing.database import set_request_tenant
+            set_request_tenant(tenant_id)
+        except Exception:
+            logger.exception("SET_REQUEST_TENANT_FAILED | tenant=%s", tenant_id)
+        try:
             from backend.services import state_manager as sm
             sm.set_tenant(wa_id, tenant_id)
         except Exception:

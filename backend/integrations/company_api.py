@@ -48,8 +48,10 @@ def _map_msg_type(msg_type):
     return "text"
 
 
-async def log_incoming_message(wa_id, message, msg_type="text"):
-    return await log_message(wa_id, message, msg_type, direction="incoming")
+async def log_incoming_message(wa_id, message, msg_type="text", *, tenant_id=None):
+    return await log_message(
+        wa_id, message, msg_type, direction="incoming", tenant_id=tenant_id,
+    )
 
 
 async def log_outgoing_message(wa_id, response, msg_type="text"):
@@ -57,15 +59,27 @@ async def log_outgoing_message(wa_id, response, msg_type="text"):
     return True
 
 
-async def log_message(wa_id, content, msg_type="text", direction="incoming"):
+async def log_message(
+    wa_id, content, msg_type="text", direction="incoming", *, tenant_id=None,
+):
     if not _INCOMING_ENTRY_URL:
         logger.debug("AI_chatbot_API_incomingentry URL not configured - skip log")
         return True
 
     try:
-        username, password = _send2_login()
+        resolved_tenant = tenant_id
+        if not resolved_tenant:
+            try:
+                from routing.database import get_request_tenant
+                resolved_tenant = get_request_tenant()
+            except Exception:
+                resolved_tenant = None
+        username, password = _send2_login(resolved_tenant)
     except Exception as exc:
-        logger.warning("INCOMING_ENTRY_SKIPPED | to=%s | error=%s", wa_id, type(exc).__name__)
+        logger.warning(
+            "INCOMING_ENTRY_SKIPPED | tenant=%s | to=%s | error=%s",
+            tenant_id or "(unresolved)", wa_id, type(exc).__name__,
+        )
         return False
     payload = {
         "username": username,

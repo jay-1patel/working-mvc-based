@@ -83,6 +83,7 @@ async def _send_b2c_menu(wa_id: str, tenant_id: str = None):
             wa_id,
             body=menu_payload.get("text", "Options"),
             buttons=menu_payload.get("buttons", []),
+            tenant_id=tenant_id,
         )
     else:
         await send_list_menu(
@@ -91,6 +92,7 @@ async def _send_b2c_menu(wa_id: str, tenant_id: str = None):
             body=menu_payload.get("body", "What would you like to explore today?"),
             button_text=menu_payload.get("button_text", "Show Options"),
             sections=menu_payload.get("sections", []),
+            tenant_id=tenant_id,
         )
 
 
@@ -118,7 +120,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                 logger.error(f"Failed to clear handover for {wa_id}: {exc}")
             try:
                 from services.whatsapp_sender import send_text_message
-                await send_text_message(wa_id, HANDOVER_BOT_RESUME)
+                await send_text_message(wa_id, HANDOVER_BOT_RESUME, tenant_id=tenant_id)
             except Exception as exc:
                 logger.debug(f"Could not send handover resume ack: {exc}")
             logger.info(f"HANDOVER_RESUMED | {wa_id} | user requested bot resume")
@@ -176,6 +178,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
         from database import set_request_tenant, set_request_waba_phone, touch_customer
 
         set_request_tenant(effective_tenant)
+        tenant_id = effective_tenant
         # Prefer already-set inbound display_phone_number; else tenant DB binding.
         try:
             from database import get_request_waba_phone
@@ -255,7 +258,8 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
             if is_cancel_cmd:
                 await send_text_message(
                     wa_id,
-                    "Okay, I've cancelled that. Type *menu* anytime to see options, or feel free to ask any question! 🙏"
+                    "Okay, I've cancelled that. Type *menu* anytime to see options, or feel free to ask any question! 🙏",
+                    tenant_id=tenant_id,
                 )
                 return {
                     "status": "processed",
@@ -292,9 +296,9 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                     from services.whatsapp_sender import send_button_message
                     for msg in outcome["messages"]:
                         if isinstance(msg, dict) and msg.get("type") == "buttons":
-                            await send_button_message(wa_id, msg.get("text", ""), msg.get("buttons", []))
+                            await send_button_message(wa_id, msg.get("text", ""), msg.get("buttons", []), tenant_id=tenant_id)
                         else:
-                            await send_text_message(wa_id, msg)
+                            await send_text_message(wa_id, msg, tenant_id=tenant_id)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),
@@ -341,6 +345,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                         wa_id,
                         "Sorry, I don't have a brochure PDF available right now. "
                         "Please type *hi* for the menu, or ask our team.",
+                        tenant_id=tenant_id,
                     )
                 return {
                     "status": "processed",
@@ -449,9 +454,9 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                 from services.whatsapp_sender import send_button_message
                 for msg in outcome["messages"]:
                     if isinstance(msg, dict) and msg.get("type") == "buttons":
-                        await send_button_message(wa_id, msg.get("text", ""), msg.get("buttons", []))
+                        await send_button_message(wa_id, msg.get("text", ""), msg.get("buttons", []), tenant_id=tenant_id)
                     else:
-                        await send_text_message(wa_id, msg)
+                        await send_text_message(wa_id, msg, tenant_id=tenant_id)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),
@@ -492,7 +497,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
             if buttons:
                 await send_button_message(wa_id, synthesized, buttons, tenant_id=tenant_id)
             else:
-                await send_text_message(wa_id, synthesized)
+                await send_text_message(wa_id, synthesized, tenant_id=tenant_id)
             return {
                 "status": "processed",
                 "messages": drain_captured(),
@@ -528,7 +533,7 @@ async def _process_captured_message(wa_id: str, message: str, tenant_id: str = N
                 if buttons:
                     await send_button_message(wa_id, synthesized, buttons, tenant_id=tenant_id)
                 else:
-                    await send_text_message(wa_id, synthesized)
+                    await send_text_message(wa_id, synthesized, tenant_id=tenant_id)
                 return {
                     "status": "processed",
                     "messages": drain_captured(),

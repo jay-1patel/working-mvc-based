@@ -224,15 +224,16 @@ class CredentialVaultStoreTests(unittest.TestCase):
 
         from_admins.assert_called_once_with("tenant-missing")
 
-    def test_decrypt_failure_blocks_resolve(self):
+    def test_decrypt_failure_falls_back_then_errors_without_admins(self):
         vault.store_send2_credentials("tenant-a", "krt-1", "u", "p", {})
-        # Corrupt stored ciphertext
+        # Corrupt stored ciphertext — resolve should try admins next, then fail.
         self.mongo.database["send2_credentials"].update_one(
             {"tenant_id": "tenant-a"},
             {"$set": {"enc_password": base64.b64encode(os.urandom(40)).decode("ascii")}},
         )
-        with self.assertRaises(vault.CredentialVaultError):
+        with self.assertRaises(vault.CredentialVaultError) as cm:
             vault.resolve_send2_username_password("tenant-a")
+        self.assertIn("decrypt failed", str(cm.exception).lower())
 
 
 class CredentialVaultPanelAuthTests(unittest.TestCase):

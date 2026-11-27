@@ -20,6 +20,13 @@ export interface OnboardingUser {
   tenant_id: string | null
   created_at: string | null
   onboarding_approved: boolean
+  /** Company / tenant details for the roster under that tenant. */
+  company_name?: string | null
+  website?: string | null
+  contact_number?: string | null
+  mobile_number?: string | null
+  waba_phone_id?: string | null
+  vertical?: string | null
 }
 
 export interface OnboardingTenant {

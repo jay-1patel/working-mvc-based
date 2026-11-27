@@ -42,7 +42,13 @@ def _send2_ready(tenant_id: str | None = None) -> bool:
             from backend.services.credential_vault import resolve_send2_username_password
         user, password = resolve_send2_username_password(tenant_id)
         return bool(user and password)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "SEND2_NOT_READY | tenant=%s | error=%s | detail=%s",
+            tenant_id or "(request/default)",
+            type(exc).__name__,
+            str(exc)[:200],
+        )
         return False
 
 # Phrases that trigger human handover
@@ -944,7 +950,11 @@ async def _process_and_reply(
                 send_whatsapp_message(wa_id, response_text, tenant_id=tenant_id)
                 send_status = "sent"
         else:
-            logger.info("SEND2 credentials not set - reply skipped (check .env)")
+            logger.info(
+                "SEND2 credentials unresolved - reply skipped "
+                "(tenant=%s; check admins/vault in DB, not .env)",
+                tenant_id or "(none)",
+            )
 
         response_time_ms = int((time.time() - start_time) * 1000)
         log_webhook("outgoing", "/webhook/reply", json.dumps({

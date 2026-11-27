@@ -311,19 +311,8 @@ def register_send2_admin(
         logger.exception("SIGNUP_VAULT_STORE_FAILED | admins.id=%s | tenant=%s", admin_id, tenant_id)
         raise Send2RegisterError("Failed to encrypt and store password") from exc
 
-    # Company admins need full menu_set_privilege grants or the console nav
-    # stays empty after Set up chatbot (permissions {} alone is not enough).
-    if str(result_role or role) == "admin":
-        try:
-            from db.privileges import all_menu_ids, set_user_menu_privileges
-
-            set_user_menu_privileges(admin_id, all_menu_ids())
-        except Exception:
-            logger.exception(
-                "SIGNUP_MENU_PRIVILEGES_FAILED | admins.id=%s | tenant=%s",
-                admin_id,
-                tenant_id,
-            )
+    # No menu privileges on signup — including setup_chatbot / onboarding.
+    # Super admin must grant privileges before the admin can set up the chatbot.
 
     # Never log password / hash material.
     logger.info(

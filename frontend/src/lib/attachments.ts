@@ -6,8 +6,7 @@
  * Inbox replies send the descriptor as native WhatsApp image/document media.
  */
 
-import { api } from './api'
-import { readAsBase64 } from './uploads'
+import { postForm } from './api'
 
 const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -29,16 +28,15 @@ export interface Attachment {
 }
 
 export const attachmentsApi = {
+  /** Upload raw file bytes via multipart — no base64 / JSON wrapping. */
   upload: async (tenantId: string, file: File, area: 'chat' | 'inbox'): Promise<Attachment> => {
     if (file.size > MAX_ATTACHMENT_BYTES) {
       throw new Error(`Attachments must be under ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`)
     }
-    const content = await readAsBase64(file)
+    const form = new FormData()
+    form.append('file', file, file.name)
+    if (file.type) form.append('media_type', file.type)
     const path = area === 'chat' ? `${base(tenantId)}/chat/attach` : '/api/admin/tenants/inbox/attach'
-    return api.post<Attachment>(path, {
-      filename: file.name,
-      content,
-      media_type: file.type || undefined,
-    })
+    return postForm<Attachment>(path, form)
   },
 }

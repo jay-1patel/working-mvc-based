@@ -105,7 +105,7 @@ class PanelBodyPostContractTests(unittest.TestCase):
         self.assertEqual(conversations.ConversationDetailRequest(wa_id="w").limit, 300)
         self.assertEqual(conversations.ConversationsListRequest().limit, 100)
         self.assertIsNone(conversations.ConversationsListRequest().search)
-        self.assertFalse(conversations.InboxListRequest().include_resolved)
+        self.assertTrue(conversations.InboxListRequest().include_resolved)
         self.assertTrue(conversations.InboxResolveRequest(wa_id="w").reply)
         self.assertEqual(tenant_operations.CustomersListRequest().q, "")
         self.assertEqual(tenant_operations.CustomersListRequest().limit, 200)

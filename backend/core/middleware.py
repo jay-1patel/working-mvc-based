@@ -20,6 +20,7 @@ from fastapi.encoders import jsonable_encoder
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 try:  # backend/ on sys.path (the normal import mode)
+    from core.api_response import ensure_success_flag, json_fail, success_payload
     from core.context import request_id_var as _request_id_var, request_api_var, error_tenant_var, error_context_var
     from database import (
         clear_audit_request_context,
@@ -28,6 +29,7 @@ try:  # backend/ on sys.path (the normal import mode)
         trusted_client_ip,
     )
 except ImportError:  # imported as part of the `backend` package
+    from backend.core.api_response import ensure_success_flag, json_fail, success_payload
     from backend.core.context import request_id_var as _request_id_var, request_api_var, error_tenant_var, error_context_var
     from backend.database import (
         clear_audit_request_context,
@@ -161,9 +163,10 @@ async def admin_session_auth_middleware(request: Request, call_next):
             from backend.routes.auth import authenticate_basic_header
         authenticate_basic_header(request)
     except StarletteHTTPException as exc:
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"detail": exc.detail},
+        request.state.api_code = exc.status_code
+        return json_fail(
+            exc.detail,
+            exc.status_code,
             headers=getattr(exc, "headers", None),
         )
     return await call_next(request)
@@ -191,16 +194,15 @@ async def super_admin_view_only_middleware(request: Request, call_next):
         return await call_next(request)
     role = (getattr(request.state, "current_admin", None) or {}).get("role")
     if role == "super_admin":
-        return JSONResponse(
-            status_code=403,
-            content={
-                "detail": (
-                    "Super admins are view-only inside tenants: this change must "
-                    "come from the tenant's admin (and is approved by you)."
-                ),
-                "error": "super_admin_view_only",
-                "api": f"{request.method} {request.url.path}",
-            },
+        request.state.api_code = 403
+        return json_fail(
+            (
+                "Super admins are view-only inside tenants: this change must "
+                "come from the tenant's admin (and is approved by you)."
+            ),
+            403,
+            api=f"{request.method} {request.url.path}",
+            error="super_admin_view_only",
         )
     return await call_next(request)
 
@@ -244,7 +246,11 @@ async def audit_mutations_middleware(request: Request, call_next):
 
     response = await call_next(request)
 
-    if 200 <= response.status_code < 300:
+    # Prefer logical API code (always-200 envelope) over transport status.
+    logical = getattr(request.state, "api_code", None)
+    if logical is None:
+        logical = response.status_code
+    if 200 <= int(logical) < 300 and getattr(request.state, "api_success", 1) != 0:
         actor_username = (getattr(request.state, "current_admin", None) or {}).get("username", "unknown")
         
         try:
@@ -325,15 +331,18 @@ async def request_id_middleware(request: Request, call_next):
             # Handle while context is still alive so service and API events
             # retain the same request ID. No second report from the outer app.
             response = await unhandled_exception_handler(request, exc)
-        if response.status_code >= 400 and not getattr(request.state, 'error_recorded', False):
+        logical = getattr(request.state, "api_code", None)
+        if logical is None:
+            logical = response.status_code
+        if int(logical) >= 400 and not getattr(request.state, 'error_recorded', False):
             from services.error_reporter import report_error
             report_error(
                 'api', api,
-                getattr(request.state, 'error_message', None) or f'HTTP {response.status_code}',
+                getattr(request.state, 'error_message', None) or f'HTTP {logical}',
                 tenant_id=getattr(request.state, 'error_tenant_id', tenant),
-                request_id=rid, http_status=response.status_code,
+                request_id=rid, http_status=int(logical),
                 detail=getattr(request.state, 'error_detail', ''),
-                severity='error' if response.status_code >= 500 else 'warning',
+                severity='error' if int(logical) >= 500 else 'warning',
                 notify=False,
             )
             request.state.error_recorded = True
@@ -343,32 +352,38 @@ async def request_id_middleware(request: Request, call_next):
         error_tenant_var.reset(tenant_token)
         error_context_var.reset(context_token)
     ms = int((time.perf_counter() - started) * 1000)
-    line = f"REQ {rid} | {api} → {response.status_code} | {ms}ms{tenant_part}"
-    if response.status_code >= 500:
+    logical = getattr(request.state, "api_code", None)
+    if logical is None:
+        logical = response.status_code
+    line = f"REQ {rid} | {api} → {response.status_code} (code={logical}) | {ms}ms{tenant_part}"
+    if int(logical) >= 500:
         logger.error(line)
     else:
         logger.info(line)
     response.headers["X-Request-Id"] = rid
+    response.headers["X-Api-Code"] = str(logical)
     return response
 
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    """Keep the existing status/detail semantics; add request_id + api so the
-    caller can quote the exact failing API. Successful responses are untouched."""
+    """Always HTTP 200; failure is ``success: 0`` + logical ``code`` in the body."""
     rid = _request_id_for(request)
     api = f"{request.method} {request.url.path}"
     detail = exc.detail
+    request.state.api_code = exc.status_code
+    request.state.api_success = 0
     request.state.error_message = detail if isinstance(detail, str) else f'HTTP {exc.status_code}'
     request.state.error_detail = json.dumps(detail, default=str) if not isinstance(detail, str) else detail
-    body = {
-        "detail": detail,
-        "error": detail if isinstance(detail, str) else f"HTTP {exc.status_code}",
-        "request_id": rid,
-        "api": api,
-    }
     headers = dict(exc.headers or {})
     headers["X-Request-Id"] = rid
-    return JSONResponse(status_code=exc.status_code, content=body, headers=headers)
+    headers["X-Api-Code"] = str(exc.status_code)
+    return json_fail(
+        detail,
+        exc.status_code,
+        request_id=rid,
+        api=api,
+        headers=headers,
+    )
 
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -377,20 +392,30 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     # validation types and messages, never the submitted values or request body.
     errors = [{key: error[key] for key in ('loc', 'msg', 'type') if key in error}
               for error in exc.errors()]
+    request.state.api_code = 422
+    request.state.api_success = 0
     request.state.error_message = 'Request validation failed'
     request.state.error_detail = json.dumps(errors, default=str)
-    return JSONResponse(status_code=422, content=jsonable_encoder({
-        'detail': errors, 'request_id': rid, 'api': f'{request.method} {request.url.path}',
-    }), headers={'X-Request-Id': rid})
+    return json_fail(
+        jsonable_encoder(errors),
+        422,
+        request_id=rid,
+        api=f'{request.method} {request.url.path}',
+        error='Request validation failed',
+        headers={'X-Request-Id': rid, 'X-Api-Code': '422'},
+    )
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception):
     """One central handler for unhandled errors: JSON (never plain text), one
     clean ERROR line, and a durable row via the error reporter. The reporter is
-    guarded — its failure can never break this response."""
+    guarded — its failure can never break this response. Transport status is
+    always 200; body carries success=0 and code=500."""
     rid = _request_id_for(request)
     api = f"{request.method} {request.url.path}"
     tenant = getattr(request.state, 'error_tenant_id', None) or _tenant_from_path(request.url.path)
+    request.state.api_code = 500
+    request.state.api_success = 0
     logger.error(
         f"API_FAIL | req={rid} | api={api} | tenant={tenant or '-'} "
         f"| {type(exc).__name__}: {str(exc)[:300]}"
@@ -406,10 +431,81 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         request.state.error_recorded = True
     except Exception:
         logger.error(f"ERROR_REPORT_FAILED | req={rid} | api={api}", exc_info=True)
-    body = {
-        "detail": "Internal Server Error",
-        "error": "Internal Server Error",
-        "request_id": rid,
-        "api": api,
+    return json_fail(
+        "Internal Server Error",
+        500,
+        request_id=rid,
+        api=api,
+        headers={"X-Request-Id": rid, "X-Api-Code": "500"},
+    )
+
+
+async def api_success_envelope_middleware(request: Request, call_next):
+    """Force JSON /api responses to HTTP 200 with a ``success`` 1/0 flag.
+
+    Skips non-JSON bodies (files, streams, webhook plaintext challenges).
+    """
+    response = await call_next(request)
+    path = request.url.path or ""
+    if not path.startswith("/api/"):
+        return response
+    content_type = (response.headers.get("content-type") or "").lower()
+    if "application/json" not in content_type:
+        return response
+
+    body_chunks: list[bytes] = []
+    async for chunk in response.body_iterator:
+        body_chunks.append(chunk if isinstance(chunk, (bytes, bytearray)) else bytes(chunk))
+    raw = b"".join(body_chunks)
+
+    transport_status = response.status_code
+    logical = getattr(request.state, "api_code", None)
+    if logical is None:
+        logical = transport_status
+    logical = int(logical)
+
+    headers = {
+        k: v
+        for k, v in response.headers.items()
+        if k.lower() not in ("content-length", "content-type")
     }
-    return JSONResponse(status_code=500, content=body, headers={"X-Request-Id": rid})
+
+    try:
+        payload = json.loads(raw.decode("utf-8")) if raw else {}
+    except Exception:
+        request.state.api_code = logical
+        request.state.api_success = 0 if logical >= 400 else 1
+        headers["X-Api-Code"] = str(logical)
+        from starlette.responses import Response as StarletteResponse
+        return StarletteResponse(
+            content=raw,
+            status_code=200,
+            media_type=content_type or "application/json",
+            headers=headers,
+        )
+
+    if not isinstance(payload, dict):
+        if logical >= 400:
+            payload = {
+                "success": 0,
+                "code": logical,
+                "detail": payload,
+                "error": f"HTTP {logical}",
+            }
+        else:
+            payload = success_payload({"data": payload})
+    else:
+        ensure_success_flag(payload, logical_code=logical)
+
+    if payload.get("success") == 0:
+        request.state.api_success = 0
+        fail_code = payload.get("code", logical if logical >= 400 else 400)
+        request.state.api_code = int(fail_code)
+        payload["code"] = request.state.api_code
+    else:
+        request.state.api_success = 1
+        # Preserve original 2xx (201/202) for audit; never keep a 4xx/5xx on success.
+        request.state.api_code = transport_status if transport_status < 400 else 200
+
+    headers["X-Api-Code"] = str(request.state.api_code)
+    return JSONResponse(status_code=200, content=payload, headers=headers)

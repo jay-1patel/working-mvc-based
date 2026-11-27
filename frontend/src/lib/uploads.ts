@@ -15,8 +15,11 @@ import {
   ApiError,
   apiCallStart,
   apiUrl,
+  isApiFailure,
   logApiCall,
   logApiError,
+  logicalStatus,
+  rejectIfApiJsonError,
 } from './api'
 
 const base = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
@@ -454,9 +457,10 @@ export const uploadsApi = {
       logApiError('POST', path, 0, (err as Error)?.message || 'Network error', startedAt)
       throw err
     }
-    if (!res.ok) {
-      logApiError('POST', path, res.status, `Could not fetch the file (${res.status})`, startedAt)
-      throw new Error(`Could not fetch the file (${res.status})`)
+    const err = await rejectIfApiJsonError(res, `Could not fetch the file (${res.status})`)
+    if (err) {
+      logApiError('POST', path, err.code, err.detail, startedAt)
+      throw new Error(err.detail)
     }
     logApiCall('POST', path, res.status, startedAt)
     return res.blob()
@@ -509,16 +513,10 @@ export const onboardingKitsApi = {
       logApiError('POST', path, 0, detail, startedAt)
       throw new ApiError(0, detail)
     }
-    if (!res.ok) {
-      let detail = `Download failed (HTTP ${res.status})`
-      try {
-        const body = await res.json()
-        if (body?.detail) detail = String(body.detail)
-      } catch {
-        /* ignore */
-      }
-      logApiError('POST', path, res.status, detail, startedAt)
-      throw new ApiError(res.status, detail)
+    const err = await rejectIfApiJsonError(res, `Download failed (HTTP ${res.status})`)
+    if (err) {
+      logApiError('POST', path, err.code, err.detail, startedAt)
+      throw new ApiError(err.code, err.detail)
     }
     const blob = await res.blob()
     logApiCall('POST', path, res.status, startedAt)
@@ -527,19 +525,20 @@ export const onboardingKitsApi = {
 
   stageGlobal: async (file: File, lane: 'any' | 'kit' = 'any') => {
     assertValidUploadFile(file)
-    const content = await readAsBase64(file)
-    return api.post<StagedOnboardingDraft>('/api/admin/onboarding/stage', {
-      files: [{ filename: file.name, content }],
-      lane,
-    })
+    const form = new FormData()
+    form.append('file', file, file.name)
+    form.append('lane', lane)
+    return api.postForm<StagedOnboardingDraft>('/api/admin/onboarding/stage', form)
   },
 
   stageTenant: async (tenantId: string, file: File, lane: 'any' | 'kit' = 'any') => {
     assertValidUploadFile(file)
-    const content = await readAsBase64(file)
-    return api.post<StagedOnboardingDraft>(
+    const form = new FormData()
+    form.append('file', file, file.name)
+    form.append('lane', lane)
+    return api.postForm<StagedOnboardingDraft>(
       `/api/admin/tenants/${encodeURIComponent(tenantId)}/onboarding/stage`,
-      { files: [{ filename: file.name, content }], lane },
+      form,
     )
   },
 
@@ -574,21 +573,17 @@ export async function uploadRecordImage(tenantId: string, file: File): Promise<s
     logApiError('POST', path, 0, detail, startedAt)
     throw new ApiError(0, detail)
   }
-  if (!res.ok) {
-    let message = `Upload failed (${res.status})`
-    try {
-      const body = await res.json()
-      if (typeof body?.detail === 'string') message = body.detail
-    } catch {
-      /* keep the default */
-    }
-    logApiError('POST', path, res.status, message, startedAt)
-    throw new ApiError(res.status, message)
+  const body = await res.json().catch(() => null)
+  if (isApiFailure(res, body)) {
+    const message =
+      (typeof body?.detail === 'string' && body.detail) || `Upload failed (${res.status})`
+    const code = logicalStatus(res, body)
+    logApiError('POST', path, code, message, startedAt)
+    throw new ApiError(code, message)
   }
-  logApiCall('POST', path, res.status, startedAt)
-  const body = (await res.json()) as { url?: string }
-  if (!body.url) throw new ApiError(502, 'The upload returned no URL.')
-  return body.url
+  logApiCall('POST', path, logicalStatus(res, body), startedAt)
+  if (!body?.url) throw new ApiError(502, 'The upload returned no URL.')
+  return body.url as string
 }
 
 /**

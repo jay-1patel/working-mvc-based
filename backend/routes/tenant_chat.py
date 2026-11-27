@@ -225,13 +225,16 @@ async def send_tenant_chat_message(
 @router.post("/chat/attach")
 async def attach_tenant_chat_file(
     tenant_id: str,
-    data: dict,
+    request: Request,
     principal: dict = Depends(_require("chat")),
 ):
-    """Host a file and return its descriptor, for sending as a chat attachment."""
-    from routes.admin import decode_attachment_body, store_chat_attachment
+    """Host a file and return its descriptor, for sending as a chat attachment.
 
-    filename, content, media_type = decode_attachment_body(data)
+    Accepts multipart ``file`` (preferred) or JSON ``{filename, content}`` base64.
+    """
+    from routes.admin import read_attachment_upload, store_chat_attachment
+
+    filename, content, media_type = await read_attachment_upload(request)
     return await store_chat_attachment(filename, content, media_type)
 
 

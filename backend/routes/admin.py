@@ -1090,12 +1090,21 @@ def decode_attachment_body(data: dict) -> tuple[str, bytes, str | None]:
     """Validate a base64 JSON attachment body into ``(filename, bytes, type)``."""
     filename = (data.get("filename") or "").strip()
     raw = data.get("content") or ""
+    if not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="content must be a base64 string")
+    raw = raw.strip()
+    # FileReader / some clients send a data-URL; strip the prefix before decode.
+    if raw.startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1].strip()
     if not filename or not raw:
         raise HTTPException(status_code=400, detail="filename and content are required")
     try:
-        content = base64.b64decode(raw)
-    except Exception:
-        raise HTTPException(status_code=400, detail="content must be base64")
+        content = base64.b64decode(raw, validate=False)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"content must be base64 ({type(exc).__name__})",
+        ) from exc
     if not content:
         raise HTTPException(status_code=400, detail="The file is empty")
     if len(content) > MAX_ATTACHMENT_BYTES:
@@ -1104,6 +1113,56 @@ def decode_attachment_body(data: dict) -> tuple[str, bytes, str | None]:
             detail=f"Attachments must be under {MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB",
         )
     return filename, content, data.get("media_type")
+
+
+async def read_attachment_upload(request) -> tuple[str, bytes, str | None]:
+    """Read an inbox/chat attachment as raw multipart bytes (no base64).
+
+    Files are binary — send ``multipart/form-data`` with field ``file``.
+    JSON+base64 is rejected so clients cannot accidentally encode twice.
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+    logger.info(
+        "CHAT_ATTACH_REQUEST | content_type=%s | content_length=%s",
+        (content_type[:80] or "(missing)"),
+        request.headers.get("content-length") or "?",
+    )
+    if "multipart/form-data" not in content_type:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Send the file as multipart/form-data field 'file' "
+                f"(got content-type={content_type[:60] or 'missing'}; "
+                "do not JSON-encode or base64-encode the file)"
+            ),
+        )
+
+    form = await request.form()
+    upload = form.get("file") or form.get("attachment")
+    if upload is None or not hasattr(upload, "read"):
+        raise HTTPException(
+            status_code=400,
+            detail="multipart field 'file' is required",
+        )
+    content = await upload.read()
+    filename = (
+        str(getattr(upload, "filename", None) or form.get("filename") or "attachment")
+    ).strip() or "attachment"
+    media_type = (
+        getattr(upload, "content_type", None)
+        or form.get("media_type")
+        or None
+    )
+    if isinstance(media_type, str):
+        media_type = media_type.strip() or None
+    if not content:
+        raise HTTPException(status_code=400, detail="The file is empty")
+    if len(content) > MAX_ATTACHMENT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Attachments must be under {MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB",
+        )
+    return filename, content, media_type
 
 
 async def store_chat_attachment(filename: str, content: bytes, media_type: str | None = None) -> dict:

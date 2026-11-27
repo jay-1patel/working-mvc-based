@@ -61,9 +61,17 @@ export async function flushClientErrors(): Promise<void> {
           ...(sessionId ? { session_id: sessionId } : {}),
         }),
       })
-      if (response.status === 401) { pending.shift(); continue }
+      const payload = await response.json().catch(() => null)
+      const code =
+        typeof payload?.code === 'number'
+          ? payload.code
+          : Number(response.headers.get('X-Api-Code') || response.status)
+      if (code === 401) {
+        pending.shift()
+        continue
+      }
       // Drop rejected events, but retry transient backend failures later.
-      if (!response.ok && response.status >= 500) break
+      if (code >= 500 || (!response.ok && response.status >= 500)) break
       pending.shift()
     }
   } catch { /* Offline: keep the bounded queue until the next retry. */ }

@@ -43,11 +43,13 @@ async function fetchIdentityAs(userId: string | number, sessionId: string): Prom
     },
     body: JSON.stringify({ user_id: userId, session_id: sessionId }),
   })
-  if (!res.ok) {
-    const detail = (await res.json().catch(() => null))?.detail || res.statusText
-    throw new Error(typeof detail === 'string' ? detail : `Could not load identity (${res.status})`)
+  const body = await res.json().catch(() => null)
+  if (!res.ok || body?.success === 0 || body?.success === false) {
+    const detail = body?.detail || res.statusText
+    const code = typeof body?.code === 'number' ? body.code : res.status
+    throw new Error(typeof detail === 'string' ? detail : `Could not load identity (${code})`)
   }
-  return (await res.json()) as AdminIdentity
+  return body as AdminIdentity
 }
 
 interface AuthState {

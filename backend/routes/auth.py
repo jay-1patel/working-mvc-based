@@ -63,11 +63,17 @@ MIN_PASSWORD_SCORE = 3  # 0-4 scale (zxcvbn)
 # Rate limit exception handler. Registered on the FastAPI app in main.py --
 # APIRouter has no exception_handler method.
 async def rate_limit_exceeded_handler(request: Request, exc):
-    from fastapi.responses import JSONResponse
+    try:
+        from core.api_response import json_fail
+    except ImportError:
+        from backend.core.api_response import json_fail
 
-    return JSONResponse(
-        status_code=429,
-        content={"detail": f"Too many requests. Try again in {exc.detail} seconds."},
+    request.state.api_code = 429
+    request.state.api_success = 0
+    return json_fail(
+        f"Too many requests. Try again in {exc.detail} seconds.",
+        429,
+        headers={"X-Api-Code": "429"},
     )
 
 router = APIRouter(prefix="/api/auth")
@@ -806,14 +812,30 @@ class FirstLoginCompleteRequest(BaseModel):
     Body fields (auth via headers):
       - waba_phone_id / mobile_number — WhatsApp phone
       - snapshot — company/brand fields (display_name, vertical, brand, …)
-      - files — optional upload [{filename, content}] (base64); staged + published
-      - lane — ``kit`` (default) or ``any``
-      - upload_draft — optional already-staged bifurcation draft to publish
+
+    Upload kit/brochure files via ``POST /api/auth/first-login/upload`` after
+    this call succeeds. Legacy ``files`` / ``lane`` / ``upload_draft`` on this
+    body still work but are deprecated.
     """
     model_config = ConfigDict(extra="ignore")
     waba_phone_id: str = ""
     mobile_number: str = ""
     snapshot: Optional[dict] = None
+    # Deprecated: prefer POST /api/auth/first-login/upload
+    files: Optional[list[FirstLoginUploadFile]] = None
+    lane: str = "kit"
+    upload_draft: Optional[dict] = None
+
+
+class FirstLoginUploadRequest(BaseModel):
+    """Upload onboarding kit / brochure data for the signup tenant.
+
+    Call after ``POST /api/auth/first-login/complete``. ``tenant_id`` comes
+    from the authenticated admin (username + session_id), not the body.
+
+    Provide either ``files`` (base64) and/or an already-staged ``upload_draft``.
+    """
+    model_config = ConfigDict(extra="ignore")
     files: Optional[list[FirstLoginUploadFile]] = None
     lane: str = "kit"
     upload_draft: Optional[dict] = None
@@ -1683,62 +1705,14 @@ def first_login_complete(
             detail="Tenant was updated but the admin could not be scoped to it",
         )
 
-    upload_summary = None
-    upload_error = None
-    files_in = [f for f in (body.files or []) if f and str(f.filename or "").strip() and str(f.content or "").strip()]
-    draft_in = body.upload_draft if isinstance(body.upload_draft, dict) else None
-    if files_in or draft_in:
-        try:
-            try:
-                from services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
-            except ImportError:
-                from backend.services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
-            from pathlib import Path
-
-            actor = {
-                "username": by,
-                "role": "admin",
-                "tenant_id": tid,
-            }
-            bifurcator = AutoBifurcator(tenant_id=tid, actor=actor)
-            lane = str(body.lane or "kit").strip().lower() or "kit"
-            if lane not in ("kit", "any"):
-                lane = "kit"
-
-            if files_in:
-                files_payload = [
-                    {"filename": str(f.filename).strip(), "content": str(f.content).strip()}
-                    for f in files_in
-                ]
-                staged = bifurcator.stage_files(files_payload, lane=lane)
-            else:
-                staged = dict(draft_in or {})
-
-            staged["tenant_id"] = tid
-            staged["lane"] = staged.get("lane") or lane
-            if isinstance(staged.get("business_hours"), dict):
-                staged["business_hours"] = _sanitize_business_hours(staged["business_hours"])
-
-            source_files = staged.get("source_files")
-            source_file = None
-            if isinstance(source_files, list) and source_files:
-                source_file = Path(str(source_files[0])).name.strip() or None
-
-            upload_summary = bifurcator.apply_bifurcation(
-                bifurcation=staged,
-                raw_files=[],
-                auto_publish=True,
-                careful_brand_merge=False,
-                source_file=source_file,
-            )
-            if isinstance(upload_summary, dict):
-                upload_summary["tenant_id"] = tid
-        except Exception as exc:
-            logger.exception(
-                "FIRST_LOGIN_UPLOAD_FAILED | admin=%s | tenant=%s",
-                by, tid,
-            )
-            upload_error = str(exc)
+    # Legacy inline upload (prefer POST /api/auth/first-login/upload).
+    upload_summary, upload_error = _run_first_login_upload(
+        tid=tid,
+        by=by,
+        files=body.files,
+        lane=body.lane,
+        upload_draft=body.upload_draft,
+    )
 
     audit_kwargs = dict(
         action="admin_first_login_complete",
@@ -1779,6 +1753,195 @@ def first_login_complete(
     if upload_error:
         result["upload"] = {"status": "failed", "detail": upload_error}
     return result
+
+
+def _run_first_login_upload(
+    *,
+    tid: str,
+    by: str,
+    files: Optional[list[FirstLoginUploadFile]],
+    lane: str | None,
+    upload_draft: Optional[dict],
+) -> tuple[Optional[dict], Optional[str]]:
+    """Stage + publish kit/brochure files for a first-login tenant.
+
+    Returns ``(upload_summary, upload_error)``. Both are None when there is
+    nothing to upload.
+    """
+    files_in = [
+        f
+        for f in (files or [])
+        if f and str(f.filename or "").strip() and str(f.content or "").strip()
+    ]
+    draft_in = upload_draft if isinstance(upload_draft, dict) else None
+    if not files_in and not draft_in:
+        return None, None
+
+    try:
+        try:
+            from services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
+        except ImportError:
+            from backend.services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
+        from pathlib import Path
+
+        actor = {
+            "username": by,
+            "role": "admin",
+            "tenant_id": tid,
+        }
+        bifurcator = AutoBifurcator(tenant_id=tid, actor=actor)
+        resolved_lane = str(lane or "kit").strip().lower() or "kit"
+        if resolved_lane not in ("kit", "any"):
+            resolved_lane = "kit"
+
+        if files_in:
+            files_payload = [
+                {"filename": str(f.filename).strip(), "content": str(f.content).strip()}
+                for f in files_in
+            ]
+            try:
+                staged = bifurcator.stage_files(files_payload, lane=resolved_lane)
+            except ValueError as exc:
+                # Placeholder / bad base64 (e.g. curl docs "BASE64_PDF"). If a
+                # reviewed upload_draft is present, publish that instead.
+                if draft_in:
+                    logger.warning(
+                        "FIRST_LOGIN_FILES_SKIPPED | tenant=%s | error=%s | using upload_draft",
+                        tid, exc,
+                    )
+                    staged = dict(draft_in)
+                else:
+                    return None, str(exc)
+        elif draft_in:
+            staged = dict(draft_in)
+        else:
+            return None, None
+
+        staged["tenant_id"] = tid
+        staged["lane"] = staged.get("lane") or resolved_lane
+        if isinstance(staged.get("business_hours"), dict):
+            staged["business_hours"] = _sanitize_business_hours(staged["business_hours"])
+
+        source_files = staged.get("source_files")
+        source_file = None
+        if isinstance(source_files, list) and source_files:
+            source_file = Path(str(source_files[0])).name.strip() or None
+
+        upload_summary = bifurcator.apply_bifurcation(
+            bifurcation=staged,
+            raw_files=[],
+            auto_publish=True,
+            careful_brand_merge=False,
+            source_file=source_file,
+        )
+        if isinstance(upload_summary, dict):
+            upload_summary["tenant_id"] = tid
+        return upload_summary if isinstance(upload_summary, dict) else {"result": upload_summary}, None
+    except Exception as exc:
+        logger.exception(
+            "FIRST_LOGIN_UPLOAD_FAILED | admin=%s | tenant=%s",
+            by, tid,
+        )
+        return None, str(exc)
+
+
+@router.post("/first-login/upload")
+def first_login_upload(
+    body: FirstLoginUploadRequest,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Upload kit/brochure data after Set up chatbot (first-login/complete).
+
+    Auth: username + session_id headers. Company admin only. ``tenant_id`` is
+    taken from the session admin — do not send it in the body.
+
+    Body: ``files`` (base64) and/or ``upload_draft``, plus optional ``lane``
+    (``kit`` | ``any``).
+    """
+    if current_admin.get("role") != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only a company admin can upload first-login data",
+        )
+    _require_setup_chatbot_privilege(current_admin)
+
+    from shared.tenancy import store as tenancy_store
+
+    tid = str(current_admin.get("tenant_id") or "").strip()
+    if not tid:
+        raise HTTPException(
+            status_code=400,
+            detail="No tenant assigned — signup must create tenant_id before upload",
+        )
+    if int(tenancy_store.current_version(tid) or 0) < 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Complete first-login setup before uploading — call /api/auth/first-login/complete first",
+        )
+    if not tenancy_store.get_tenant(tid):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tenant '{tid}' not found — signup tenant is missing from the registry",
+        )
+
+    files_in = [
+        f
+        for f in (body.files or [])
+        if f and str(f.filename or "").strip() and str(f.content or "").strip()
+    ]
+    draft_in = body.upload_draft if isinstance(body.upload_draft, dict) else None
+    if not files_in and not draft_in:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide files and/or upload_draft",
+        )
+
+    by = _public_username(current_admin.get("username"))
+    upload_summary, upload_error = _run_first_login_upload(
+        tid=tid,
+        by=by,
+        files=body.files,
+        lane=body.lane,
+        upload_draft=body.upload_draft,
+    )
+
+    audit_kwargs = dict(
+        action="admin_first_login_upload",
+        actor=current_admin,
+        resource_type="tenant",
+        resource_id=tid,
+        tenant_id=tid,
+        details={
+            "upload": bool(upload_summary),
+            "upload_error": upload_error,
+            "lane": str(body.lane or "kit"),
+            "file_count": len(files_in),
+            "has_draft": bool(draft_in),
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+
+    logger.info(
+        "FIRST_LOGIN_UPLOAD | admin=%s | tenant=%s | ok=%s",
+        by, tid, bool(upload_summary) and not upload_error,
+    )
+
+    if upload_error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Upload failed: {upload_error}",
+        )
+
+    return {
+        "ok": True,
+        "tenant_id": tid,
+        "username": by,
+        "upload": {"status": "published", "summary": upload_summary},
+    }
 
 
 def _decode_maybe_base64_contact(value: Any) -> str:
@@ -2039,7 +2202,7 @@ def impersonate_tenant(
     return _impersonate_target(current_admin, target, via="tenant")
 
 
-# ── menu_privilege + menu_set_privilege ───────────────────────────────────────
+﻿# ── menu_privilege + menu_set_privilege ───────────────────────────────────────
 # Auth (headers only): username + session_id
 #   POST /api/auth/menu-privileges/users  → dropdown (id + username)
 #   POST /api/auth/menu-privileges/get    → body: id

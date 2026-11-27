@@ -133,21 +133,25 @@ export function RegisterWizard({ onSubmitted }: { onSubmitted?: () => void } = {
         mobile_number:
           isValidPhone(phone) || isValidPhoneInput(phone) ? phone : draft.supportPhone.trim(),
         snapshot: snapshot as unknown as Record<string, unknown>,
-        lane: (staged?.extraction_mode === 'kit' ? 'kit' : 'any') as 'kit' | 'any',
-        ...(staged
-          ? { upload_draft: staged as unknown as Record<string, unknown> }
-          : {}),
       }),
     )
     if (!completed) return
 
-    if (completed.upload?.status === 'published') {
-      toast.push('Document catalog published into your tenant.')
-    } else if (completed.upload?.status === 'failed') {
-      toast.push(
-        'Tenant is live, but the document could not be published — upload it again from Knowledge.',
-        'error',
+    if (staged) {
+      const uploaded = await action.run(() =>
+        adminsApi.firstLoginUpload({
+          lane: (staged.extraction_mode === 'kit' ? 'kit' : 'any') as 'kit' | 'any',
+          upload_draft: staged as unknown as Record<string, unknown>,
+        }),
       )
+      if (uploaded?.upload?.status === 'published') {
+        toast.push('Document catalog published into your tenant.')
+      } else if (!uploaded) {
+        toast.push(
+          'Tenant is live, but the document could not be published — upload it again from Knowledge.',
+          'error',
+        )
+      }
     }
 
     const liveTenant = completed.tenant_id || assignedTenantId

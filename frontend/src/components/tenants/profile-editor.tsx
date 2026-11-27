@@ -151,11 +151,7 @@ export function ProfileEditor({
     }
     const published = await action.run(() => tenantsApi.publish(tenantId))
     if (published) {
-      if (published.status === 'pending_approval') {
-        toast.push(published.message ?? 'Change sent for super admin approval.')
-      } else {
-        toast.push(`Published version ${published.version}`)
-      }
+      toast.push(`Published version ${published.version}`)
       setEditing(false)
       detail.reload()
     }
@@ -168,37 +164,24 @@ export function ProfileEditor({
         description={description}
         actions={
           readOnly ? undefined : editing ? (
-            // Support Login keeps a fake UI role of super_admin, but the API
-            // session is the tenant admin — always queue for confirmation.
-            isSuperAdmin && !impersonating ? (
-              <>
-                <GhostButton
-                  className={smallBtn}
-                  disabled={action.busy}
-                  onClick={() => saveDraft(false)}
-                >
-                  {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save draft
-                </GhostButton>
-                <PrimaryButton
-                  className={smallBtn}
-                  disabled={action.busy}
-                  onClick={() => saveDraft(true)}
-                >
-                  {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Save & publish
-                </PrimaryButton>
-              </>
-            ) : (
+            <>
+              <GhostButton
+                className={smallBtn}
+                disabled={action.busy}
+                onClick={() => saveDraft(false)}
+              >
+                {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save draft
+              </GhostButton>
               <PrimaryButton
                 className={smallBtn}
                 disabled={action.busy}
                 onClick={() => saveDraft(true)}
               >
                 {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                Submit for approval
+                Save & publish
               </PrimaryButton>
-            )
+            </>
           ) : (
             <PrimaryButton
               className={smallBtn}

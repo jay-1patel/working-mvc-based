@@ -258,14 +258,15 @@ class CredentialVaultPanelAuthTests(unittest.TestCase):
         self.mongo.stop()
         self.env.stop()
 
-    def _headers(self, user_id: int | str, session_id: str) -> dict:
-        return {"user_id": str(user_id), "session_id": session_id}
+    def _headers(self, username: str, session_id: str) -> dict:
+        # Panel auth is plain username + session_id (not user_id).
+        return {"username": username, "session_id": session_id}
 
     def test_status_scoped_to_session_tenant(self):
         r = self.client.post(
             "/api/admin/tenants/send2-credentials/status",
             json={},
-            headers=self._headers(self.id_a, self.session_a),
+            headers=self._headers("admin-a", self.session_a),
         )
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
@@ -282,7 +283,7 @@ class CredentialVaultPanelAuthTests(unittest.TestCase):
         r = self.client.post(
             "/api/admin/tenants/send2-credentials/status",
             json={"tenant_id": "tenant-a"},
-            headers=self._headers(self.id_b, self.session_b),
+            headers=self._headers("admin-b", self.session_b),
         )
         self.assertEqual(r.status_code, 200, r.text)
         # Tenant B is configured for itself; secrets still absent.
@@ -302,7 +303,7 @@ class CredentialVaultPanelAuthTests(unittest.TestCase):
         denied = self.client.post(
             "/api/admin/tenants/tenant-a/send2-credentials/resync",
             json={},
-            headers=self._headers(self.id_a, self.session_a),
+            headers=self._headers("admin-a", self.session_a),
         )
         self.assertEqual(denied.status_code, 403)
 
@@ -313,7 +314,7 @@ class CredentialVaultPanelAuthTests(unittest.TestCase):
             allowed = self.client.post(
                 "/api/admin/tenants/tenant-a/send2-credentials/resync",
                 json={},
-                headers=self._headers(self.id_super, "sess-super"),
+                headers=self._headers("super", "sess-super"),
             )
         self.assertEqual(allowed.status_code, 200, allowed.text)
         self.assertTrue(allowed.json()["ok"])

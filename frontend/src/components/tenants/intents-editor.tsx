@@ -70,11 +70,7 @@ export function IntentsEditor({ tenantId }: { tenantId: string }) {
     }
     const pub = await action.run(() => tenantsApi.publish(tenantId))
     if (pub) {
-      if (pub.status === 'pending_approval') {
-        toast.push(pub.message ?? 'Change sent for approval.')
-      } else {
-        toast.push(`Published version ${pub.version}`)
-      }
+      toast.push(`Published version ${pub.version}`)
       reload()
       setDraft(null)
       setEditing(false)
@@ -95,8 +91,7 @@ export function IntentsEditor({ tenantId }: { tenantId: string }) {
     if (!saved) return
     const pub = await action.run(() => tenantsApi.publish(tenantId))
     if (pub) {
-      if (pub.status === 'pending_approval') toast.push(pub.message ?? 'Change sent for approval.')
-      else toast.push(`Published version ${pub.version}`)
+      toast.push(`Published version ${pub.version}`)
       reload()
     }
   }
@@ -180,7 +175,7 @@ export function IntentsEditor({ tenantId }: { tenantId: string }) {
               </PrimaryButton>
               <GhostButton onClick={() => save(true)} disabled={action.busy}>
                 <Send className="h-4 w-4" />
-                Submit for approval
+                Save & publish
               </GhostButton>
             </div>
             {validation.length > 0 && <Notice tone="warn">{validation.join(', ')}</Notice>}

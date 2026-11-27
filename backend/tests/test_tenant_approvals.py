@@ -1,8 +1,7 @@
-"""Coverage for tenant change requests and the superadmin approval flow.
+"""Coverage for tenant change requests.
 
-Admins can prepare tenant registrations and profile publishes, but the
-endpoints refuse to apply them directly; everything lands in the
-``tenant_change_requests`` queue and only a super admin decision applies it.
+Signup / registration credentials mean the company is already approved —
+``create_tenant`` and profile publishes apply immediately (no super-admin gate).
 """
 
 import os
@@ -131,11 +130,10 @@ class TenantApprovalTests(unittest.TestCase):
 
     # ── registration flow ──────────────────────────────────────────────
 
-    def test_admin_cannot_create_tenants_or_publish_directly(self):
-        # Registering a tenant is the super admin's step; the approval queue
-        # exists for the wizard the admin completes afterwards.
+    def test_admin_can_create_tenants_and_publish_directly(self):
+        # Registration and publish both go live immediately — no approval gate.
         admin = self._create_admin("plain-admin")
-        blocked = self.client.post(
+        created = self.client.post(
             "/api/admin/tenants",
             json={
                 "tenant_id": "acme",
@@ -145,24 +143,9 @@ class TenantApprovalTests(unittest.TestCase):
             },
             headers=admin,
         )
-        self.assertEqual(blocked.status_code, 403)
-        self.assertIn("super admin approval", blocked.json()["detail"])
+        self.assertEqual(created.status_code, 200)
+        self.assertIsNotNone(tenancy_store.get_tenant("acme"))
 
-        # The super admin still creates tenants directly.
-        direct = self.client.post(
-            "/api/admin/tenants",
-            json={
-                "tenant_id": "acme",
-                "vertical": "generic",
-                "mobile_number": "919800000022",
-                "auto_scrape": False,
-            },
-            headers=self.root,
-        )
-        self.assertEqual(direct.status_code, 200)
-
-        # An admin's profile edit never goes live directly either: the publish
-        # endpoint queues it for super admin approval, like a registration.
         # A draft missing the compulsory contact fields is refused outright.
         tenancy_store.save_draft("acme", {})
         res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
@@ -176,13 +159,8 @@ class TenantApprovalTests(unittest.TestCase):
         res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
         self.assertEqual(res.status_code, 200)
         body = res.json()
-        self.assertEqual(body["status"], "pending_approval")
-        self.assertEqual(body["request"]["status"], "pending")
-        self.assertEqual(self._current_version("acme"), 0)
-
-        # Only the super admin's approval makes it live.
-        approved = self._decide(body["request"]["id"], "approved", "Ship it")
-        self.assertEqual(approved.status_code, 200)
+        self.assertEqual(body.get("ok"), True)
+        self.assertEqual(body.get("version"), 1)
         self.assertEqual(self._current_version("acme"), 1)
 
         # A super admin is view-only inside a tenant and cannot publish.
@@ -196,8 +174,8 @@ class TenantApprovalTests(unittest.TestCase):
         self.assertEqual(direct_pub.status_code, 403)
         self.assertEqual(self._current_version("acme"), 1)
 
-    def test_menu_only_publish_also_requires_super_admin_approval(self):
-        """Menu / intent edits used to go live immediately; they must queue now."""
+    def test_menu_only_publish_goes_live_immediately(self):
+        """Menu / intent edits publish directly without super-admin approval."""
         admin = self._create_admin("menu-admin")
         self.client.post(
             "/api/admin/tenants",
@@ -241,11 +219,8 @@ class TenantApprovalTests(unittest.TestCase):
         res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
         self.assertEqual(res.status_code, 200, res.text)
         body = res.json()
-        self.assertEqual(body["status"], "pending_approval")
-        self.assertEqual(self._current_version("acme"), 1)
-
-        approved = self._decide(body["request"]["id"], "approved", "Menu ok")
-        self.assertEqual(approved.status_code, 200, approved.text)
+        self.assertEqual(body.get("ok"), True)
+        self.assertEqual(body.get("version"), 2)
         self.assertEqual(self._current_version("acme"), 2)
 
     # ── contact-detail validation ───────────────────────────────
@@ -326,7 +301,7 @@ class TenantApprovalTests(unittest.TestCase):
         # A publish of that draft is refused outright instead of queueing.
         res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
         self.assertEqual(res.status_code, 422)
-        # Fix the contact details and the publish queues for approval.
+        # Fix the contact details and the publish goes live immediately.
         res = self.client.post(
             "/api/admin/tenants/acme/profile",
             json={
@@ -344,25 +319,28 @@ class TenantApprovalTests(unittest.TestCase):
         self.assertEqual(res.json()["validation"], [])
         res = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()["status"], "pending_approval")
+        self.assertEqual(res.json().get("ok"), True)
+        self.assertEqual(res.json().get("version"), 1)
 
-    def test_registration_submission_and_approval(self):
+    def test_registration_submission_applies_immediately(self):
         admin = self._create_admin("reg-admin")
         created = self._submit_create(admin)
         self.assertEqual(created.status_code, 201)
         request = created.json()["request"]
-        self.assertEqual(request["status"], "pending")
+        self.assertEqual(request["status"], "approved")
         self.assertEqual(request["tenant_id"], "acme")
-        self.assertIsNone(tenancy_store.get_tenant("acme"))
+        self.assertEqual(request["applied_version"], 1)
+        self.assertIsNotNone(tenancy_store.get_tenant("acme"))
+        self.assertEqual(self._current_version("acme"), 1)
 
-        # One pending registration per tenant id.
+        # Tenant already exists — a second create conflicts at submit time.
         self.assertEqual(self._submit_create(admin).status_code, 409)
 
         # The admin sees their own submission.
         mine = self.client.post("/api/tenant-change-requests/mine", headers=admin, json={})
         self.assertEqual([r["id"] for r in mine.json()["requests"]], [request["id"]])
 
-        # Super admins do not submit, they decide.
+        # Super admins do not submit via the change-request queue.
         self.assertEqual(self._submit_create(self.root).status_code, 403)
         self.assertEqual(
             self.client.get(
@@ -371,34 +349,18 @@ class TenantApprovalTests(unittest.TestCase):
             403,
         )
 
-        queue = self.client.get(
-            "/api/admin/tenant-change-requests", headers=self.root
-        ).json()["requests"]
-        self.assertEqual(len(queue), 1)
-
-        approved = self._decide(request["id"], "approved", "Go ahead")
-        self.assertEqual(approved.status_code, 200)
-        body = approved.json()
-        self.assertEqual(body["request"]["status"], "approved")
-        self.assertEqual(body["request"]["applied_version"], 1)
-        self.assertIsNotNone(tenancy_store.get_tenant("acme"))
-        self.assertEqual(self._current_version("acme"), 1)
-
         events = self.client.get(
             f"/api/admin/tenant-change-requests/{request['id']}/events",
             headers=self.root,
         ).json()["events"]
         self.assertEqual([e["event_type"] for e in events], ["submitted", "decision"])
 
-        # A decided request cannot be decided twice.
+        # Already applied — cannot decide again.
         self.assertEqual(self._decide(request["id"], "rejected").status_code, 409)
 
-    def test_registration_approval_conflict_when_tenant_appeared(self):
+    def test_registration_conflicts_when_tenant_already_exists(self):
         admin = self._create_admin("reg-admin-2")
-        created = self._submit_create(admin, tenant_id="acme")
-        request_id = created.json()["request"]["id"]
-
-        # Someone (a super admin) registers the same id before review.
+        # Super admin registers the id first.
         self.client.post(
             "/api/admin/tenants",
             json={
@@ -409,26 +371,16 @@ class TenantApprovalTests(unittest.TestCase):
             },
             headers=self.root,
         )
-        conflict = self._decide(request_id, "approved")
+        conflict = self._submit_create(admin, tenant_id="acme")
         self.assertEqual(conflict.status_code, 409)
-        # The request stays pending so the super admin can reject it instead.
-        row = self.client.get(
-            "/api/admin/tenant-change-requests", headers=self.root
-        ).json()["requests"][0]
-        self.assertEqual(row["status"], "pending")
 
-    def test_registration_rejection_creates_nothing(self):
+    def test_registration_creates_tenant_on_submit(self):
         admin = self._create_admin("reg-admin-3")
         created = self._submit_create(admin, tenant_id="ghost")
-        request_id = created.json()["request"]["id"]
-
-        rejected = self._decide(request_id, "rejected", "Not now")
-        self.assertEqual(rejected.status_code, 200)
-        self.assertEqual(rejected.json()["request"]["status"], "rejected")
-        self.assertIsNone(tenancy_store.get_tenant("ghost"))
-
-        # After a rejection a fresh request can be submitted.
-        self.assertEqual(self._submit_create(admin, tenant_id="ghost").status_code, 201)
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.json()["request"]["status"], "approved")
+        self.assertIsNotNone(tenancy_store.get_tenant("ghost"))
+        self.assertEqual(self._current_version("ghost"), 1)
 
     # ── publish flow ────────────────────────────────────────────────────
 
@@ -498,9 +450,9 @@ class TenantApprovalTests(unittest.TestCase):
 
     # ── the split registration flow ─────────────────────────────────────
 
-    def test_superadmin_registers_company_admin_completes_for_approval(self):
-        """Super admin registers only the company; the admin adds the rest and
-        the super admin's approval makes it live — the flow the wizard drives."""
+    def test_superadmin_registers_company_admin_completes_and_publishes(self):
+        """Super admin registers the company; the admin fills details and
+        publishes immediately — no approval gate."""
         # 1. Super admin creates the tenant with the company basics only.
         created = self.client.post(
             "/api/admin/tenants",
@@ -541,26 +493,9 @@ class TenantApprovalTests(unittest.TestCase):
         )
         self.assertEqual(saved.status_code, 200)
 
-        # 3. Admin queues the publish; nothing is live yet.
-        submitted = self._submit_publish(admin, "acme")
-        self.assertEqual(submitted.status_code, 201)
-        self.assertEqual(self._current_version("acme"), 0)
-
-        # 4. Super admin sees everything the admin added, then approves.
-        queue = self.client.get(
-            "/api/admin/tenant-change-requests", headers=self.root
-        ).json()["requests"]
-        self.assertEqual(len(queue), 1)
-        self.assertEqual(queue[0]["payload"]["snapshot"]["brand"]["bot_name"], "Asha")
-        # The review queue carries the tenant registry data too, so the
-        # reviewer sees the phone the admin bound, not just the profile.
-        self.assertEqual(queue[0]["tenant_display_name"], "Acme Ltd")
-        self.assertEqual(queue[0]["tenant_vertical"], "generic")
-        self.assertEqual(queue[0]["tenant_waba_phone_id"], "100012345678901")
-
-        request_id = queue[0]["id"]
-        approved = self._decide(request_id, "approved")
-        self.assertEqual(approved.status_code, 200)
+        # 3. Admin publish goes live immediately.
+        published = self.client.post("/api/admin/tenants/acme/publish", headers=admin)
+        self.assertEqual(published.status_code, 200, published.text)
         self.assertEqual(self._current_version("acme"), 1)
 
         from shared.tenancy.loader import get_tenant_profile
@@ -572,35 +507,31 @@ class TenantApprovalTests(unittest.TestCase):
         tenant_row = tenancy_store.get_tenant("acme")
         self.assertEqual(tenant_row["waba_phone_id"], "100012345678901")
 
-    def test_publish_rejection_keeps_live_version(self):
+    def test_publish_applies_immediately_via_change_request(self):
         self._register_tenant("acme")
         tenancy_store.save_draft(
             "acme",
             {"brand": {"name": "Acme", "support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
         )
 
-        # A super admin cannot publish inside a tenant. The tenant admin
-        # submits, and the super admin's approval is what goes live.
         scoped = self._create_admin("scoped-admin-2", tenant_id="acme")
         first = self._submit_publish(scoped, "acme")
         self.assertEqual(first.status_code, 201, first.text)
-        approved = self._decide(first.json()["request"]["id"], "approved")
-        self.assertEqual(approved.status_code, 200, approved.text)
+        self.assertEqual(first.json()["request"]["status"], "approved")
         self.assertEqual(self._current_version("acme"), 1)
 
         tenancy_store.save_draft(
             "acme",
             {"brand": {"name": "Changed", "support_email": "care@acme.example", "support_phone": "+91 98765 43210"}},
         )
-        request_id = self._submit_publish(scoped, "acme").json()["request"]["id"]
-
-        rejected = self._decide(request_id, "rejected")
-        self.assertEqual(rejected.status_code, 200)
-        self.assertEqual(self._current_version("acme"), 1)
+        second = self._submit_publish(scoped, "acme")
+        self.assertEqual(second.status_code, 201, second.text)
+        self.assertEqual(second.json()["request"]["status"], "approved")
+        self.assertEqual(self._current_version("acme"), 2)
 
         from shared.tenancy.loader import get_tenant_profile
 
-        self.assertEqual(get_tenant_profile("acme").brand.name, "Acme")
+        self.assertEqual(get_tenant_profile("acme").brand.name, "Changed")
 
 
 if __name__ == "__main__":

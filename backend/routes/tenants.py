@@ -455,16 +455,6 @@ def create_tenant(
     background_tasks: BackgroundTasks,
     current_admin: dict = Depends(require_permission("manage_operations")),
 ):
-    if current_admin.get("role") != "super_admin":
-        # Admins and sub admins register tenants through the approval queue;
-        # only a super admin's approval creates the tenant.
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Tenant registration by an admin needs super admin approval — "
-                "submit it via POST /api/tenant-change-requests"
-            ),
-        )
     tid = str(body.tenant_id or "").strip()
     if not tid:
         raise HTTPException(status_code=400, detail="tenant_id is required")
@@ -532,6 +522,16 @@ def create_tenant(
             tenant_id=tid,
             details={"vertical": body.vertical, "status": body.status, "website": website_clean},
         )
+    # Unscoped company admins become tenant admins of the company they just registered.
+    if (
+        current_admin.get("role") == "admin"
+        and not str(current_admin.get("tenant_id") or "").strip()
+    ):
+        from database import update_admin_record
+
+        username = str(current_admin.get("username") or "").strip()
+        if username:
+            update_admin_record(username, tenant_id=tid)
     tenancy_cache.purge(tid)
     logger.info("TENANT_CREATED | tenant=%s | vertical=%s | by=%s",
                 tid, body.vertical, current_admin.get("username"))
@@ -740,23 +740,10 @@ def _publish_menu_draft(
     principal: dict,
     credentials: HTTPAuthorizationCredentials | None,
 ) -> dict:
-    """Publish draft or queue for approval (same gate as profile publish)."""
+    """Validate and publish the menu draft immediately (no approval gate)."""
     draft = tenancy_store.get_draft(tenant_id)
     if draft is None:
         return {"status": "no_draft"}
-    if principal.get("role") != "super_admin":
-        from routes.tenant_approvals import queue_publish_for_approval
-
-        current_admin = get_current_admin(request, credentials)
-        result = queue_publish_for_approval(tenant_id, current_admin)
-        return {
-            "status": "pending_approval",
-            "request": result.get("request"),
-            "message": (
-                "Menu change sent for super admin approval — "
-                "goes live only once approved."
-            ),
-        }
     try:
         profile = tenancy_loader.validate_merged_profile(tenant_id, draft)
     except tenancy_loader.ProfileValidationError as exc:
@@ -1456,31 +1443,13 @@ def publish_profile(
 ):
     """Validate the merged profile, append a version, go live, purge the cache.
 
-    Super admins and tenant-scoped tokens publish directly. Every other admin
-    publish (profile, menu, intents, hours — any draft change) is queued as a
-    pending request only a super admin can approve — the same gate as the
-    Register a tenant panel. Each publish is audit-logged below, so who made
-    a profile live is always answerable.
+    Any admin with tenant access (and tenant-scoped tokens) publishes directly.
+    Each publish is audit-logged below, so who made a profile live is always
+    answerable.
     """
     draft = tenancy_store.get_draft(tenant_id)
     if draft is None:
         raise HTTPException(status_code=400, detail=f"No draft exists for tenant '{tenant_id}'")
-
-    if principal.get("type") == "admin" and principal.get("role") != "super_admin":
-        from routes.tenant_approvals import queue_publish_for_approval
-
-        current_admin = get_current_admin(request, credentials)
-        result = queue_publish_for_approval(tenant_id, current_admin)
-        return {
-            "ok": True,
-            "tenant_id": tenant_id,
-            "status": "pending_approval",
-            "request": result["request"],
-            "message": (
-                "Change sent for super admin approval — "
-                "profile, menu, and related edits go live only once approved."
-            ),
-        }
 
     try:
         profile = tenancy_loader.validate_merged_profile(tenant_id, draft)

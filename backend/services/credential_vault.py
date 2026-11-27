@@ -239,33 +239,30 @@ def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]
 
     try:
         try:
-            from services.send2_accounts import (
-                credentials_from_admins,
-                shared_send2_credentials,
-            )
+            from services.send2_accounts import credentials_from_admins
         except ImportError:
-            from backend.services.send2_accounts import (
-                credentials_from_admins,
-                shared_send2_credentials,
-            )
+            from backend.services.send2_accounts import credentials_from_admins
         if tid:
             pair = credentials_from_admins(tid)
             if pair:
                 return pair
-        pair = shared_send2_credentials()
+        # Any recoverable admin (not env) — env fallback is logged below.
+        pair = credentials_from_admins(None)
         if pair:
             return pair
     except Exception:
         logger.debug("SEND2_ADMINS_CREDS_SKIPPED | tenant=%s", tid, exc_info=True)
 
     if vault_fallback_enabled():
-        from routing.config import SEND2_USERNAME, SEND2_PASSWORD
-        if SEND2_USERNAME and SEND2_PASSWORD:
+        # Read env at call time so tests / runtime toggles take effect.
+        user = (os.getenv("SEND2_USERNAME") or "").strip()
+        password = (os.getenv("SEND2_PASSWORD") or "").strip()
+        if user and password:
             logger.warning(
-                "SEND2_ENV_FALLBACK_USED | tenant=%s | set admins password for this tenant",
+                "SEND2_VAULT_FALLBACK_USED | tenant=%s",
                 tid or "-",
             )
-            return str(SEND2_USERNAME), str(SEND2_PASSWORD)
+            return user, password
 
     raise CredentialVaultError(
         "Send2 username/password not found in vault or admins table "

@@ -33,11 +33,7 @@ export function VersionsPanel({ tenantId }: { tenantId: string }) {
   const publish = async () => {
     const result = await action.run(() => tenantsApi.publish(tenantId))
     if (result) {
-      if (result.status === 'pending_approval') {
-        toast.push(result.message ?? 'Change sent for super admin approval.')
-      } else {
-        toast.push(`Published version ${result.version}`)
-      }
+      toast.push(`Published version ${result.version}`)
       versions.reload()
       detail.reload()
     }

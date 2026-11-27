@@ -214,11 +214,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
     }
     const published = await action.run(() => tenantsApi.publish(tenantId))
     if (published) {
-      if (published.status === 'pending_approval') {
-        toast.push(published.message ?? 'Change sent for super admin approval.')
-      } else {
-        toast.push(`Menu published as version ${published.version}`)
-      }
+      toast.push(`Menu published as version ${published.version}`)
       detail.reload()
     }
   }
@@ -348,7 +344,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
             </GhostButton>
             <PrimaryButton className={smallBtn} disabled={action.busy} onClick={() => commit()}>
               {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Submit for approval
+              Save & publish
             </PrimaryButton>
           </>
           ) : undefined
@@ -679,7 +675,7 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
                                 role="switch"
                                 aria-checked={button.enabled}
                                 aria-label={`${button.enabled ? 'Deactivate' : 'Activate'} ${button.title}`}
-                                title="Toggle active, then Submit for approval"
+                                title="Toggle active, then Save & publish"
                                 onClick={(e) => {
                                   e.preventDefault()
                                   e.stopPropagation()
@@ -738,12 +734,12 @@ export function MenuEditor({ tenantId, focusId }: { tenantId: string; focusId?: 
           {canWrite && buttons.length > 0 && (
             <Panel title="Publishing">
               <p className="-mt-1 mb-4 text-sm text-txmuted">
-                The bot only sees the approved version. Edit options here, then Submit for approval — a super admin must approve before it goes live.
+                The bot only sees the published version. Edit options here, then Save & publish to make them live.
               </p>
               <div className="flex flex-wrap gap-2">
                 <PrimaryButton disabled={action.busy} onClick={() => commit()}>
                   {action.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Submit for approval
+                  Save & publish
                 </PrimaryButton>
               </div>
             </Panel>

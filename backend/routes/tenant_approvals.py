@@ -1,22 +1,20 @@
-"""Tenant registration/publish requests and superadmin review.
+"""Tenant registration / publish change-request history.
 
-Admins can view and edit the tenant registration panel and tenant profiles,
-but their changes do not go live directly: every registration or publish an
-admin (or sub admin) submits lands here as a pending request, and only a super
-admin's approval applies it:
+Signup credentials (username + id + password) mean the company is already
+approved — there is no super-admin gate. Submitting a ``create_tenant`` or
+``publish_profile`` request applies it immediately and records the outcome
+for audit history:
 
-    POST /api/tenant-change-requests              -> submit (admin / sub admin)
+    POST /api/tenant-change-requests              -> submit + apply (admin / sub admin)
     POST /api/tenant-change-requests/mine         -> the requester's own requests
     GET  /api/tenant-change-requests              -> legacy; prefer POST .../mine
-    GET  /api/admin/tenant-change-requests        -> review queue (super admin)
+    GET  /api/admin/tenant-change-requests        -> history (super admin)
     GET  /api/admin/tenant-change-requests/{id}/events
-    POST /api/admin/tenant-change-requests/{id}/decision -> approve / reject
+    POST /api/admin/tenant-change-requests/{id}/decision -> legacy approve / reject
 
-Approving a ``create_tenant`` request registers the tenant, saves the
-submitted snapshot as its draft and publishes version 1. Approving a
-``publish_profile`` request publishes exactly the snapshot the requester
-submitted (captured from the draft at submission time), so the super admin
-always approves what was reviewed, not what the draft looks like later.
+A ``create_tenant`` submission registers the tenant, saves the snapshot as
+draft, and publishes version 1. A ``publish_profile`` submission publishes
+the captured draft snapshot immediately.
 """
 
 import json
@@ -450,7 +448,8 @@ def _create_change_request(body: TenantChangeCreate, current_admin: dict):
         "TENANT_CHANGE_SUBMITTED | type=%s | tenant=%s | by=%s",
         body.request_type, tenant_id, current_admin.get("username"),
     )
-    return {"request": _enrich_with_tenant([row])[0]}
+    # Credentials / manage_operations already authorize the admin — apply now.
+    return _auto_apply_submitted_request(row, current_admin)
 
 
 # ── listing ────────────────────────────────────────────────────────────────
@@ -683,6 +682,82 @@ def list_request_events_post(
 
 
 # ── decision ────────────────────────────────────────────────────────────────
+
+def _auto_apply_submitted_request(row: dict, current_admin: dict) -> dict:
+    """Apply a just-submitted request immediately (no super-admin gate)."""
+    record = dict(row)
+    request_id = int(record["id"])
+    version = _apply_request(record)
+    if record.get("request_type") == "create_tenant":
+        _scope_requester_to_tenant(record)
+
+    decided_at = datetime.now(timezone.utc).isoformat()
+    if use_mongodb():
+        from db.mongo import Repository
+
+        repo = Repository("tenant_change_requests")
+        repo.update(
+            {"id": request_id, "status": "pending"},
+            {
+                "status": "approved",
+                "reviewer_id": current_admin.get("id"),
+                "reviewer_username": current_admin.get("username", ""),
+                "decision_note": "Auto-applied on submit (no approval gate)",
+                "decided_at": decided_at,
+                "applied": 1,
+                "applied_version": version,
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
+        _add_event(
+            None,
+            request_id,
+            actor=current_admin,
+            event_type="decision",
+            old_status="pending",
+            new_status="approved",
+            note="Auto-applied on submit (no approval gate)",
+        )
+        result = repo.find_one({"id": request_id})
+    else:
+        with get_db_context() as conn:
+            conn.execute(
+                """UPDATE tenant_change_requests
+                   SET status = 'approved', reviewer_id = ?, reviewer_username = ?,
+                       decision_note = ?, decided_at = ?, applied = 1,
+                       applied_version = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ? AND status = 'pending'""",
+                (
+                    current_admin.get("id"),
+                    current_admin.get("username", ""),
+                    "Auto-applied on submit (no approval gate)",
+                    decided_at,
+                    version,
+                    request_id,
+                ),
+            )
+            _add_event(
+                conn,
+                request_id,
+                actor=current_admin,
+                event_type="decision",
+                old_status="pending",
+                new_status="approved",
+                note="Auto-applied on submit (no approval gate)",
+            )
+            result = conn.execute(
+                "SELECT * FROM tenant_change_requests WHERE id = ?",
+                (request_id,),
+            ).fetchone()
+    logger.info(
+        "TENANT_CHANGE_AUTO_APPLIED | type=%s | tenant=%s | version=%s | by=%s",
+        record.get("request_type"),
+        record.get("tenant_id"),
+        version,
+        current_admin.get("username"),
+    )
+    return {"request": _enrich_with_tenant([result])[0]}
+
 
 def _apply_request(row: dict) -> int:
     """Apply an approved request. Returns the published version number."""

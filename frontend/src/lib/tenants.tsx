@@ -160,8 +160,7 @@ export const tenantsApi = {
       body,
     ),
 
-  /** Super admins publish directly; other admins' publishes come back as
-   * `pending_approval` — queued for a super admin to approve. */
+  /** Publishes the draft immediately for any admin with tenant access. */
   publish: (id: string) =>
     api.post<{
       ok: boolean

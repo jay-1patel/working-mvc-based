@@ -144,11 +144,7 @@ export function InfoPagePanel({ tenantId, page }: { tenantId: string; page: Info
     }
     const published = await action.run(() => tenantsApi.publish(tenantId))
     if (published) {
-      if (published.status === 'pending_approval') {
-        toast.push(published.message ?? 'Change sent for super admin approval.')
-      } else {
-        toast.push(`Published version ${published.version}`)
-      }
+      toast.push(`Published version ${published.version}`)
       setEditing(false)
       setDraftSaved(false)
       reload()

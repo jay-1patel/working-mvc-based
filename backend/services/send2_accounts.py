@@ -30,15 +30,41 @@ def _looks_like_hex_digest(value: str) -> bool:
     return all(c in "0123456789abcdefABCDEF" for c in v)
 
 
-def _recover_send2_password(raw: str | None) -> str:
+def _recover_send2_password(
+    raw: str | None,
+    *,
+    tenant_id: str | None = None,
+    admin_id: int | None = None,
+    salt: str | None = None,
+) -> str:
     """Recover a Send2 API password from an admins.password / password_hash value.
 
-    Send2-synced rows store the password as Base64 (e.g. spiritual). One-way
-    digests (MD5/SHA) cannot be used for Send2 API calls and are skipped.
+    Signup rows store AES-GCM ciphertext sealed with CREDENTIAL_MASTER_KEY.
+    Legacy Send2-synced rows may still be Base64 or plain. One-way digests
+    (MD5/SHA/PBKDF2) cannot be used and are skipped.
     """
     value = str(raw or "").strip()
     if not value or _looks_like_hex_digest(value):
         return ""
+
+    # Prefer AES-GCM decrypt for signup-sealed rows (salt empty / unused).
+    # Skip when salt looks like a legacy PBKDF2 random salt.
+    salt_val = str(salt or "").strip()
+    try_aesgcm = not salt_val or salt_val == "aesgcm"
+    if tenant_id and admin_id is not None and try_aesgcm:
+        try:
+            from services.send2_admin_register import decrypt_admin_password
+        except ImportError:
+            from backend.services.send2_admin_register import decrypt_admin_password
+        try:
+            return decrypt_admin_password(
+                value,
+                tenant_id=str(tenant_id),
+                admin_id=int(admin_id),
+            )
+        except Exception:
+            logger.debug("SEND2_ADMINS_AESGCM_DECRYPT_FAILED", exc_info=True)
+
     # Prefer Base64 → plain (Send2 panel sync style).
     try:
         decoded = base64.b64decode(value, validate=True).decode("utf-8").strip()
@@ -98,8 +124,16 @@ def credentials_from_admins(tenant_id: str | None = None) -> Optional[tuple[str,
 
     for row in sorted(rows, key=_score):
         plain_user = decode_stored_username(row.get("username"))
+        admin_id_raw = row.get("id")
+        try:
+            admin_id = int(admin_id_raw) if admin_id_raw is not None else None
+        except (TypeError, ValueError):
+            admin_id = None
         plain_pass = _recover_send2_password(
-            row.get("password") if row.get("password") not in (None, "") else row.get("password_hash")
+            row.get("password") if row.get("password") not in (None, "") else row.get("password_hash"),
+            tenant_id=str(row.get("tenant_id") or tid or "").strip() or None,
+            admin_id=admin_id,
+            salt=row.get("salt"),
         )
         if plain_user and plain_pass:
             logger.info(
@@ -136,7 +170,7 @@ def shared_send2_credentials() -> Optional[tuple[str, str]]:
         user = (SEND2_USERNAME or "").strip()
         password = (SEND2_PASSWORD or "").strip()
         if user and password:
-            logger.warning("SEND2_ENV_FALLBACK_USED | prefer admins/vault credentials")
+            logger.warning("SEND2_VAULT_FALLBACK_USED | prefer admins/vault credentials")
             return user, password
     return None
 

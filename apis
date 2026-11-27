@@ -1,0 +1,91 @@
+  curl --location 'http://localhost:9000/api/auth/signup' \
+  --header 'Content-Type: application/json' \
+  --data '{"username":"japan","id":"12234","password":"dshjksjhsbhjsli"}'      FOR SIGNUP DETAILS TAKING 
+
+
+
+drop-down user
+
+curl --location 'http://localhost:9000/api/auth/menu-privileges/users' \
+  --header 'Content-Type: application/json' \
+  --header 'username: Customercare' \
+  --header 'session_id: 3042_1794914340_c8f3a72d9e6b' \
+  --data '{}'
+
+Get
+
+  curl --location 'http://localhost:9000/api/auth/menu-privileges/get' \
+  --header 'Content-Type: application/json' \
+  --header 'username: Customercare' \
+  --header 'session_id: 3042_1794914340_c8f3a72d9e6b' \
+  --data '{"id":3518}'
+
+Save
+
+  curl --location 'http://localhost:9000/api/auth/menu-privileges/save' \
+  --header 'Content-Type: application/json' \
+  --header 'username: Customercare' \
+  --header 'session_id: 3042_1794914340_c8f3a72d9e6b' \
+  --data '{"id":3518,"privileges":{"graphic":true,"chats":true,"profile":false,"customer":false,"website_crawler
+  ":false,"setup_chatbot":false,"menu":false}}'
+
+onboarded user view
+
+    curl --location 'http://localhost:9000/api/auth/onboarding-users' \
+  --header 'Content-Type: application/json' \
+  --header 'username: Customercare' \
+  --header 'session_id: 3042_1794914340_c8f3a72d9e6b' \
+  --data '{}'
+
+
+
+curl --location 'http://localhost:9000/api/auth/first-login/complete' \
+--header 'Content-Type: application/json' \
+--header 'username: japan' \
+--header 'session_id: b4lLGk7cQ4hFZMHM5AwG7ig7vcV_Y3WnZ6tA-ZX5kFk' \
+--data-raw '{
+    "waba_phone_id": "+919876543210",
+    "mobile_number": "+919876543210",
+    "snapshot": {
+      "vertical": "generic",
+      "display_name": "Japan Co",
+      "brand": {
+        "name": "Japan Co",
+        "bot_name": "Asha",
+        "tagline": "Here to help",
+        "support_email": "support@example.com",
+        "support_phone": "+919876543210"
+      }
+    }
+  }'
+
+
+
+
+
+
+
+# List
+  curl --location 'http://localhost:9000/api/admin/tenants/menu/list' \
+    --header 'Content-Type: application/json' \
+    --header 'username: japan' \
+    --header 'session_id: YOUR_SESSION' \
+    --data '{}'
+  # Add
+  curl --location 'http://localhost:9000/api/admin/tenants/menu/add' \
+    --header 'Content-Type: application/json' \
+    --header 'username: japan' \
+    --header 'session_id: YOUR_SESSION' \
+    --data '{"title":"Our Packages","description":"Browse trips","section":"General","publish":true}'
+  # Update
+  curl --location 'http://localhost:9000/api/admin/tenants/menu/update' \
+    --header 'Content-Type: application/json' \
+    --header 'username: japan' \
+    --header 'session_id: YOUR_SESSION' \
+    --data '{"id":"our_packages","title":"Packages","description":"Updated","publish":true}'
+  # Delete
+  curl --location 'http://localhost:9000/api/admin/tenants/menu/delete' \
+    --header 'Content-Type: application/json' \
+    --header 'username: japan' \
+    --header 'session_id: YOUR_SESSION' \
+    --data '{"id":"our_packages","publish":true}'

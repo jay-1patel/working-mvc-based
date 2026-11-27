@@ -3,13 +3,12 @@
 1. Optionally POST credentials to Send2 (SEND2_LOGIN_API_URL).
 2. Create a unique ``tenant_id`` (or reuse the admin's existing one).
 3. Upsert ``admins`` with ``id`` as ``admins.id`` (chatbot PK).
-4. Encrypt password with CREDENTIAL_MASTER_KEY into the Send2 vault.
+4. Encrypt password with CREDENTIAL_MASTER_KEY (AES-GCM) into ``admins.password_hash``
+   and into the Send2 vault.
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import logging
 import os
 import secrets
@@ -30,26 +29,28 @@ from database import (
 
 logger = logging.getLogger("send2_admin_register")
 
-_PBKDF2_ITERATIONS = 120_000
-
 
 class Send2RegisterError(RuntimeError):
     """User-facing register failure (invalid input or Send2 rejection)."""
 
 
-def _hash_password(password: str) -> tuple[str, str]:
-    """Return (password_hash_b64, salt_b64). Never store plain passwords."""
-    salt = os.urandom(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt,
-        _PBKDF2_ITERATIONS,
-    )
-    return (
-        base64.b64encode(digest).decode("ascii"),
-        base64.b64encode(salt).decode("ascii"),
-    )
+def _encrypt_password(password: str, *, tenant_id: str, admin_id: int) -> str:
+    """AES-GCM seal with CREDENTIAL_MASTER_KEY. Returns ciphertext_b64."""
+    from services.credential_vault import encrypt_value
+
+    return encrypt_value(str(password), str(tenant_id), str(admin_id))
+
+
+def decrypt_admin_password(
+    password_hash: str,
+    *,
+    tenant_id: str,
+    admin_id: int,
+) -> str:
+    """Decrypt an AES-GCM ``admins.password_hash`` sealed at signup."""
+    from services.credential_vault import decrypt_value
+
+    return decrypt_value(str(password_hash or ""), str(tenant_id), str(admin_id))
 
 
 def _login_api_url() -> str:
@@ -230,7 +231,6 @@ def register_send2_admin(
     # Store username exactly as provided (plain), not Base64.
     stored_username = plain_username
     legacy_username = encode_send2_username(plain_username)
-    password_hash, salt = _hash_password(plain_password)
     session_id = secrets.token_urlsafe(32)
 
     existing = get_admin_by_id(admin_id)
@@ -249,6 +249,18 @@ def register_send2_admin(
     )
     _ensure_signup_tenant(tenant_id, username=plain_username)
 
+    try:
+        password_hash = _encrypt_password(
+            plain_password, tenant_id=tenant_id, admin_id=admin_id
+        )
+    except Exception as exc:
+        logger.exception(
+            "SIGNUP_PASSWORD_ENCRYPT_FAILED | admins.id=%s | tenant=%s",
+            admin_id,
+            tenant_id,
+        )
+        raise Send2RegisterError("Failed to encrypt password") from exc
+
     if existing:
         target_username = str(existing.get("username") or stored_username)
         updated = db_update_admin(
@@ -256,7 +268,7 @@ def register_send2_admin(
             admin_id=admin_id,
             username=stored_username,
             password_hash=password_hash,
-            salt=salt,
+            salt="",
             session_id=session_id,
             tenant_id=tenant_id,
         )
@@ -269,7 +281,7 @@ def register_send2_admin(
             created_id = db_create_admin(
                 stored_username,
                 password_hash=password_hash,
-                salt=salt,
+                salt="",
                 role=role,
                 permissions={},
                 session_id=session_id,
@@ -298,6 +310,20 @@ def register_send2_admin(
     except Exception as exc:
         logger.exception("SIGNUP_VAULT_STORE_FAILED | admins.id=%s | tenant=%s", admin_id, tenant_id)
         raise Send2RegisterError("Failed to encrypt and store password") from exc
+
+    # Company admins need full menu_set_privilege grants or the console nav
+    # stays empty after Set up chatbot (permissions {} alone is not enough).
+    if str(result_role or role) == "admin":
+        try:
+            from db.privileges import all_menu_ids, set_user_menu_privileges
+
+            set_user_menu_privileges(admin_id, all_menu_ids())
+        except Exception:
+            logger.exception(
+                "SIGNUP_MENU_PRIVILEGES_FAILED | admins.id=%s | tenant=%s",
+                admin_id,
+                tenant_id,
+            )
 
     # Never log password / hash material.
     logger.info(

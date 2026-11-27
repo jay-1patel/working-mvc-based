@@ -552,9 +552,8 @@ export function MyTenantChangeRequests() {
   const { refreshIdentity } = useAuth()
   const [open, setOpen] = useState<number | null>(null)
 
-  // Onboarding ends the moment a super admin approves a request. Re-read the
-  // identity here so the lock lifts without a hard refresh, and drop the now
-  // onboarded admin straight into their tenant dashboard.
+  // Registration/publish apply on submit. Re-read identity so the onboarding
+  // lock lifts without a hard refresh, then drop into the tenant dashboard.
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -573,8 +572,7 @@ export function MyTenantChangeRequests() {
     <div>
       <PageHeader
         title="My change requests"
-        description="Tenant registrations and profile publishes you submitted. Nothing goes live until a super admin approves it."
-        meta={<Pill>Pending super admin approval</Pill>}
+        description="History of tenant registrations and profile publishes you submitted. They apply immediately — no super admin approval."
       />
 
       {state.loading && <LoadingBlock label="Loading your requests…" />}
@@ -583,7 +581,7 @@ export function MyTenantChangeRequests() {
         <Card>
           <EmptyState
             title="No requests yet"
-            description="Register a tenant or publish a profile and your submission will appear here while it waits for approval."
+            description="Register a tenant or publish a profile and your submissions will appear here."
           />
         </Card>
       )}

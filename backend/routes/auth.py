@@ -846,7 +846,7 @@ async def signup(request: Request, body: SignupRequest):
     ``id`` is stored as ``admins.id`` (chatbot admin PK, e.g. 3042).
     Optional ``tenant_id`` links this admin to an existing tenant; omit it to
     auto-create a new short tenant_id. Public (for Send2Digital). Password is
-    hashed + vault-encrypted; plain password is never returned.
+    AES-GCM encrypted with CREDENTIAL_MASTER_KEY (admins + vault); plain password is never returned.
     """
     try:
         from services.send2_admin_register import (

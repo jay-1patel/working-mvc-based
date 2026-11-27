@@ -675,6 +675,11 @@ class MenuButtonWriteRequest(BaseModel):
     out_of_hours_only: bool = False
     flow: Optional[str] = None
     intent: Optional[str] = None
+    parent_id: Optional[str] = None
+    action_type: Optional[str] = None
+    action_ref: Optional[str] = None
+    answer: Optional[str] = None
+    source_refs: Optional[List[str]] = None
     # When true (default), save draft then publish / queue approval.
     publish: bool = True
 
@@ -715,6 +720,30 @@ def _menu_working_payload(tenant_id: str) -> dict:
             status_code=404,
             detail=f"No menu profile for tenant '{tenant_id}': {exc}",
         ) from exc
+
+
+def _menu_tree(buttons: list[dict]) -> list[dict]:
+    """Build a nested menu tree from flat parent_id rows."""
+    by_id = {str(b.get("id") or ""): b for b in buttons if b.get("id")}
+    children: dict[str | None, list[dict]] = {}
+    for b in buttons:
+        pid = b.get("parent_id")
+        pid = str(pid).strip() if pid else None
+        children.setdefault(pid, []).append(b)
+    for group in children.values():
+        group.sort(key=lambda b: int(b.get("sort_order") or 0))
+
+    def build(parent_id: str | None, depth: int = 0) -> list[dict]:
+        if depth > 8:
+            return []
+        out = []
+        for b in children.get(parent_id, []):
+            node = dict(b)
+            node["children"] = build(str(b.get("id") or ""), depth + 1)
+            out.append(node)
+        return out
+
+    return build(None)
 
 
 def _menu_shell(payload: dict) -> dict:
@@ -1542,6 +1571,236 @@ def test_question(
         "flow": matched.flow if matched else None,
         "active_intents": profile.active_intent_names(),
     }
+
+
+@router.post("/menu/tree")
+def menu_tree(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Return the tenant's published menu as a nested tree."""
+    tenant_id = session_tenant_id(request=request)
+    authorize_tenant_access(request, tenant_id, credentials)
+    payload = _menu_working_payload(tenant_id)
+    shell = _menu_shell(payload)
+    return {
+        "ok": True,
+        "tenant_id": tenant_id,
+        "has_draft": bool(tenancy_store.get_draft(tenant_id)),
+        "current_version": tenancy_store.current_version(tenant_id),
+        "menu": shell,
+        "tree": _menu_tree(shell["buttons"]),
+        "count": len(shell["buttons"]),
+    }
+
+
+@router.post("/menu/node/add")
+def menu_node_add(
+    body: MenuButtonWriteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Add a hierarchical menu node for the session tenant."""
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    title = str(body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    shell = _menu_shell(_menu_working_payload(tenant_id))
+    existing_ids = {str(b.get("id") or "") for b in shell["buttons"]}
+    node_id = str(body.id or "").strip() or _slug_menu_id(title, existing_ids)
+    if not _MENU_ID_RE.match(node_id):
+        raise HTTPException(status_code=422, detail="id must be lowercase letters/digits/underscores, starting with a letter")
+    if node_id in existing_ids:
+        raise HTTPException(status_code=409, detail=f"Menu id '{node_id}' already exists")
+    parent_id = str(body.parent_id or "").strip() or None
+    if parent_id and parent_id not in existing_ids:
+        raise HTTPException(status_code=404, detail=f"Parent menu id '{parent_id}' not found")
+    sort_order = body.sort_order if body.sort_order is not None else len(shell["buttons"])
+    new_btn = {
+        "id": node_id,
+        "title": title[:24],
+        "description": str(body.description or "")[:72],
+        "section": str(body.section or "General").strip() or "General",
+        "icon": str(body.icon or ""),
+        "sort_order": int(sort_order),
+        "enabled": bool(body.enabled),
+        "requires_feature": body.requires_feature,
+        "out_of_hours_only": bool(body.out_of_hours_only),
+        "flow": body.flow,
+        "intent": body.intent,
+        "parent_id": parent_id,
+        "action_type": str(body.action_type or "knowledge").strip().lower() or "knowledge",
+        "action_ref": body.action_ref,
+        "answer": body.answer,
+        "source_refs": list(body.source_refs or []),
+    }
+    buttons = list(shell["buttons"]) + [new_btn]
+    return _save_menu_buttons(
+        tenant_id=tenant_id,
+        request=request,
+        principal=principal,
+        credentials=credentials,
+        buttons=buttons,
+        menu_meta=shell,
+        publish=bool(body.publish),
+        action="tenant_menu_node_add",
+    )
+
+
+@router.post("/menu/node/update")
+def menu_node_update(
+    body: MenuButtonWriteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Edit an existing hierarchical menu node by id."""
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    node_id = str(body.id or "").strip()
+    if not node_id:
+        raise HTTPException(status_code=400, detail="id is required")
+    shell = _menu_shell(_menu_working_payload(tenant_id))
+    found = False
+    buttons: list[dict] = []
+    for btn in shell["buttons"]:
+        if str(btn.get("id") or "") != node_id:
+            buttons.append(btn)
+            continue
+        found = True
+        title = str(body.title or btn.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="title is required")
+        parent_id = body.parent_id if body.parent_id is not None else btn.get("parent_id")
+        parent_id = str(parent_id).strip() if parent_id else None
+        if parent_id and parent_id not in {str(b.get("id") or "") for b in shell["buttons"]}:
+            raise HTTPException(status_code=404, detail=f"Parent menu id '{parent_id}' not found")
+        if parent_id == node_id:
+            raise HTTPException(status_code=400, detail="A node cannot be its own parent")
+        updated = {
+            **btn,
+            "title": title[:24],
+            "description": str(
+                body.description if body.description is not None else btn.get("description") or ""
+            )[:72],
+            "section": str(body.section or btn.get("section") or "General").strip() or "General",
+            "icon": str(body.icon if body.icon is not None else btn.get("icon") or ""),
+            "enabled": bool(body.enabled),
+            "requires_feature": (
+                body.requires_feature
+                if body.requires_feature is not None
+                else btn.get("requires_feature")
+            ),
+            "out_of_hours_only": bool(body.out_of_hours_only),
+            "flow": body.flow if body.flow is not None else btn.get("flow"),
+            "intent": body.intent if body.intent is not None else btn.get("intent"),
+            "parent_id": parent_id,
+            "action_type": str(body.action_type if body.action_type is not None else btn.get("action_type") or "knowledge").strip().lower() or "knowledge",
+            "action_ref": body.action_ref if body.action_ref is not None else btn.get("action_ref"),
+            "answer": body.answer if body.answer is not None else btn.get("answer"),
+            "source_refs": list(body.source_refs if body.source_refs is not None else btn.get("source_refs") or []),
+        }
+        if body.sort_order is not None:
+            updated["sort_order"] = int(body.sort_order)
+        buttons.append(updated)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Menu node '{node_id}' not found")
+    return _save_menu_buttons(
+        tenant_id=tenant_id,
+        request=request,
+        principal=principal,
+        credentials=credentials,
+        buttons=buttons,
+        menu_meta=shell,
+        publish=bool(body.publish),
+        action="tenant_menu_node_update",
+    )
+
+
+@router.post("/menu/node/delete")
+def menu_node_delete(
+    body: MenuButtonDeleteRequest,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Delete a menu node and all of its descendants."""
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    node_id = str(body.id or "").strip()
+    if not node_id:
+        raise HTTPException(status_code=400, detail="id is required")
+    shell = _menu_shell(_menu_working_payload(tenant_id))
+    ids = {str(b.get("id") or "") for b in shell["buttons"]}
+    if node_id not in ids:
+        raise HTTPException(status_code=404, detail=f"Menu node '{node_id}' not found")
+    to_remove = {node_id}
+    changed = True
+    while changed:
+        changed = False
+        for btn in shell["buttons"]:
+            pid = str(btn.get("parent_id") or "").strip()
+            bid = str(btn.get("id") or "")
+            if pid in to_remove and bid not in to_remove:
+                to_remove.add(bid)
+                changed = True
+    kept = [b for b in shell["buttons"] if str(b.get("id") or "") not in to_remove]
+    buttons = kept + [{"id": nid, "__remove__": True} for nid in to_remove]
+    return _save_menu_buttons(
+        tenant_id=tenant_id,
+        request=request,
+        principal=principal,
+        credentials=credentials,
+        buttons=buttons,
+        menu_meta=shell,
+        publish=bool(body.publish),
+        action="tenant_menu_node_delete",
+    )
+
+
+@router.post("/menu/ai-draft")
+def menu_ai_draft(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Generate an AI menu draft from the tenant's uploaded data.
+
+    The draft is saved as a working draft (not published) so the admin can
+    review, edit, and publish it.
+    """
+    tenant_id = session_tenant_id(request=request)
+    principal = authorize_tenant_access(request, tenant_id, credentials)
+    if not tenancy_store.get_tenant(tenant_id):
+        raise HTTPException(status_code=404, detail="tenant not found")
+
+    try:
+        from services.menu_ai import generate_menu_draft
+    except ImportError:
+        from backend.services.menu_ai import generate_menu_draft
+
+    result = generate_menu_draft(tenant_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=422, detail=result.get("error", "AI draft failed"))
+
+    draft_buttons = result["draft"]
+    shell = _menu_shell(_menu_working_payload(tenant_id))
+    merged_buttons = list(shell["buttons"]) + [
+        b for b in draft_buttons if str(b.get("id") or "") not in {str(x.get("id") or "") for x in shell["buttons"]}
+    ]
+    # Save as draft (publish=False) so admin reviews first.
+    saved = _save_menu_buttons(
+        tenant_id=tenant_id,
+        request=request,
+        principal=principal,
+        credentials=credentials,
+        buttons=merged_buttons,
+        menu_meta=shell,
+        publish=False,
+        action="tenant_menu_ai_draft",
+    )
+    saved["ai_sources"] = result.get("sources", [])
+    saved["draft"] = merged_buttons
+    saved["tree"] = _menu_tree(merged_buttons)
+    return saved
 
 
 @router.post("/{tenant_id}/rollback")

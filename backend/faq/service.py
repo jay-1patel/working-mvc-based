@@ -662,7 +662,7 @@ async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt,
         if api_type == "ollama":
             payload = {
                 "model": model,
-                "stream": False,
+                "stream": True,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_query},
@@ -671,7 +671,7 @@ async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt,
                 "think": False,
                 "options": {
                     "num_ctx": 8192,
-                    "num_predict": 2048,
+                    "num_predict": 1024,
                     "temperature": 0.2,
                     "top_p": 0.9,
                     "repeat_penalty": 1.0,

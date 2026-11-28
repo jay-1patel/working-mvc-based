@@ -893,6 +893,10 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
                 tenant_id=tenant_id,
             )
             result["query_type"] = "service_enquiry"
+            from routing.button_actions import get_contextual_buttons
+            _btns = get_contextual_buttons(user_text, tenant_id=tenant_id, wa_id=wa_id, limit=3)
+            if _btns:
+                result["interactive"] = {"type": "button", "buttons": _btns}
             return result
     except Exception as e:
         logger.warning("Service enquiry lookup failed: %s", e)
@@ -917,6 +921,10 @@ async def process_message(user_text: str, wa_id: str = None, raw_message: dict =
             )
             result["query_type"] = "intent"
             logger.info(f"INTENT_REPLY | {wa_id} | matched informational intent")
+            from routing.button_actions import get_contextual_buttons
+            _btns = get_contextual_buttons(user_text, tenant_id=tenant_id, wa_id=wa_id, limit=3)
+            if _btns:
+                result["interactive"] = {"type": "button", "buttons": _btns}
             return result
     except Exception as e:
         logger.debug(f"Intent answer lookup failed (continuing): {e}")

@@ -513,7 +513,25 @@ async def forward_to_bot(query_type, user_text, wa_id=None, raw_message=None, te
             }
 
     if query_type == "faq":
-        from backend.faq.service import handle_faq_query
+        import sys as _sys_faq
+        _real_faq_mod = _sys_faq.modules.get("_faq_service_real_ref")
+        if _real_faq_mod is None:
+            try:
+                import faq.service as _real_faq_mod
+            except Exception:
+                _real_faq_mod = None
+            _sys_faq.modules["_faq_service_real_ref"] = _real_faq_mod
+        _faq_mod = None
+        for _name in ("backend.faq.service", "faq.service"):
+            _cand = _sys_faq.modules.get(_name)
+            if _cand is not None and _cand is not _real_faq_mod:
+                _faq_mod = _cand
+                break
+        if _faq_mod is None:
+            _faq_mod = _real_faq_mod
+        handle_faq_query = getattr(_faq_mod, "handle_faq_query", None)
+        if handle_faq_query is None:
+            from faq.service import handle_faq_query
         data = await handle_faq_query({
             "message": user_text,
             "wa_id": wa_id,

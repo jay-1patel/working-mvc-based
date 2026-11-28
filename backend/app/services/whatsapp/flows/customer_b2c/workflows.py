@@ -437,7 +437,7 @@ async def _llm_synthesize(raw: str, label: str, query: str, tenant_id: str | Non
         try:
             from faq.service import synthesize_intent_answer
         except ImportError:
-            from backend.faq.service import synthesize_intent_answer
+            from faq.service import synthesize_intent_answer
         return await synthesize_intent_answer(
             raw_content=raw,
             intent_name=label or query,

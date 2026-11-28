@@ -967,7 +967,11 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
     raw_payload = body.decode("utf-8", errors="replace")
     app_secret = os.getenv("META_APP_SECRET") or os.getenv("WHATSAPP_APP_SECRET")
-    signature = request.headers.get("x-hub-signature-256", "")
+    headers = getattr(request, "headers", None) or {}
+    try:
+        signature = headers.get("x-hub-signature-256", "")
+    except Exception:
+        signature = ""
     if app_secret:
         expected = "sha256=" + hmac.new(app_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
         if not signature or not hmac.compare_digest(expected, signature):

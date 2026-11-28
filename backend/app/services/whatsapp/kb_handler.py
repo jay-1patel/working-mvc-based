@@ -820,7 +820,7 @@ async def handle_kb_query(
             response_text = answer_for_text(wa_id, "our services", tenant_id=tid)
             if response_text:
                 try:
-                    from backend.faq.service import synthesize_intent_answer
+                    from faq.service import synthesize_intent_answer
                     response_text = await synthesize_intent_answer(
                         raw_content=response_text,
                         intent_name="Services",

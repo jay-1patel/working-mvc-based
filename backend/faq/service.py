@@ -190,9 +190,9 @@ def _deterministic_price_answer(message: str, tenant_id) -> str:
     lines.extend(f"• {ln}" for ln in priced_lines)
     return "\n".join(lines)
 
-SEMANTIC_CANDIDATE_K = 30
-BM25_CANDIDATE_K     = 20
-RERANK_TOP_K         = 20
+SEMANTIC_CANDIDATE_K = 10
+BM25_CANDIDATE_K     = 10
+RERANK_TOP_K         = 5
 RRF_K                = 60
 RRF_WEIGHTS          = {"dense": 0.6, "sparse": 0.4}
 
@@ -657,7 +657,7 @@ async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt,
     logger.info(f"LLM_CALL | provider={name} | model={model} | url={url}")
     # Local Ollama can take minutes on large FAQ prompts; connect stays short.
     read_s = float(os.getenv("OLLAMA_TIMEOUT", "300"))
-    client_timeout = httpx.Timeout(connect=5.0, read=read_s, write=30.0, pool=5.0)
+    client_timeout = httpx.Timeout(connect=1.0, read=read_s, write=30.0, pool=1.0)
     async with httpx.AsyncClient(trust_env=False, timeout=client_timeout) as client:
         if api_type == "ollama":
             payload = {
@@ -964,8 +964,8 @@ class FAQIndex:
         if not candidates:
             return []
 
-        # Cap candidates to rerank to top 25 for fast, real-time evaluation
-        candidates = candidates[:25]
+        # Cap candidates to rerank to top 8 for fast, real-time evaluation
+        candidates = candidates[:8]
         texts = [self.chunks[idx] for idx, _ in candidates]
         pairs = [[query, t] for t in texts]
         scores = cross_encoder.predict(pairs)
@@ -1042,6 +1042,11 @@ class FAQIndex:
 # ─────────────────────────────────────────────
 faq_index = FAQIndex()
 
+# Alias module under both import paths so the heavy singletons (embedding
+# model, FAISS index, cross-encoder) are shared instead of duplicated.
+import sys as _sys_alias
+_sys_alias.modules.setdefault("faq.service", _sys_alias.modules[__name__])
+_sys_alias.modules.setdefault("backend.faq.service", _sys_alias.modules[__name__])
 SYSTEM_PROMPT_TEMPLATE = """
 You are a friendly, helpful assistant for {brand_name}, {brand_tagline}.
 

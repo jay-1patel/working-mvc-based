@@ -33,7 +33,7 @@ class RetrievalResult:
 
 async def search_faq_index(query: str, k: int = 20, tenant_id: Optional[str] = None) -> RetrievalResult:
     """Search FAQ hybrid index (FAISS + BM25 + rerank), scoped to one tenant"""
-    from backend.faq.service import faq_index
+    from faq.service import faq_index
 
     if not faq_index.is_built:
         logger.warning("FAQ index not built, attempting build")
@@ -260,7 +260,7 @@ async def build_grounded_context(
         search_kb_index(query, k=k, tenant_id=tid),
     )
     try:
-        from backend.faq.service import _detect_destination, _is_conflicting_dest_chunk
+        from faq.service import _detect_destination, _is_conflicting_dest_chunk
         target_dest = _detect_destination(query)
     except Exception:
         target_dest = None

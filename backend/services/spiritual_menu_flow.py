@@ -583,7 +583,7 @@ async def _topic_answer_from_knowledge(
         try:
             from faq.service import synthesize_intent_answer
         except ImportError:
-            from backend.faq.service import synthesize_intent_answer
+            from faq.service import synthesize_intent_answer
         answer = await synthesize_intent_answer(
             raw_content="",
             intent_name=f"{event_label} — {topic['title']}",

@@ -5,7 +5,7 @@ import secrets
 import hmac
 import base64
 import hashlib
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -63,11 +63,17 @@ MIN_PASSWORD_SCORE = 3  # 0-4 scale (zxcvbn)
 # Rate limit exception handler. Registered on the FastAPI app in main.py --
 # APIRouter has no exception_handler method.
 async def rate_limit_exceeded_handler(request: Request, exc):
-    from fastapi.responses import JSONResponse
+    try:
+        from core.api_response import json_fail
+    except ImportError:
+        from backend.core.api_response import json_fail
 
-    return JSONResponse(
-        status_code=429,
-        content={"detail": f"Too many requests. Try again in {exc.detail} seconds."},
+    request.state.api_code = 429
+    request.state.api_success = 0
+    return json_fail(
+        f"Too many requests. Try again in {exc.detail} seconds.",
+        429,
+        headers={"X-Api-Code": "429"},
     )
 
 router = APIRouter(prefix="/api/auth")
@@ -806,14 +812,30 @@ class FirstLoginCompleteRequest(BaseModel):
     Body fields (auth via headers):
       - waba_phone_id / mobile_number — WhatsApp phone
       - snapshot — company/brand fields (display_name, vertical, brand, …)
-      - files — optional upload [{filename, content}] (base64); staged + published
-      - lane — ``kit`` (default) or ``any``
-      - upload_draft — optional already-staged bifurcation draft to publish
+
+    Upload kit/brochure files via ``POST /api/auth/first-login/upload`` after
+    this call succeeds. Legacy ``files`` / ``lane`` / ``upload_draft`` on this
+    body still work but are deprecated.
     """
     model_config = ConfigDict(extra="ignore")
     waba_phone_id: str = ""
     mobile_number: str = ""
     snapshot: Optional[dict] = None
+    # Deprecated: prefer POST /api/auth/first-login/upload
+    files: Optional[list[FirstLoginUploadFile]] = None
+    lane: str = "kit"
+    upload_draft: Optional[dict] = None
+
+
+class FirstLoginUploadRequest(BaseModel):
+    """Upload onboarding kit / brochure data for the signup tenant.
+
+    Call after ``POST /api/auth/first-login/complete``. ``tenant_id`` comes
+    from the authenticated admin (username + session_id), not the body.
+
+    Provide either ``files`` (base64) and/or an already-staged ``upload_draft``.
+    """
+    model_config = ConfigDict(extra="ignore")
     files: Optional[list[FirstLoginUploadFile]] = None
     lane: str = "kit"
     upload_draft: Optional[dict] = None
@@ -1405,6 +1427,30 @@ def _onboarding_approved(admin: dict) -> bool:
     return int(tenancy_store.current_version(tid) or 0) >= 1
 
 
+def _require_setup_chatbot_privilege(admin: dict) -> None:
+    """Block Set up chatbot until a super admin grants ``setup_chatbot``."""
+    from db.privileges import effective_menu_privileges, is_superadmin_identity
+
+    username = _public_username(admin.get("username"))
+    role = admin.get("role")
+    admin_id = admin.get("id")
+    if is_superadmin_identity(username=username, role=role, admin_id=admin_id):
+        return
+    grants = effective_menu_privileges(
+        username=username,
+        role=role,
+        admin_id=admin_id,
+    )
+    if not grants.get("setup_chatbot"):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Set up chatbot is blocked until a super admin grants the "
+                "setup_chatbot menu privilege"
+            ),
+        )
+
+
 def _admin_me_payload(current_admin: dict) -> dict:
     """Return the currently authenticated admin."""
     from db.privileges import all_menu_privileges, effective_menu_privileges, is_superadmin_identity
@@ -1467,6 +1513,7 @@ def list_onboarding_tenants(current_admin: dict = Depends(get_current_admin)):
     """
     if current_admin.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only a company admin can list onboarding tenants")
+    _require_setup_chatbot_privilege(current_admin)
 
     from shared.tenancy import store as tenancy_store
 
@@ -1505,6 +1552,7 @@ def first_login_complete(
             status_code=403,
             detail="Only a company admin can complete first-login setup",
         )
+    _require_setup_chatbot_privilege(current_admin)
 
     from shared.tenancy import cache as tenancy_cache
     from shared.tenancy import loader as tenancy_loader
@@ -1657,62 +1705,14 @@ def first_login_complete(
             detail="Tenant was updated but the admin could not be scoped to it",
         )
 
-    upload_summary = None
-    upload_error = None
-    files_in = [f for f in (body.files or []) if f and str(f.filename or "").strip() and str(f.content or "").strip()]
-    draft_in = body.upload_draft if isinstance(body.upload_draft, dict) else None
-    if files_in or draft_in:
-        try:
-            try:
-                from services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
-            except ImportError:
-                from backend.services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
-            from pathlib import Path
-
-            actor = {
-                "username": by,
-                "role": "admin",
-                "tenant_id": tid,
-            }
-            bifurcator = AutoBifurcator(tenant_id=tid, actor=actor)
-            lane = str(body.lane or "kit").strip().lower() or "kit"
-            if lane not in ("kit", "any"):
-                lane = "kit"
-
-            if files_in:
-                files_payload = [
-                    {"filename": str(f.filename).strip(), "content": str(f.content).strip()}
-                    for f in files_in
-                ]
-                staged = bifurcator.stage_files(files_payload, lane=lane)
-            else:
-                staged = dict(draft_in or {})
-
-            staged["tenant_id"] = tid
-            staged["lane"] = staged.get("lane") or lane
-            if isinstance(staged.get("business_hours"), dict):
-                staged["business_hours"] = _sanitize_business_hours(staged["business_hours"])
-
-            source_files = staged.get("source_files")
-            source_file = None
-            if isinstance(source_files, list) and source_files:
-                source_file = Path(str(source_files[0])).name.strip() or None
-
-            upload_summary = bifurcator.apply_bifurcation(
-                bifurcation=staged,
-                raw_files=[],
-                auto_publish=True,
-                careful_brand_merge=False,
-                source_file=source_file,
-            )
-            if isinstance(upload_summary, dict):
-                upload_summary["tenant_id"] = tid
-        except Exception as exc:
-            logger.exception(
-                "FIRST_LOGIN_UPLOAD_FAILED | admin=%s | tenant=%s",
-                by, tid,
-            )
-            upload_error = str(exc)
+    # Legacy inline upload (prefer POST /api/auth/first-login/upload).
+    upload_summary, upload_error = _run_first_login_upload(
+        tid=tid,
+        by=by,
+        files=body.files,
+        lane=body.lane,
+        upload_draft=body.upload_draft,
+    )
 
     audit_kwargs = dict(
         action="admin_first_login_complete",
@@ -1755,26 +1755,311 @@ def first_login_complete(
     return result
 
 
+def _run_first_login_upload(
+    *,
+    tid: str,
+    by: str,
+    files: Optional[list[FirstLoginUploadFile]],
+    lane: str | None,
+    upload_draft: Optional[dict],
+) -> tuple[Optional[dict], Optional[str]]:
+    """Stage + publish kit/brochure files for a first-login tenant.
+
+    Returns ``(upload_summary, upload_error)``. Both are None when there is
+    nothing to upload.
+    """
+    files_in = [
+        f
+        for f in (files or [])
+        if f and str(f.filename or "").strip() and str(f.content or "").strip()
+    ]
+    draft_in = upload_draft if isinstance(upload_draft, dict) else None
+    if not files_in and not draft_in:
+        return None, None
+
+    try:
+        try:
+            from services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
+        except ImportError:
+            from backend.services.auto_bifurcator import AutoBifurcator, _sanitize_business_hours
+        from pathlib import Path
+
+        actor = {
+            "username": by,
+            "role": "admin",
+            "tenant_id": tid,
+        }
+        bifurcator = AutoBifurcator(tenant_id=tid, actor=actor)
+        resolved_lane = str(lane or "kit").strip().lower() or "kit"
+        if resolved_lane not in ("kit", "any"):
+            resolved_lane = "kit"
+
+        if files_in:
+            files_payload = [
+                {"filename": str(f.filename).strip(), "content": str(f.content).strip()}
+                for f in files_in
+            ]
+            try:
+                staged = bifurcator.stage_files(files_payload, lane=resolved_lane)
+            except ValueError as exc:
+                # Placeholder / bad base64 (e.g. curl docs "BASE64_PDF"). If a
+                # reviewed upload_draft is present, publish that instead.
+                if draft_in:
+                    logger.warning(
+                        "FIRST_LOGIN_FILES_SKIPPED | tenant=%s | error=%s | using upload_draft",
+                        tid, exc,
+                    )
+                    staged = dict(draft_in)
+                else:
+                    return None, str(exc)
+        elif draft_in:
+            staged = dict(draft_in)
+        else:
+            return None, None
+
+        staged["tenant_id"] = tid
+        staged["lane"] = staged.get("lane") or resolved_lane
+        if isinstance(staged.get("business_hours"), dict):
+            staged["business_hours"] = _sanitize_business_hours(staged["business_hours"])
+
+        source_files = staged.get("source_files")
+        source_file = None
+        if isinstance(source_files, list) and source_files:
+            source_file = Path(str(source_files[0])).name.strip() or None
+
+        upload_summary = bifurcator.apply_bifurcation(
+            bifurcation=staged,
+            raw_files=[],
+            auto_publish=True,
+            careful_brand_merge=False,
+            source_file=source_file,
+        )
+        if isinstance(upload_summary, dict):
+            upload_summary["tenant_id"] = tid
+        return upload_summary if isinstance(upload_summary, dict) else {"result": upload_summary}, None
+    except Exception as exc:
+        logger.exception(
+            "FIRST_LOGIN_UPLOAD_FAILED | admin=%s | tenant=%s",
+            by, tid,
+        )
+        return None, str(exc)
+
+
+@router.post("/first-login/upload")
+def first_login_upload(
+    body: FirstLoginUploadRequest,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Upload kit/brochure data after Set up chatbot (first-login/complete).
+
+    Auth: username + session_id headers. Company admin only. ``tenant_id`` is
+    taken from the session admin — do not send it in the body.
+
+    Body: ``files`` (base64) and/or ``upload_draft``, plus optional ``lane``
+    (``kit`` | ``any``).
+    """
+    if current_admin.get("role") != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only a company admin can upload first-login data",
+        )
+    _require_setup_chatbot_privilege(current_admin)
+
+    from shared.tenancy import store as tenancy_store
+
+    tid = str(current_admin.get("tenant_id") or "").strip()
+    if not tid:
+        raise HTTPException(
+            status_code=400,
+            detail="No tenant assigned — signup must create tenant_id before upload",
+        )
+    if int(tenancy_store.current_version(tid) or 0) < 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Complete first-login setup before uploading — call /api/auth/first-login/complete first",
+        )
+    if not tenancy_store.get_tenant(tid):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tenant '{tid}' not found — signup tenant is missing from the registry",
+        )
+
+    files_in = [
+        f
+        for f in (body.files or [])
+        if f and str(f.filename or "").strip() and str(f.content or "").strip()
+    ]
+    draft_in = body.upload_draft if isinstance(body.upload_draft, dict) else None
+    if not files_in and not draft_in:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide files and/or upload_draft",
+        )
+
+    by = _public_username(current_admin.get("username"))
+    upload_summary, upload_error = _run_first_login_upload(
+        tid=tid,
+        by=by,
+        files=body.files,
+        lane=body.lane,
+        upload_draft=body.upload_draft,
+    )
+
+    audit_kwargs = dict(
+        action="admin_first_login_upload",
+        actor=current_admin,
+        resource_type="tenant",
+        resource_id=tid,
+        tenant_id=tid,
+        details={
+            "upload": bool(upload_summary),
+            "upload_error": upload_error,
+            "lane": str(body.lane or "kit"),
+            "file_count": len(files_in),
+            "has_draft": bool(draft_in),
+        },
+    )
+    if use_mongodb():
+        record_admin_audit_event(None, **audit_kwargs)
+    else:
+        with get_db_context() as conn:
+            record_admin_audit_event(conn, **audit_kwargs)
+
+    logger.info(
+        "FIRST_LOGIN_UPLOAD | admin=%s | tenant=%s | ok=%s",
+        by, tid, bool(upload_summary) and not upload_error,
+    )
+
+    if upload_error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Upload failed: {upload_error}",
+        )
+
+    return {
+        "ok": True,
+        "tenant_id": tid,
+        "username": by,
+        "upload": {"status": "published", "summary": upload_summary},
+    }
+
+
+def _decode_maybe_base64_contact(value: Any) -> str:
+    """Return a printable contact string; decode Send2-style Base64 when needed."""
+    import base64
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        decoded = base64.b64decode(text, validate=True).decode("utf-8").strip()
+        if decoded and all(32 <= ord(ch) < 127 for ch in decoded):
+            return decoded
+    except Exception:
+        pass
+    return text
+
+
+def _tenant_company_details(tenant_id: str) -> dict:
+    """Company fields for the onboarded-users roster (tenant + published profile)."""
+    from shared.tenancy import store as tenancy_store
+
+    tid = str(tenant_id or "").strip()
+    empty = {
+        "company_name": "",
+        "website": "",
+        "email": "",
+        "contact_number": "",
+        "mobile_number": "",
+        "waba_phone_id": "",
+        "vertical": "",
+    }
+    if not tid:
+        return empty
+
+    tenant = tenancy_store.get_tenant(tid) or {}
+    payload = tenancy_store.get_current_payload(tid) or {}
+    brand = payload.get("brand") if isinstance(payload.get("brand"), dict) else {}
+
+    company_name = str(
+        payload.get("display_name")
+        or brand.get("name")
+        or tenant.get("display_name")
+        or tenant.get("company_name")
+        or tid
+    ).strip()
+    website = str(
+        brand.get("website")
+        or tenant.get("website")
+        or tenant.get("domain")
+        or ""
+    ).strip()
+    email = str(brand.get("support_email") or "").strip()
+    contact_number = str(
+        brand.get("support_phone")
+        or tenant.get("mobile_number")
+        or tenant.get("waba_phone_id")
+        or ""
+    ).strip()
+
+    return {
+        "company_name": company_name,
+        "website": website,
+        "email": email,
+        "contact_number": contact_number,
+        "mobile_number": str(tenant.get("mobile_number") or "").strip(),
+        "waba_phone_id": str(tenant.get("waba_phone_id") or "").strip(),
+        "vertical": str(
+            payload.get("vertical") or tenant.get("vertical") or ""
+        ).strip(),
+    }
+
+
 @router.post("/onboarding-users")
 def list_onboarding_users(current_admin: dict = Depends(require_customer_care)):
-    """Tenant admins/sub-admins for customer_care login-as."""
+    """Tenant admins/sub-admins for customer_care login-as.
+
+    Each row includes company details for the tenant they are registered to:
+    company name, website, email, contact number.
+    """
     records = list_admin_records()
+    tenant_cache: dict[str, dict] = {}
     users = []
     for a in records:
         role = str(a.get("role") or "").strip()
         if role not in ("admin", "sub_admin"):
             continue
+        tid = str(a.get("tenant_id") or "").strip() or None
+        if tid and tid not in tenant_cache:
+            tenant_cache[tid] = _tenant_company_details(tid)
+        company = tenant_cache.get(tid or "", {})
+
+        admin_email = str(a.get("email") or "").strip()
+        admin_mobile = _decode_maybe_base64_contact(a.get("mobile"))
+        email = admin_email or str(company.get("email") or "").strip() or None
+        contact_number = (
+            str(company.get("contact_number") or "").strip()
+            or admin_mobile
+            or None
+        )
+
         users.append({
             "id": a.get("id"),
             "username": _public_username(a.get("username")),
-            "email": a.get("email"),
+            "email": email,
             "role": role,
-            "tenant_id": a.get("tenant_id"),
+            "tenant_id": tid,
             "created_at": a.get("created_at"),
             "onboarding_approved": _onboarding_approved({
                 **a,
                 "username": _public_username(a.get("username")),
             }),
+            "company_name": company.get("company_name") or None,
+            "website": company.get("website") or None,
+            "contact_number": contact_number,
+            "mobile_number": company.get("mobile_number") or None,
+            "waba_phone_id": company.get("waba_phone_id") or None,
+            "vertical": company.get("vertical") or None,
         })
     users.sort(key=lambda u: (str(u.get("tenant_id") or ""), str(u.get("username") or "")))
     return {"users": users, "count": len(users)}
@@ -1917,11 +2202,12 @@ def impersonate_tenant(
     return _impersonate_target(current_admin, target, via="tenant")
 
 
-# ── menu_privilege + menu_set_privilege ───────────────────────────────────────
+﻿# ── menu_privilege + menu_set_privilege ───────────────────────────────────────
 # Auth (headers only): username + session_id
 #   POST /api/auth/menu-privileges/users  → dropdown (id + username)
 #   POST /api/auth/menu-privileges/get    → body: id
-#   POST /api/auth/menu-privileges/save   → body: id + privileges
+#   POST /api/auth/menu-privileges/save   → body: id + privileges (or select_all)
+#   get/save response: identity fields + items[{key, active, ...}] only
 # Superadmin only. Superadmin itself is never grant-edited (full access by role).
 
 class MenuPrivilegeGetRequest(BaseModel):
@@ -1936,17 +2222,14 @@ class MenuPrivilegeSaveRequest(BaseModel):
 
     Body: ``id`` + one of:
       - ``select_all`` true/false (Select All / Clear All button)
-      - ``privileges`` map
-      - ``menu_ids`` / ``privileges_ids``
+      - ``privileges`` map ``{ "graphic": true, ... }``
     """
     model_config = ConfigDict(extra="ignore")
     id: Optional[int | str] = None
     user_id: Optional[int | str] = None  # alias of id
-    menu_ids: Optional[list[str]] = None
-    privileges_ids: Optional[list[int]] = None
     # { "graphic": true, "chats": false, ... } — true = active
     privileges: Optional[dict] = None
-    # Frontend "Select all" / "Clear all" — when set, overrides privileges/menu_ids.
+    # Frontend "Select all" / "Clear all" — when set, overrides privileges.
     select_all: Optional[bool] = None
 
 
@@ -1974,23 +2257,14 @@ def _resolve_target_admin(*, user_id=None) -> dict:
 def _resolve_assign_menu_ids(body: MenuPrivilegeSaveRequest) -> list[str]:
     """Active menu keys from save body.
 
-    Priority: ``select_all`` → ``privileges`` map → ``menu_ids`` → ``privileges_ids``.
+    Priority: ``select_all`` → ``privileges`` map.
     """
-    from db.privileges import all_menu_ids, get_menu_privilege_by_id, normalize_menu_ids
+    from db.privileges import all_menu_ids, normalize_menu_ids
 
     if body.select_all is not None:
         return all_menu_ids() if bool(body.select_all) else []
     if body.privileges is not None:
         return normalize_menu_ids(body.privileges)
-    if body.menu_ids is not None:
-        return normalize_menu_ids(body.menu_ids)
-    if body.privileges_ids:
-        names = []
-        for pid in body.privileges_ids:
-            row = get_menu_privilege_by_id(pid)
-            if row and row.get("permission"):
-                names.append(str(row["permission"]))
-        return normalize_menu_ids(names)
     return []
 
 
@@ -2043,10 +2317,8 @@ def _menu_privileges_users() -> dict:
 def _menu_privileges_get(body: MenuPrivilegeGetRequest) -> dict:
     """After dropdown select: show that user's menus as active/inactive."""
     from db.privileges import (
-        all_menu_ids,
         is_superadmin_identity,
         menu_ids_for_user,
-        menu_ids_to_privileges,
     )
 
     target_id = body.id if body.id is not None else body.user_id
@@ -2066,8 +2338,6 @@ def _menu_privileges_get(body: MenuPrivilegeGetRequest) -> dict:
             "skip_grant_check": True,
             "editable": False,
             "items": items,
-            "menu_ids": all_menu_ids(),
-            "privileges": {i["key"]: True for i in items},
         }
 
     try:
@@ -2076,7 +2346,6 @@ def _menu_privileges_get(body: MenuPrivilegeGetRequest) -> dict:
     except (TypeError, ValueError):
         stored_ids = []
     items = _items_with_active(stored_ids, all_active=False)
-    privileges = menu_ids_to_privileges(stored_ids)
     return {
         "ok": True,
         "id": admin_id,
@@ -2086,8 +2355,6 @@ def _menu_privileges_get(body: MenuPrivilegeGetRequest) -> dict:
         "skip_grant_check": False,
         "editable": True,
         "items": items,
-        "menu_ids": stored_ids,
-        "privileges": privileges,
     }
 
 
@@ -2095,7 +2362,6 @@ def _menu_privileges_save(body: MenuPrivilegeSaveRequest, current_admin: dict) -
     """Save active/inactive menus for selected admin."""
     from db.privileges import (
         is_superadmin_identity,
-        menu_ids_to_privileges,
         normalize_menu_ids,
         set_user_menu_privileges,
     )
@@ -2123,6 +2389,7 @@ def _menu_privileges_save(body: MenuPrivilegeSaveRequest, current_admin: dict) -
     grants = set_user_menu_privileges(admin_id, menu_ids)
     resolved = normalize_menu_ids([g.get("privileges_name") for g in grants])
     items = _items_with_active(resolved, all_active=False)
+    role = target.get("role")
     audit_kwargs = dict(
         action="save_menu_privileges",
         actor=current_admin,
@@ -2143,10 +2410,10 @@ def _menu_privileges_save(body: MenuPrivilegeSaveRequest, current_admin: dict) -
         "id": admin_id,
         "user_id": admin_id,
         "username": plain,
-        "menu_ids": resolved,
-        "privileges": menu_ids_to_privileges(resolved),
+        "role": role,
+        "skip_grant_check": False,
+        "editable": True,
         "items": items,
-        "grants": grants,
     }
 
 

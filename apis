@@ -4,15 +4,15 @@
 
 
 
-drop-down user
+# privilage drop-down user
 
-curl --location 'http://localhost:9000/api/auth/menu-privileges/users' \
+	curl --location 'http://localhost:9000/api/auth/menu-privileges/users' \
   --header 'Content-Type: application/json' \
   --header 'username: Customercare' \
   --header 'session_id: 3042_1794914340_c8f3a72d9e6b' \
   --data '{}'
 
-Get
+#Get
 
   curl --location 'http://localhost:9000/api/auth/menu-privileges/get' \
   --header 'Content-Type: application/json' \
@@ -20,7 +20,7 @@ Get
   --header 'session_id: 3042_1794914340_c8f3a72d9e6b' \
   --data '{"id":3518}'
 
-Save
+#Save
 
   curl --location 'http://localhost:9000/api/auth/menu-privileges/save' \
   --header 'Content-Type: application/json' \
@@ -29,7 +29,7 @@ Save
   --data '{"id":3518,"privileges":{"graphic":true,"chats":true,"profile":false,"customer":false,"website_crawler
   ":false,"setup_chatbot":false,"menu":false}}'
 
-onboarded user view
+# onboarded user view
 
     curl --location 'http://localhost:9000/api/auth/onboarding-users' \
   --header 'Content-Type: application/json' \
@@ -39,25 +39,31 @@ onboarded user view
 
 
 
+#setup chatbot
+
 curl --location 'http://localhost:9000/api/auth/first-login/complete' \
---header 'Content-Type: application/json' \
---header 'username: japan' \
---header 'session_id: b4lLGk7cQ4hFZMHM5AwG7ig7vcV_Y3WnZ6tA-ZX5kFk' \
---data-raw '{
-    "waba_phone_id": "+919876543210",
-    "mobile_number": "+919876543210",
-    "snapshot": {
-      "vertical": "generic",
-      "display_name": "Japan Co",
-      "brand": {
-        "name": "Japan Co",
-        "bot_name": "Asha",
-        "tagline": "Here to help",
-        "support_email": "support@example.com",
-        "support_phone": "+919876543210"
+    --header 'Content-Type: application/json' \
+    --header 'username: japan' \
+    --header 'session_id: SESSION' \
+    --data-raw '{
+      "waba_phone_id": "+919876543210",
+      "mobile_number": "+919876543210",
+      "snapshot": {
+        "vertical": "it_software",
+        "display_name": "Japan Soft",
+        "brand": {
+          "name": "Japan Soft",
+          "bot_name": "Asha",
+          "tagline": "Software that ships",
+          "website": "https://japansoft.example",
+          "support_email": "support@japansoft.example",
+          "support_phone": "+919876543210"
+        }
       }
-    }
-  }'
+    }'
+
+
+#upload 
 
 
 
@@ -65,7 +71,8 @@ curl --location 'http://localhost:9000/api/auth/first-login/complete' \
 
 
 
-# List
+
+# List Menu
   curl --location 'http://localhost:9000/api/admin/tenants/menu/list' \
     --header 'Content-Type: application/json' \
     --header 'username: japan' \
@@ -89,3 +96,67 @@ curl --location 'http://localhost:9000/api/auth/first-login/complete' \
     --header 'username: japan' \
     --header 'session_id: YOUR_SESSION' \
     --data '{"id":"our_packages","publish":true}'
+
+
+
+
+
+#chats api
+
+
+  #load chats:
+    curl.exe --location "http://192.168.0.122:9000/api/admin/tenants/inbox" ^
+    --header "username: japan" ^
+    --header "session_id: YOUR_SESSION" ^
+    --header "Content-Type: application/json" ^
+    --data "{}"
+
+
+  #open chats:
+   curl.exe --location "http://192.168.0.122:9000/api/admin/tenants/chat/thread" ^
+    --header "username: japan" ^
+    --header "session_id: YOUR_SESSION" ^
+    --header "Content-Type: application/json" ^
+    --data "{\"wa_id\":\"919512777899\",\"limit\":300}"
+
+ #Take over (human)
+
+  curl.exe --location "http://192.168.0.122:9000/api/admin/tenants/inbox/handover" ^
+    --header "username: japan" ^
+    --header "session_id: YOUR_SESSION" ^
+    --header "Content-Type: application/json" ^
+    --data "{\"wa_id\":\"919512777899\",\"mode\":\"human\"}"
+
+  Hand back to bot: "mode":"bot"
+
+ #Resolve
+
+  curl.exe --location "http://192.168.0.122:9000/api/admin/tenants/inbox/resolve" ^
+    --header "username: japan" ^
+    --header "session_id: YOUR_SESSION" ^
+    --header "Content-Type: application/json" ^
+    --data "{\"wa_id\":\"919512777899\",\"reply\":true}"
+
+ #Send reply
+
+  curl.exe --location "http://192.168.0.122:9000/api/admin/tenants/inbox/reply" ^
+    --header "username: japan" ^
+    --header "session_id: YOUR_SESSION" ^
+    --header "Content-Type: application/json" ^
+    --data "{\"wa_id\":\"919512777899\",\"message\":\"Hello from admin\"}"
+
+ #Upload attachment
+
+  curl.exe --location "http://192.168.0.122:9000/api/admin/tenants/inbox/attach" ^
+    --header "username: japan" ^
+    --header "session_id: YOUR_SESSION" ^
+    --header "Content-Type: application/json" ^
+    --data "{\"filename\":\"file.pdf\",\"content\":\"BASE64_CONTENT\",\"media_type\":\"application/pdf\"}"
+
+ #Send interactive menu
+
+  curl.exe --location "http://192.168.0.122:9000/api/admin/tenants/inbox/menu" ^
+    --header "username: japan" ^
+    --header "session_id: YOUR_SESSION" ^
+    --header "Content-Type: application/json" ^
+    --data "{\"wa_id\":\"919512777899\"}"

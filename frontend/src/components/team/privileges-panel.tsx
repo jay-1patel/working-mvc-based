@@ -75,7 +75,7 @@ export function PrivilegesPanel() {
       setItems(detail.items || [])
       setDraft({
         ...emptyMenuPrivileges(),
-        ...(detail.privileges || privilegesFromItems(detail.items)),
+        ...privilegesFromItems(detail.items),
       })
       setEditable(detail.editable !== false)
     } catch (err) {
@@ -110,7 +110,7 @@ export function PrivilegesPanel() {
       setItems(result.items || [])
       setDraft({
         ...emptyMenuPrivileges(),
-        ...(result.privileges || privilegesFromItems(result.items)),
+        ...privilegesFromItems(result.items),
       })
     }
   }

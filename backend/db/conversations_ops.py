@@ -261,7 +261,7 @@ def tenant_chat_history(
         conn.close()
 
 
-def tenant_inbox_queue(tenant_id: str, include_resolved: bool = False) -> dict:
+def tenant_inbox_queue(tenant_id: str, include_resolved: bool = True) -> dict:
     if use_mongodb():
         from .mongo import Repository
 

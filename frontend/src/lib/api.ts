@@ -7,8 +7,9 @@
  *
  * ``user_id`` may be cached for display; it is never sent for auth.
  *
- * Every non-2xx response is normalised into an `ApiError` carrying the
- * server's `detail`, so screens can surface backend validation text.
+ * Backend JSON APIs always return HTTP 200. Success/failure is in the body:
+ *   ``success: 1`` ok, ``success: 0`` failure (logical status in ``code``).
+ * Failures are normalised into an `ApiError` carrying the server's `detail`.
  */
 
 import { captureClientError } from './client-errors'
@@ -233,33 +234,96 @@ export function setUnauthorizedHandler(fn: Unauthorized) {
   onUnauthorized = fn
 }
 
+/** True when the envelope marks the call as failed (success 0/false). */
+export function isEnvelopeFailure(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false
+  const success = (body as { success?: unknown }).success
+  return success === 0 || success === false || success === '0'
+}
+
+/** Logical HTTP code from body ``code`` or ``X-Api-Code``, else transport status. */
+export function logicalStatus(res: Response, body: unknown): number {
+  if (body && typeof body === 'object') {
+    const code = (body as { code?: unknown }).code
+    if (typeof code === 'number' && Number.isFinite(code)) return code
+    if (typeof code === 'string' && /^\d+$/.test(code)) return Number(code)
+  }
+  const headerCode = res.headers?.get?.('X-Api-Code')
+  if (headerCode && /^\d+$/.test(headerCode)) return Number(headerCode)
+  return res.status
+}
+
+/** True when transport failed or the JSON envelope reports success=0. */
+export function isApiFailure(res: Response, body: unknown): boolean {
+  return !res.ok || isEnvelopeFailure(body)
+}
+
+/**
+ * For blob/file downloads: if the server returned a JSON error envelope
+ * (always HTTP 200 now) or a non-OK transport status, throw ApiError.
+ * Otherwise return null so the caller can read the blob.
+ */
+export async function rejectIfApiJsonError(
+  res: Response,
+  fallbackDetail: string,
+): Promise<{ detail: string; code: number } | null> {
+  const contentType = (res.headers.get('content-type') || '').toLowerCase()
+  const looksJson = contentType.includes('application/json')
+  if (!looksJson && res.ok) return null
+  if (!looksJson && !res.ok) {
+    return { detail: fallbackDetail, code: res.status }
+  }
+  let body: unknown = null
+  try {
+    body = await res.json()
+  } catch {
+    if (!res.ok) return { detail: fallbackDetail, code: res.status }
+    return null
+  }
+  if (!isApiFailure(res, body)) return null
+  const info = errorInfoFromBody(res, body)
+  return { detail: info.detail || fallbackDetail, code: info.code }
+}
+
 /** Detail text plus the backend request_id (body field first, then the
  * X-Request-Id header the Phase-1 middleware stamps on every response). */
-async function readErrorInfo(
+function errorInfoFromBody(
   res: Response,
-): Promise<{ detail: string; requestId: string | null }> {
+  body: unknown,
+): { detail: string; requestId: string | null; code: number } {
   const headerId = res.headers?.get?.('X-Request-Id') ?? null
-  try {
-    const body = await res.json()
-    const requestId =
-      typeof body?.request_id === 'string' && body.request_id ? body.request_id : headerId
-    const detail = body?.detail
-    if (typeof detail === 'string') return { detail, requestId }
-    if (Array.isArray(detail) && detail.length) {
-      // pydantic validation errors
-      return {
-        detail: detail
-          .map((d: { loc?: (string | number)[]; msg?: string }) =>
-            `${(d.loc ?? []).slice(1).join('.')}: ${d.msg ?? 'invalid'}`,
-          )
-          .join('; '),
-        requestId,
-      }
+  const code = logicalStatus(res, body)
+  if (!body || typeof body !== 'object') {
+    return {
+      detail: res.statusText || `Request failed (${code})`,
+      requestId: headerId,
+      code,
     }
-    if (detail) return { detail: JSON.stringify(detail), requestId }
-    return { detail: body?.error || res.statusText || `Request failed (${res.status})`, requestId }
-  } catch {
-    return { detail: res.statusText || `Request failed (${res.status})`, requestId: headerId }
+  }
+  const record = body as { request_id?: unknown; detail?: unknown; error?: unknown }
+  const requestId =
+    typeof record.request_id === 'string' && record.request_id ? record.request_id : headerId
+  const detail = record.detail
+  if (typeof detail === 'string') return { detail, requestId, code }
+  if (Array.isArray(detail) && detail.length) {
+    return {
+      detail: detail
+        .map((d: { loc?: (string | number)[]; msg?: string }) =>
+          `${(d.loc ?? []).slice(1).join('.')}: ${d.msg ?? 'invalid'}`,
+        )
+        .join('; '),
+      requestId,
+      code,
+    }
+  }
+  if (detail) return { detail: JSON.stringify(detail), requestId, code }
+  return {
+    detail:
+      (typeof record.error === 'string' && record.error) ||
+      res.statusText ||
+      `Request failed (${code})`,
+    requestId,
+    code,
   }
 }
 
@@ -275,16 +339,42 @@ export interface RequestOptions {
   anonymous?: boolean
 }
 
-async function parseResponse<T>(res: Response, method: string, path: string): Promise<T> {
+async function parseJsonBody(
+  res: Response,
+  method: string,
+  path: string,
+): Promise<unknown> {
   try {
     const text = await res.text()
-    return (text ? JSON.parse(text) : undefined) as T
+    return text ? JSON.parse(text) : undefined
   } catch (error) {
     if ((error as Error)?.name === 'AbortError') throw error
     const detail = 'The backend returned an unreadable response.'
-    const requestId = captureClientError(detail, 'Response parsing failed; response contents were not recorded.', `${method} ${path}`)
+    const requestId = captureClientError(
+      detail,
+      'Response parsing failed; response contents were not recorded.',
+      `${method} ${path}`,
+    )
     throw new ApiError(res.status, withErrorId(detail, requestId), requestId)
   }
+}
+
+function throwIfFailed(
+  res: Response,
+  body: unknown,
+  method: string,
+  path: string,
+  startedAt: number,
+  anonymous?: boolean,
+): void {
+  const envelopeFailed = isEnvelopeFailure(body)
+  const transportFailed = !res.ok
+  if (!envelopeFailed && !transportFailed) return
+
+  const { detail, requestId, code } = errorInfoFromBody(res, body)
+  if (code === 401 && !anonymous) onUnauthorized()
+  logApiError(method, path, code, detail, startedAt, requestId)
+  throw new ApiError(code, withErrorId(detail, requestId), requestId ?? undefined)
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -312,20 +402,15 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     throw new ApiError(0, withErrorId(detail, requestId), requestId)
   }
 
-  if (res.status === 401) {
-    if (!anonymous) onUnauthorized()
-    const { detail, requestId } = await readErrorInfo(res)
-    logApiError(method, path, 401, detail, startedAt, requestId)
-    throw new ApiError(401, withErrorId(detail, requestId), requestId ?? undefined)
+  if (res.status === 204) {
+    logApiCall(method, path, 204, startedAt)
+    return undefined as T
   }
-  if (!res.ok) {
-    const { detail, requestId } = await readErrorInfo(res)
-    logApiError(method, path, res.status, detail, startedAt, requestId)
-    throw new ApiError(res.status, withErrorId(detail, requestId), requestId ?? undefined)
-  }
-  logApiCall(method, path, res.status, startedAt)
-  if (res.status === 204) return undefined as T
-  return parseResponse<T>(res, method, path)
+
+  const parsed = await parseJsonBody(res, method, path)
+  throwIfFailed(res, parsed, method, path, startedAt, anonymous)
+  logApiCall(method, path, logicalStatus(res, parsed), startedAt)
+  return parsed as T
 }
 
 /** Multipart upload: the browser sets the boundary Content-Type. */
@@ -347,19 +432,10 @@ export async function postForm<T>(path: string, form: FormData, signal?: AbortSi
     const requestId = captureClientError(detail, (err as Error)?.message || '', `POST ${path}`)
     throw new ApiError(0, withErrorId(detail, requestId), requestId)
   }
-  if (res.status === 401) {
-    onUnauthorized()
-    const { detail, requestId } = await readErrorInfo(res)
-    logApiError('POST', path, 401, detail, startedAt, requestId)
-    throw new ApiError(401, withErrorId(detail, requestId), requestId ?? undefined)
-  }
-  if (!res.ok) {
-    const { detail, requestId } = await readErrorInfo(res)
-    logApiError('POST', path, res.status, detail, startedAt, requestId)
-    throw new ApiError(res.status, withErrorId(detail, requestId), requestId ?? undefined)
-  }
-  logApiCall('POST', path, res.status, startedAt)
-  return parseResponse<T>(res, 'POST', path)
+  const parsed = await parseJsonBody(res, 'POST', path)
+  throwIfFailed(res, parsed, 'POST', path, startedAt)
+  logApiCall('POST', path, logicalStatus(res, parsed), startedAt)
+  return parsed as T
 }
 
 export const api = {

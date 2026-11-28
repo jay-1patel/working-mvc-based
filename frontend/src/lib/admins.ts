@@ -20,6 +20,13 @@ export interface OnboardingUser {
   tenant_id: string | null
   created_at: string | null
   onboarding_approved: boolean
+  /** Company / tenant details for the roster under that tenant. */
+  company_name?: string | null
+  website?: string | null
+  contact_number?: string | null
+  mobile_number?: string | null
+  waba_phone_id?: string | null
+  vertical?: string | null
 }
 
 export interface OnboardingTenant {
@@ -124,15 +131,13 @@ export const adminsApi = {
 
   me: () => api.post<AdminIdentity>('/api/auth/me', {}),
 
-  /** Set up chatbot: configure signup tenant (WhatsApp + brand + optional kit).
-   * tenant_id comes from the session admin — do not send it in the body. */
+  /** Set up chatbot: configure signup tenant (WhatsApp + brand).
+   * tenant_id comes from the session admin — do not send it in the body.
+   * Upload kit/brochure files via ``firstLoginUpload`` after this succeeds. */
   firstLoginComplete: (body: {
     waba_phone_id?: string
     mobile_number?: string
     snapshot: Record<string, unknown>
-    files?: Array<{ filename: string; content: string }>
-    lane?: 'kit' | 'any'
-    upload_draft?: Record<string, unknown>
   }) =>
     api.post<{
       ok: boolean
@@ -141,6 +146,19 @@ export const adminsApi = {
       vertical: string
       username: string
       onboarding_approved: boolean
-      upload?: { status: string; summary?: unknown; detail?: string }
     }>('/api/auth/first-login/complete', body),
+
+  /** Upload kit/brochure data after first-login/complete.
+   * tenant_id comes from the session admin — do not send it in the body. */
+  firstLoginUpload: (body: {
+    files?: Array<{ filename: string; content: string }>
+    lane?: 'kit' | 'any'
+    upload_draft?: Record<string, unknown>
+  }) =>
+    api.post<{
+      ok: boolean
+      tenant_id: string
+      username: string
+      upload: { status: string; summary?: unknown; detail?: string }
+    }>('/api/auth/first-login/upload', body),
 }

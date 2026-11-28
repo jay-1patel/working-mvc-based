@@ -1,4 +1,4 @@
-import { api, apiUrl, logApiCall, logApiError } from './api'
+import { api, apiUrl, isApiFailure, logApiCall, logApiError, logicalStatus } from './api'
 import { getImpersonator } from './impersonation'
 
 /**
@@ -131,14 +131,15 @@ export const tenantApprovalsApi = {
       body: JSON.stringify(payload),
       signal,
     })
-    if (!res.ok) {
-      const detail = (await res.json().catch(() => null))?.detail || res.statusText
-      logApiError('POST', path, res.status, String(detail), startedAt)
-      throw new Error(typeof detail === 'string' ? detail : `Request failed (${res.status})`)
+    const body = await res.json().catch(() => null)
+    if (isApiFailure(res, body)) {
+      const detail = body?.detail || res.statusText
+      const code = logicalStatus(res, body)
+      logApiError('POST', path, code, String(detail), startedAt)
+      throw new Error(typeof detail === 'string' ? detail : `Request failed (${code})`)
     }
-    logApiCall('POST', path, res.status, startedAt)
-    const body = (await res.json()) as { requests: TenantChangeRequest[] }
-    return body.requests
+    logApiCall('POST', path, logicalStatus(res, body), startedAt)
+    return (body as { requests: TenantChangeRequest[] }).requests
   },
 
   decide: async (id: number, decision: 'approved' | 'rejected', note: string) =>
@@ -174,13 +175,15 @@ export const tenantApprovalsApi = {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const detail = (await res.json().catch(() => null))?.detail || res.statusText
-      logApiError('POST', path, res.status, String(detail), startedAt)
-      throw new Error(typeof detail === 'string' ? detail : `Request failed (${res.status})`)
+    const parsed = await res.json().catch(() => null)
+    if (isApiFailure(res, parsed)) {
+      const detail = parsed?.detail || res.statusText
+      const code = logicalStatus(res, parsed)
+      logApiError('POST', path, code, String(detail), startedAt)
+      throw new Error(typeof detail === 'string' ? detail : `Request failed (${code})`)
     }
-    logApiCall('POST', path, res.status, startedAt)
-    return (await res.json()) as { request: TenantChangeRequest; message: string }
+    logApiCall('POST', path, logicalStatus(res, parsed), startedAt)
+    return parsed as { request: TenantChangeRequest; message: string }
   },
 
   events: async (id: number, signal?: AbortSignal) =>

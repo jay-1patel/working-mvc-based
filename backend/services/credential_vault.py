@@ -225,17 +225,21 @@ def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]
         except Exception:
             tid = None
 
+    vault_decrypt_failed = False
     if tid and has_vault_record(tid):
         try:
             creds = get_send2_credentials(tid)
+            return str(creds["username"]), str(creds["password"])
         except CredentialVaultError as exc:
+            # Do not hard-stop: admins may still hold a recoverable Send2
+            # password (Base64 / AES-GCM). Wrong CREDENTIAL_MASTER_KEY must
+            # not block replies when the tenant admin row can supply creds.
+            vault_decrypt_failed = True
             logger.error(
-                "SEND2_VAULT_DECRYPT_FAILED | tenant=%s | error=%s",
+                "SEND2_VAULT_DECRYPT_FAILED | tenant=%s | error=%s | falling_back_to_admins=1",
                 tid,
                 type(exc).__name__,
             )
-            raise
-        return str(creds["username"]), str(creds["password"])
 
     try:
         try:
@@ -245,6 +249,11 @@ def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]
         if tid:
             pair = credentials_from_admins(tid)
             if pair:
+                if vault_decrypt_failed:
+                    logger.warning(
+                        "SEND2_ADMINS_CREDS_USED_AFTER_VAULT_FAIL | tenant=%s",
+                        tid,
+                    )
                 return pair
         if not tid:
             pair = credentials_from_admins(None)
@@ -264,7 +273,14 @@ def resolve_send2_username_password(tenant_id: Optional[str]) -> tuple[str, str]
             )
             return user, password
 
-    raise CredentialVaultError(
-        f"Send2 username/password not found for tenant {tid or '(unresolved)'} "
-        "in vault or admins table (store recoverable password on the tenant admin)"
+    detail = (
+        "Send2 username/password not found in vault or admins table "
+        f"for tenant={tid or '(unresolved)'} "
+        "(store recoverable password on the tenant admin; do not rely on .env)"
     )
+    if vault_decrypt_failed:
+        detail += (
+            " — vault row exists but decrypt failed "
+            "(CREDENTIAL_MASTER_KEY may not match the key used to encrypt it)"
+        )
+    raise CredentialVaultError(detail)

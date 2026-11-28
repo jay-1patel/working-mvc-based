@@ -7,7 +7,17 @@
  * what it staged (nothing is live yet), download it, then approve or
  * reject. Approval publishes knowledge only — never the menu or brand.
  */
-import { api, apiCallStart, apiUrl, authHeaders, getSessionId, getUserId, logApiCall, logApiError } from './api'
+import {
+  api,
+  apiCallStart,
+  apiUrl,
+  authHeaders,
+  getSessionId,
+  getUserId,
+  logApiCall,
+  logApiError,
+  rejectIfApiJsonError,
+} from './api'
 
 export interface CrawlRun {
   id: number
@@ -208,9 +218,10 @@ export const crawlApi = {
       logApiError('POST', path, 0, (err as Error)?.message || 'Network error', startedAt)
       throw err
     }
-    if (!res.ok) {
-      logApiError('POST', path, res.status, `Export failed (${res.status})`, startedAt)
-      throw new Error(`Export failed (${res.status})`)
+    const err = await rejectIfApiJsonError(res, `Export failed (${res.status})`)
+    if (err) {
+      logApiError('POST', path, err.code, err.detail, startedAt)
+      throw new Error(err.detail)
     }
     logApiCall('POST', path, res.status, startedAt)
     return res.blob()

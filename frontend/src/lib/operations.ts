@@ -7,7 +7,17 @@
  * one-file change.
  */
 
-import { api, apiCallStart, apiUrl, authHeaders, getSessionId, getUserId, logApiCall, logApiError } from './api'
+import {
+  api,
+  apiCallStart,
+  apiUrl,
+  authHeaders,
+  getSessionId,
+  getUserId,
+  logApiCall,
+  logApiError,
+  rejectIfApiJsonError,
+} from './api'
 
 const tenantBase = (tenantId: string) => `/api/admin/tenants/${encodeURIComponent(tenantId)}`
 
@@ -64,16 +74,10 @@ export async function downloadCustomerExport(tenantId: string, format: 'csv' | '
     logApiError('POST', path, 0, (err as Error)?.message || 'Network error', startedAt)
     throw err
   }
-  if (!res.ok) {
-    let detail = `Export failed (${res.status})`
-    try {
-      const body = await res.json()
-      if (typeof body?.detail === 'string') detail = body.detail
-    } catch {
-      /* keep the status text */
-    }
-    logApiError('POST', path, res.status, detail, startedAt)
-    throw new Error(detail)
+  const err = await rejectIfApiJsonError(res, `Export failed (${res.status})`)
+  if (err) {
+    logApiError('POST', path, err.code, err.detail, startedAt)
+    throw new Error(err.detail)
   }
   logApiCall('POST', path, res.status, startedAt)
   const blob = await res.blob()

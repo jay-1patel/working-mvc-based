@@ -162,6 +162,24 @@ for step, shot, note in [
         f"UI step only until Finish — {note}",
     )
 
+FIRST_LOGIN_UPLOAD_BODY = (
+    "{"
+    '"lane":"any",'
+    '"files":[{"filename":"company_brochure.pdf","content":"BASE64_PDF"}]'
+    "}"
+)
+add(
+    "Onboarding (admin)",
+    "Set up chatbot",
+    "Upload kit / brochure",
+    "admin (after complete)",
+    "POST",
+    "/api/auth/first-login/upload",
+    curl_post("/api/auth/first-login/upload", FIRST_LOGIN_UPLOAD_BODY),
+    f"{SHOT_ONB}-08-upload.png",
+    "Call after first-login/complete — files or upload_draft",
+)
+
 add(
     "Onboarding (admin)",
     "Set up chatbot",

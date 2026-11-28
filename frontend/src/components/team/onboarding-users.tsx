@@ -4,7 +4,6 @@ import { adminsApi, isCustomerCareIdentity, type OnboardingUser } from '@/lib/ad
 import { useAuth } from '@/lib/auth'
 import { useAsync, useAction } from '@/lib/hooks'
 import { useTenants } from '@/lib/tenants'
-import { formatDate } from '@/lib/format'
 import {
   ErrorBanner,
   GhostButton,
@@ -50,6 +49,9 @@ export function OnboardingUsersPanel() {
         u.username.toLowerCase().includes(q) ||
         (u.email || '').toLowerCase().includes(q) ||
         (u.tenant_id || '').toLowerCase().includes(q) ||
+        (u.company_name || '').toLowerCase().includes(q) ||
+        (u.website || '').toLowerCase().includes(q) ||
+        (u.contact_number || '').toLowerCase().includes(q) ||
         (tenantName.get(u.tenant_id || '') || '').toLowerCase().includes(q),
     )
   }, [users.data, search, tenantName])
@@ -89,7 +91,7 @@ export function OnboardingUsersPanel() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search username, email, tenant…"
+            placeholder="Search company, website, email, tenant…"
             className="w-full bg-transparent text-sm text-tx outline-none placeholder:text-txfaint"
           />
         </label>
@@ -105,14 +107,16 @@ export function OnboardingUsersPanel() {
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto rounded-panel border border-line bg-card">
-          <table className="w-full min-w-[40rem] text-left text-sm">
+          <table className="w-full min-w-[56rem] text-left text-sm">
             <thead className="sticky top-0 border-b border-line bg-paper text-xs uppercase tracking-wider text-txfaint">
               <tr>
-                <th className="px-4 py-3 font-semibold">User</th>
-                <th className="px-4 py-3 font-semibold">Role</th>
+                <th className="px-4 py-3 font-semibold">Company</th>
+                <th className="px-4 py-3 font-semibold">Website</th>
                 <th className="px-4 py-3 font-semibold">Tenant</th>
+                <th className="px-4 py-3 font-semibold">Email</th>
+                <th className="px-4 py-3 font-semibold">Contact</th>
+                <th className="px-4 py-3 font-semibold">User / role</th>
                 <th className="px-4 py-3 font-semibold">Onboarding</th>
-                <th className="px-4 py-3 font-semibold">Created</th>
                 <th className="px-4 py-3 font-semibold text-right">Action</th>
               </tr>
             </thead>
@@ -120,21 +124,46 @@ export function OnboardingUsersPanel() {
               {filtered.map((user) => (
                 <tr key={`${user.tenant_id || ''}:${user.username}`} className="hover:bg-paper/60">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-tx">{user.username}</p>
-                    <p className="text-xs text-txmuted">{user.email || '—'}</p>
+                    <p className="font-medium text-tx">
+                      {user.company_name ||
+                        (user.tenant_id
+                          ? tenantName.get(user.tenant_id) || user.tenant_id
+                          : '—')}
+                    </p>
+                    {user.vertical ? (
+                      <p className="text-[11px] text-txfaint">{user.vertical}</p>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-txmuted">
-                    {user.role === 'admin' ? 'admin' : 'sub admin'}
+                    {user.website ? (
+                      <a
+                        href={user.website}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="break-all text-xs text-attink hover:underline"
+                      >
+                        {user.website}
+                      </a>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td className="px-4 py-3">
-                    <p className="text-tx">
-                      {user.tenant_id
-                        ? tenantName.get(user.tenant_id) || user.tenant_id
-                        : 'Unassigned'}
+                    <p className="font-mono text-xs text-tx">{user.tenant_id || 'Unassigned'}</p>
+                  </td>
+                  <td className="px-4 py-3 text-txmuted">{user.email || '—'}</td>
+                  <td className="px-4 py-3 text-txmuted">
+                    <p>{user.contact_number || '—'}</p>
+                    {user.waba_phone_id &&
+                    user.waba_phone_id !== user.contact_number ? (
+                      <p className="text-[11px] text-txfaint">WA {user.waba_phone_id}</p>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-tx">{user.username}</p>
+                    <p className="text-xs text-txmuted">
+                      {user.role === 'admin' ? 'admin' : 'sub admin'}
                     </p>
-                    {user.tenant_id && (
-                      <p className="text-[11px] text-txfaint">{user.tenant_id}</p>
-                    )}
                   </td>
                   <td className="px-4 py-3">
                     {user.role === 'admin' ? (
@@ -146,9 +175,6 @@ export function OnboardingUsersPanel() {
                     ) : (
                       <span className="text-xs text-txfaint">—</span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-txmuted">
-                    {user.created_at ? formatDate(user.created_at) : '—'}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <PrimaryButton

@@ -66,6 +66,61 @@ from services.bifurcation_guards import (
 
 logger = logging.getLogger("auto_bifurcator")
 
+_PLACEHOLDER_CONTENT = {
+    "base64_pdf",
+    "base64_file_content",
+    "<base64_pdf>",
+    "<base64>",
+    "undefined",
+    "null",
+    "none",
+}
+
+
+def _coerce_file_bytes(content: Any, *, filename: str = "") -> bytes:
+    """Normalize upload payload to raw file bytes.
+
+    Accepts ``bytes``/``bytearray`` (multipart) or a base64/data-URL string.
+    Rejects curl/docs placeholders like ``BASE64_PDF`` with a clear error —
+    those are not real file bytes.
+    """
+    import base64
+
+    if isinstance(content, memoryview):
+        content = content.tobytes()
+    if isinstance(content, bytearray):
+        content = bytes(content)
+    if isinstance(content, bytes):
+        if not content:
+            raise ValueError(f"Empty file content for {filename or 'upload'}")
+        return content
+    if content is None:
+        raise ValueError(f"Missing file content for {filename or 'upload'}")
+
+    raw = str(content).strip()
+    if not raw:
+        raise ValueError(f"Empty file content for {filename or 'upload'}")
+    if raw.startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1].strip()
+    if raw.lower() in _PLACEHOLDER_CONTENT or raw.upper() in {
+        "BASE64_PDF",
+        "BASE64_FILE_CONTENT",
+    }:
+        raise ValueError(
+            f"Placeholder content {raw!r} is not a real file — "
+            "send multipart file bytes or real base64 (not BASE64_PDF)"
+        )
+    try:
+        decoded = base64.b64decode(raw, validate=False)
+    except Exception as exc:
+        raise ValueError(
+            f"Invalid base64 for {filename or 'upload'}: {exc}. "
+            "Prefer multipart/form-data file upload instead of JSON base64."
+        ) from exc
+    if not decoded:
+        raise ValueError(f"Decoded empty content for {filename or 'upload'}")
+    return decoded
+
 # Target vertical options supported by tenancy schema
 VALID_VERTICALS = set(tenancy_schemas.VERTICALS)
 
@@ -2448,13 +2503,11 @@ class AutoBifurcator:
         module = (module or "kb").strip().lower() or "kb"
         for f in files_data:
             filename = f.get("filename") or "onboarding_doc"
-            content = f.get("content") or b""
-            if isinstance(content, str):
-                import base64
-                try:
-                    content = base64.b64decode(content)
-                except Exception:
-                    content = content.encode("utf-8", errors="ignore")
+            try:
+                content = _coerce_file_bytes(f.get("content"), filename=filename)
+            except ValueError as exc:
+                logger.warning("STAGED_SOURCE_SKIPPED | file=%s | error=%s", filename, exc)
+                continue
             if not content:
                 continue
             ext = Path(filename).suffix.lstrip(".") or "bin"
@@ -2515,10 +2568,7 @@ class AutoBifurcator:
         extracted_docs = []
         for f in files_data:
             fname = f.get("filename") or "onboarding_doc.docx"
-            content = f.get("content") or b""
-            if isinstance(content, str):
-                import base64
-                content = base64.b64decode(content)
+            content = _coerce_file_bytes(f.get("content"), filename=fname)
             extracted = self.extract_file_content(fname, content)
             if Path(fname).suffix.lower() == ".pdf":
                 extracted["_content"] = content
@@ -3409,10 +3459,7 @@ class AutoBifurcator:
 
         for f in files_data:
             filename = f.get("filename") or "document.pdf"
-            content = f.get("content") or b""
-            if isinstance(content, str):
-                import base64
-                content = base64.b64decode(content)
+            content = _coerce_file_bytes(f.get("content"), filename=filename)
 
             ext = Path(filename).suffix.lstrip(".")
             # Default process_files path: keep as kb so extraction sources are never

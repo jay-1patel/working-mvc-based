@@ -77,8 +77,11 @@ async def log_message(
         username, password = _send2_login(resolved_tenant)
     except Exception as exc:
         logger.warning(
-            "INCOMING_ENTRY_SKIPPED | tenant=%s | to=%s | error=%s",
-            tenant_id or "(unresolved)", wa_id, type(exc).__name__,
+            "INCOMING_ENTRY_SKIPPED | tenant=%s | to=%s | error=%s | detail=%s",
+            tenant_id or "(unresolved)",
+            wa_id,
+            type(exc).__name__,
+            str(exc)[:200],
         )
         return False
     payload = {

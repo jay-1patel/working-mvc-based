@@ -1,4 +1,15 @@
-import { api, apiUrl, ApiError, apiCallStart, authHeaders, logApiCall, logApiError } from './api'
+import {
+  api,
+  apiUrl,
+  ApiError,
+  apiCallStart,
+  authHeaders,
+  isApiFailure,
+  logApiCall,
+  logApiError,
+  logicalStatus,
+  rejectIfApiJsonError,
+} from './api'
 import { type AuditEvent, type AuditFilters, type AuditPage } from './audit'
 import { getImpersonator } from './impersonation'
 
@@ -27,16 +38,18 @@ async function auditPostAsViewer<T>(path: string, body: unknown = {}, signal?: A
     body: JSON.stringify(payload),
     signal,
   })
-  if (!res.ok) {
-    const detail = (await res.json().catch(() => null))?.detail || res.statusText
-    logApiError('POST', path, res.status, String(detail), startedAt)
+  const parsed = await res.json().catch(() => null)
+  if (isApiFailure(res, parsed)) {
+    const detail = parsed?.detail || res.statusText
+    const code = logicalStatus(res, parsed)
+    logApiError('POST', path, code, String(detail), startedAt)
     throw new ApiError(
-      res.status,
-      typeof detail === 'string' ? detail : `Request failed (${res.status})`,
+      code,
+      typeof detail === 'string' ? detail : `Request failed (${code})`,
     )
   }
-  logApiCall('POST', path, res.status, startedAt)
-  return (await res.json()) as T
+  logApiCall('POST', path, logicalStatus(res, parsed), startedAt)
+  return parsed as T
 }
 
 // Extended audit types for new features
@@ -125,16 +138,10 @@ export const auditApiExtended = {
       throw new ApiError(0, detail)
     }
 
-    if (!res.ok) {
-      let detail = `Export failed (${res.status})`
-      try {
-        const errBody = await res.json()
-        if (typeof errBody?.detail === 'string') detail = errBody.detail
-      } catch {
-        /* body may be empty or non-JSON */
-      }
-      logApiError('POST', path, res.status, detail, startedAt)
-      throw new ApiError(res.status, detail)
+    const exportErr = await rejectIfApiJsonError(res, `Export failed (${res.status})`)
+    if (exportErr) {
+      logApiError('POST', path, exportErr.code, exportErr.detail, startedAt)
+      throw new ApiError(exportErr.code, exportErr.detail)
     }
 
     logApiCall('POST', path, res.status, startedAt)

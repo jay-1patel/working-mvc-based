@@ -20,6 +20,7 @@ FRONTEND_APIS: list[tuple[str, str, str]] = [
     ("Auth", "POST", "/api/auth/me"),
     ("Auth", "POST", "/api/auth/first-admin"),
     ("Auth", "POST", "/api/auth/first-login/complete"),
+    ("Auth", "POST", "/api/auth/first-login/upload"),
     ("Auth", "POST", "/api/auth/admins"),
     ("Auth", "POST", "/api/auth/create"),
     ("Auth", "POST", "/api/auth/admins/<USERNAME>/update"),

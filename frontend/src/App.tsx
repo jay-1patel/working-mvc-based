@@ -43,7 +43,11 @@ import { TeamScreen } from '@/components/team/team-screen'
 import { OnboardingUsersPanel } from '@/components/team/onboarding-users'
 import { PrivilegesPanel } from '@/components/team/privileges-panel'
 import { isCustomerCareIdentity } from '@/lib/admins'
-import { canAccessNavView, NAV_ID_TO_MENU_PRIVILEGE } from '@/lib/menu-privileges'
+import {
+  canAccessNavView,
+  hasMenuPrivilege,
+  NAV_ID_TO_MENU_PRIVILEGE,
+} from '@/lib/menu-privileges'
 import { RegisterWizard } from '@/components/onboarding/register-wizard'
 import { ApiOnboardingPanel } from '@/components/tenants/api-onboarding-panel'
 import { ApiOnboardingReview } from '@/components/team/api-onboarding-review'
@@ -72,13 +76,23 @@ function Router() {
     )
   }
 
-  // First-login lock: admin with no tenant_id must finish WhatsApp → company
-  // setup before the console opens. Drop any stale tenantId from the URL so
-  // chrome does not poll inbox / tenant APIs against an unbound session.
+  // First-login lock: company admin must finish Set up chatbot before the
+  // console opens — but only after a super admin grants setup_chatbot.
+  // Drop any stale tenantId from the URL so chrome does not poll inbox /
+  // tenant APIs against an unbound session.
   if (locked) {
+    const canSetup = hasMenuPrivilege(
+      identity?.menu_privileges,
+      'setup_chatbot',
+      { role: identity?.role, impersonating },
+    )
     return (
       <AppShell route={{ ...route, tenantId: null, view: 'register' }}>
-        <RegisterWizard />
+        {canSetup ? (
+          <RegisterWizard />
+        ) : (
+          <WaitingForPrivileges what="set up the chatbot" />
+        )}
       </AppShell>
     )
   }
@@ -103,6 +117,19 @@ function Router() {
   if (route.view === 'register') {
     // First-login setup for company admins; super admins see provisioning guidance.
     if (!canManageTenants && identity?.role !== 'admin') return <NotPermitted what="set up a tenant" />
+    if (
+      identity?.role === 'admin' &&
+      !hasMenuPrivilege(identity?.menu_privileges, 'setup_chatbot', {
+        role: identity?.role,
+        impersonating,
+      })
+    ) {
+      return (
+        <AppShell route={route}>
+          <WaitingForPrivileges what="set up the chatbot" />
+        </AppShell>
+      )
+    }
     return (
       <AppShell route={route}>
         <RegisterWizard />
@@ -385,6 +412,17 @@ function NotPermitted({ what, permission = 'manage_operations' }: { what: string
       <Notice tone="warn" title="Not permitted">
         Your account cannot {what}. This screen needs the{' '}
         <strong>{permission}</strong> permission — a super admin can grant it under Team &amp; permissions.
+      </Notice>
+    </div>
+  )
+}
+
+function WaitingForPrivileges({ what }: { what: string }) {
+  return (
+    <div className="mx-auto max-w-lg py-16">
+      <Notice tone="warn" title="Waiting for privileges">
+        Your account cannot {what} yet. A super admin must grant menu privileges
+        (at least <strong>setup_chatbot</strong>) before onboarding can start.
       </Notice>
     </div>
   )

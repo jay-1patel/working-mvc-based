@@ -45,9 +45,7 @@ export interface PrivilegeGrantRow {
 
 export interface PrivilegeRow {
   user_id: number
-  menu_ids: string[]
-  privileges?: Record<string, boolean>
-  grants?: PrivilegeGrantRow[]
+  items?: MenuPrivilegeMeta[]
 }
 
 /** Nav view ids gated by each menu privilege. */
@@ -156,15 +154,12 @@ export const menuPrivilegesApi = {
       editable: boolean
       skip_grant_check?: boolean
       items: MenuPrivilegeMeta[]
-      menu_ids: string[]
-      privileges: Record<string, boolean>
     }>('/api/auth/menu-privileges/get', opts, { signal }),
 
   /** 3) Save active/inactive (or select_all true/false for Select All / Clear All) */
   save: (body: {
     id: number
     privileges?: Record<string, boolean>
-    menu_ids?: string[]
     select_all?: boolean
   }) =>
     api.post<{
@@ -172,18 +167,19 @@ export const menuPrivilegesApi = {
       id: number
       user_id: number
       username: string
-      menu_ids: string[]
-      privileges: Record<string, boolean>
+      role?: string | null
+      editable?: boolean
+      skip_grant_check?: boolean
       items: MenuPrivilegeMeta[]
     }>('/api/auth/menu-privileges/save', body),
 
   // Back-compat aliases
   list: (signal?: AbortSignal) => menuPrivilegesApi.users(signal),
-  assign: (body: { id: number; menu_ids: string[] }) => menuPrivilegesApi.save(body),
+  assign: (body: { id: number; privileges: Record<string, boolean> }) =>
+    menuPrivilegesApi.save(body),
   remove: (body: { id: number }) =>
     menuPrivilegesApi.save({
       id: body.id,
-      menu_ids: [],
       privileges: emptyMenuPrivileges(),
     }),
 }

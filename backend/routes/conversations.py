@@ -92,7 +92,7 @@ class ChatHistoryRequest(BaseModel):
 
 
 class InboxListRequest(BaseModel):
-    include_resolved: bool = False
+    include_resolved: bool = True
 
 
 class InboxHandoverRequest(BaseModel):
@@ -519,7 +519,7 @@ def reply_to_customer(
         from routing.whatsapp import send_whatsapp_message
         sent = True
         if message:
-            sent = bool(send_whatsapp_message(wa_id, message)) and sent
+            sent = bool(send_whatsapp_message(wa_id, message, tenant_id=tenant_id)) and sent
         if send_as_media:
             is_image = (
                 attach_type == "image"
@@ -532,12 +532,14 @@ def reply_to_customer(
                 resolved = resolve_public_media_url(attach_url) or attach_url
             except Exception:
                 resolved = attach_url
-            media_ok = bool(send_whatsapp_message(wa_id, resolved, msg_type=msg_type))
+            media_ok = bool(
+                send_whatsapp_message(wa_id, resolved, msg_type=msg_type, tenant_id=tenant_id)
+            )
             sent = sent and media_ok
             if not media_ok and not message:
                 # Last resort: share the URL as text so the customer still gets something.
                 fallback = f"\U0001F4CE {attach_name}: {resolved}"
-                sent = bool(send_whatsapp_message(wa_id, fallback))
+                sent = bool(send_whatsapp_message(wa_id, fallback, tenant_id=tenant_id))
     except Exception as exc:
         logger.error(f"inbox reply send failed: {exc}")
         sent = False
@@ -622,17 +624,17 @@ def send_menu_to_customer(
 
 @flat_router.post("/inbox/attach")
 async def attach_inbox_file(
-    body: InboxAttachmentRequest,
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    """Host a file on the public application domain for WhatsApp delivery."""
-    from routes.admin import decode_attachment_body, store_chat_attachment
+    """Host a file on the public application domain for WhatsApp delivery.
 
-    principal, tenant_id = _flat_principal(request, credentials, "view_inbox")
-    data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
-    data.pop("tenant_id", None)
-    filename, content, media_type = decode_attachment_body(data)
+    Accepts multipart ``file`` (preferred) or JSON ``{filename, content}`` base64.
+    """
+    from routes.admin import read_attachment_upload, store_chat_attachment
+
+    _principal, _tenant_id = _flat_principal(request, credentials, "view_inbox")
+    filename, content, media_type = await read_attachment_upload(request)
     return await store_chat_attachment(filename, content, media_type)
 
 
@@ -720,7 +722,7 @@ def reply_complaint(
 
     try:
         from routing.whatsapp import send_whatsapp_message
-        sent = bool(send_whatsapp_message(wa_id, message))
+        sent = bool(send_whatsapp_message(wa_id, message, tenant_id=tenant_id))
     except Exception as exc:
         logger.error(f"reply_complaint send failed: {exc}")
         sent = False
@@ -730,7 +732,7 @@ def reply_complaint(
     try:
         from database import save_chat
         save_chat(wa_id, principal.get("username", "agent"), message,
-                  response="[sent via complaint]", route="complaint")
+                  response="[sent via complaint]", route="complaint", tenant_id=tenant_id)
     except Exception as exc:
         logger.warning(f"reply_complaint: could not save chat history: {exc}")
 

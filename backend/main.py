@@ -90,6 +90,7 @@ from services.handoff_timeout import handoff_timeout_monitor
 from core.jobs import lifespan
 from core.middleware import (
     NormalizePathMiddleware,
+    api_success_envelope_middleware,
     audit_mutations_middleware,
     admin_session_auth_middleware,
     audit_request_context,
@@ -137,6 +138,8 @@ app.middleware("http")(super_admin_view_only_middleware)
 app.middleware("http")(admin_session_auth_middleware)
 app.middleware("http")(audit_request_context)
 app.middleware("http")(audit_mutations_middleware)
+# Envelope is inside request_id so REQ logs see api_code after normalization.
+app.middleware("http")(api_success_envelope_middleware)
 app.middleware("http")(request_id_middleware)
 app.exception_handler(StarletteHTTPException)(http_exception_handler)
 app.exception_handler(Exception)(unhandled_exception_handler)

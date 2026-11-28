@@ -71,7 +71,7 @@ class SpiritualMenuTitleRoutingTests(unittest.IsolatedAsyncioTestCase):
         synthesize.assert_awaited_once_with(
             raw_content="",
             intent_name="Gangasagar Mela — Travel Assistance",
-            user_query="Gangasagar Mela Travel Assistance details timings information",
+            user_query="Gangasagar Mela how to reach travel assistance timings transport ferry cruise train",
             tenant_id="spiritual",
         )
 

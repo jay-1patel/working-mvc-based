@@ -62,6 +62,11 @@ _PRICE_KEYWORDS = (
     "how much", "mrp", "discount price", "offer price", "pricing",
 )
 
+_CONTACT_KEYWORDS = (
+    "helpline", "hotline", "toll", "tollfree", "toll-free", "toll free",
+    "phone", "mobile", "whatsapp", "contact", "email", "call", "fax",
+)
+
 _CATALOGUE_HEADING = "CATALOGUE PRODUCT DATA (authoritative — use these prices exactly):"
 
 
@@ -189,6 +194,45 @@ def _deterministic_price_answer(message: str, tenant_id) -> str:
     lines = ["Here are the prices you asked about:"]
     lines.extend(f"• {ln}" for ln in priced_lines)
     return "\n".join(lines)
+
+
+def _is_contact_query(message: str) -> bool:
+    """True when the question asks for contact / helpline / phone facts."""
+    m = (message or "").lower()
+    return any(kw in m for kw in _CONTACT_KEYWORDS)
+
+
+def _deterministic_contact_answer(message: str, tenant_id) -> str:
+    """Grounded contact-details reply built from stored tenant FAQ evidence.
+
+    Contact questions (helpline / toll-free / phone / email) must be answered
+    only from tenant FAQ data. The LLM must never fill the gap with invented
+    third-party numbers (e.g. hotel contacts) for a Gangasagar Mela helpline
+    question, so this builds the reply deterministically from the best
+    contact-bearing chunks. Returns "" when no contact evidence exists so the
+    caller can refuse safely instead of letting the model hallucinate.
+    """
+    try:
+        if not faq_index.is_built:
+            faq_index.build()
+        if not faq_index.is_built:
+            return ""
+        results = faq_index.search(message, k=6, tenant_id=tenant_id) or []
+        hits: list[tuple[float, str, dict]] = []
+        for chunk_text, metadata, score in results:
+            text = (chunk_text or "").strip()
+            low = text.lower()
+            if not text or not any(kw in low for kw in _CONTACT_KEYWORDS):
+                continue
+            hits.append((float(score or 0.0), text, metadata if isinstance(metadata, dict) else {}))
+        if not hits:
+            return ""
+        hits.sort(key=lambda h: h[0], reverse=True)
+        lines = [f"- {text}" for _, text, _ in hits[:3]]
+        return "Here are the contact details from the available information:\n" + "\n".join(lines)
+    except Exception as exc:
+        logger.debug(f"CONTACT_GROUNDING_LOOKUP_FAILED | tenant=%s", tenant_id, exc_info=True)
+        return ""
 
 SEMANTIC_CANDIDATE_K = 10
 BM25_CANDIDATE_K     = 10
@@ -1865,6 +1909,16 @@ async def synthesize_intent_answer(
         if price_answer:
             return _append_signature(price_answer, resolved_tenant)
 
+    # Contact / helpline questions must be answered strictly from stored
+    # tenant FAQ evidence. When grounded contact data exists we answer from
+    # it deterministically; when it does not, we refuse instead of letting
+    # the LLM invent third-party numbers (hotel contacts, etc.).
+    if _is_contact_query(user_query):
+        contact_answer = _deterministic_contact_answer(user_query, resolved_tenant)
+        if contact_answer:
+            return _append_signature(contact_answer, resolved_tenant)
+        return _append_signature(UNKNOWN_ANSWER, resolved_tenant)
+
     # Substantial published profile answers (e.g. spiritual History from the
     # onboarding PDF) must be delivered as-is. Re-running the LLM mixed in
     # unrelated FAQ hits and produced empty WhatsApp bullets.
@@ -1910,7 +1964,14 @@ async def synthesize_intent_answer(
         f"Ensure all important details, features, specifications, and options are fully answered. "
         f"MANDATORY LENGTH: Keep the entire reply between 100 and 350 words (maximum 2,500 characters) "
         f"so it fits comfortably within a single WhatsApp message bubble. "
-        f"Do NOT add information that is not present in the context. If the context does not clearly answer the question, say you do not have enough information; do not use general knowledge or assumptions."
+        f"Do NOT add information that is not present in the context. If the context does not clearly answer the question, say you do not have enough information; do not use general knowledge or assumptions. "
+        + (
+            "If the question is about contact details (helpline, toll-free, phone, email, address), "
+            "answer strictly from the contact data in the context. Never invent or substitute phone numbers, "
+            "helplines, or email addresses that are not explicitly present in the context."
+            if _is_contact_query(user_query)
+            else ""
+        )
     )
 
     # Re—use the existing direct—LLM generator — it already handles provider fallback.

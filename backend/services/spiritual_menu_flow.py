@@ -630,6 +630,10 @@ async def _topic_answer_from_knowledge(
     event = EVENTS.get(event_id, {})
     event_label = str(event.get("event_label") or event_slug.replace("_", " ").title())
     query = f"{event_label} {topic['title']} details timings information"
+    if str(topic.get("key") or "").lower() == "travel":
+        # Travel-style topics must surface ground/sea transport legs (cruise,
+        # ferry, train, bus, flight) that live alongside the reachability data.
+        query = f"{event_label} how to reach travel assistance timings transport ferry cruise train"
     try:
         try:
             from faq.service import synthesize_intent_answer

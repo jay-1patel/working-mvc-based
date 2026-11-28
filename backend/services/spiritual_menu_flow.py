@@ -578,7 +578,7 @@ async def _topic_answer_from_knowledge(
     event_id = _EVENT_BY_SLUG.get(event_slug, "")
     event = EVENTS.get(event_id, {})
     event_label = str(event.get("event_label") or event_slug.replace("_", " ").title())
-    query = f"What {topic['title']} information is available for {event_label}?"
+    query = f"{event_label} {topic['title']} details timings information"
     try:
         try:
             from faq.service import synthesize_intent_answer

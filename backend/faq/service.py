@@ -1870,7 +1870,7 @@ async def synthesize_intent_answer(
         resolved_tenant,
         profile_answer=raw_content,
         intent_name=intent_name,
-        k=5,
+        k=8,
     )
     if not retrieval_meta.get("evidence"):
         return _append_signature(UNKNOWN_ANSWER, resolved_tenant)

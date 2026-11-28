@@ -680,10 +680,29 @@ async def _call_llm_provider(name, url, model, api_key, api_type, system_prompt,
             }
             if "CRITICAL: You must respond ONLY in valid JSON" in system_prompt:
                 payload["format"] = "json"
-            response = await client.post(f"{url}/api/chat", json=payload)
-            logger.info(f"LLM_RESPONSE | provider={name} | status={response.status_code}")
-            response.raise_for_status()
-            return response.json().get("message", {}).get("content", "").strip()
+            # Ollama streams newline-delimited JSON when stream=true; consume
+            # the NDJSON stream and accumulate message.content deltas so the
+            # full answer is returned once generation completes.
+            content = ""
+            async with client.stream("POST", f"{url}/api/chat", json=payload) as response:
+                logger.info(f"LLM_RESPONSE | provider={name} | status={response.status_code}")
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    line = (line or "").strip()
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except Exception:
+                        continue
+                    if not isinstance(chunk, dict):
+                        continue
+                    if chunk.get("done"):
+                        break
+                    delta = ((chunk.get("message") or {}).get("content")) or ""
+                    if delta:
+                        content += delta
+            return content.strip()
         else:
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {

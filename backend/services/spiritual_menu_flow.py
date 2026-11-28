@@ -101,6 +101,31 @@ _EVENT_TITLE_KEYS.update({
     _norm("Jagannath Rath Yatra"): "menu_rath_yatra",
 })
 
+# WhatsApp interactive-button titles are capped at 20 characters; keep every
+# generated button title within that so nothing gets cut off mid-label.
+_BUTTON_TITLE_MAX = 20
+
+
+def _short_button_title(title: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(title or "")).strip()
+    return cleaned[:_BUTTON_TITLE_MAX].strip()
+
+
+# Follow-up topics suggested after a user-selected spiritual topic is answered.
+# Ordered by user-intent similarity; the handler re-enters the same grounded
+# topic-answer path for the suggested ids.
+_SPIRITUAL_TOPIC_RELATED: dict[str, tuple[str, ...]] = {
+    "guide": ("temple_arti", "bathing", "travel"),
+    "knowledge": ("calendar", "travel", "stay"),
+    "calendar": ("bathing", "travel", "stay"),
+    "bathing": ("temple_arti", "travel", "stay"),
+    "travel": ("bathing", "stay", "temple_arti"),
+    "stay": ("travel", "bathing", "calendar"),
+    "temple_darshan": ("temple_arti", "bathing", "travel"),
+    "temple_arti": ("temple_darshan", "bathing", "travel"),
+    "emergency": ("guide",),
+}
+
 
 def is_spiritual_tenant(tenant_id: str | None) -> bool:
     tid = str(tenant_id or "").strip().lower()
@@ -416,8 +441,34 @@ async def handle_shared_location(
     }
 
 
-def _event_followup_buttons(event_slug: str) -> list[dict]:
+def _event_followup_buttons(event_slug: str, topic_key: str | None = None) -> list[dict]:
+    """Follow-up interactive buttons after a topic answer.
+
+    When a topic was selected by the user, buttons are suggested from the
+    related topics for that selection (kept short — WhatsApp caps interactive
+    button titles at 20 chars) instead of always repeating the generic set.
+    """
     menu_id = _EVENT_BY_SLUG.get(event_slug) or "main_menu"
+    if topic_key and topic_key != "emergency":
+        buttons: list[dict] = []
+        related_keys = _SPIRITUAL_TOPIC_RELATED.get(str(topic_key), ())[:2]
+        for related_key in related_keys:
+            related = next(
+                (t for t in EVENT_TOPICS if str(t.get("key")) == str(related_key)),
+                None,
+            )
+            if not related:
+                continue
+            if related.get("events") and event_slug not in related["events"]:
+                continue
+            if event_slug == "rath_yatra" and related_key == "bathing":
+                continue
+            buttons.append({
+                "id": f"st_{event_slug}_{related_key}",
+                "title": _short_button_title(str(related.get("title") or related_key)),
+            })
+        buttons.append({"id": menu_id, "title": "Event Menu"})
+        return buttons[:3]
     return [
         {"id": f"st_{event_slug}_emergency", "title": "Emergency"},
         {"id": menu_id, "title": "Event Menu"},
@@ -686,7 +737,7 @@ async def handle_spiritual_menu_action(
         await _sender().send_button_message(
             wa_id,
             "Choose what you'd like to do next:",
-            _event_followup_buttons(event_slug),
+            _event_followup_buttons(event_slug, topic),
             tenant_id=tenant_id,
         )
         return {

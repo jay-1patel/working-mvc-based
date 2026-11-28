@@ -62,17 +62,48 @@ class SpiritualMenuTitleRoutingTests(unittest.IsolatedAsyncioTestCase):
             "wa-test",
             "Choose what you'd like to do next:",
             [
-                {"id": "st_gangasagar_emergency", "title": "Emergency"},
+                {"id": "st_gangasagar_bathing", "title": "Holy Bathing Info"},
+                {"id": "st_gangasagar_stay", "title": "Accommodation"},
                 {"id": "menu_gangasagar", "title": "Event Menu"},
-                {"id": "main_menu", "title": "Main Menu"},
             ],
             tenant_id="spiritual",
         )
         synthesize.assert_awaited_once_with(
             raw_content="",
             intent_name="Gangasagar Mela — Travel Assistance",
-            user_query="What Travel Assistance information is available for Gangasagar Mela?",
+            user_query="Gangasagar Mela Travel Assistance details timings information",
             tenant_id="spiritual",
+        )
+
+    async def test_temple_arti_answer_suggests_related_topic_buttons(self):
+        sender = type("Sender", (), {})()
+        sender.send_text_message = AsyncMock(return_value=True)
+        sender.send_button_message = AsyncMock(return_value=True)
+        synthesize = AsyncMock(return_value="Grounded Gangasagar darshan answer from tenant KB.")
+        fake_faq_service = types.ModuleType("faq.service")
+        fake_faq_service.synthesize_intent_answer = synthesize
+        with (
+            patch.object(flow, "is_spiritual_tenant", return_value=True),
+            patch.object(flow, "_get_pending", return_value={}),
+            patch.object(flow, "_get_active_event", return_value="gangasagar"),
+            patch.object(flow, "_sender", return_value=sender),
+            patch.dict(sys.modules, {"faq.service": fake_faq_service}),
+        ):
+            result = await flow.handle_spiritual_menu_action(
+                "wa-test", "Temple Arti", tenant_id="spiritual",
+            )
+
+        self.assertEqual(result["action"], "spiritual_event_topic")
+        self.assertEqual(result["topic"], "temple_arti")
+        sender.send_button_message.assert_awaited_once()
+        buttons = sender.send_button_message.await_args.args[2]
+        self.assertEqual(
+            buttons,
+            [
+                {"id": "st_gangasagar_temple_darshan", "title": "Temple Darshan"},
+                {"id": "st_gangasagar_bathing", "title": "Holy Bathing Info"},
+                {"id": "menu_gangasagar", "title": "Event Menu"},
+            ],
         )
 
     async def test_rath_yatra_bathing_title_is_not_routed(self):
